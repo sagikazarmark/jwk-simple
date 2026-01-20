@@ -1,0 +1,53 @@
+[package]
+name = "jwk-simple"
+edition = "2024"
+version = "0.0.0"
+description = "JWK/JWKS support with WASM compatibility and jwt-simple integration"
+license = "MIT"
+repository = "https://github.com/sagikazarmark/jwk-simple"
+homepage = "https://github.com/sagikazarmark/jwk-simple"
+keywords = ["jwk", "jwks", "jwt", "wasm", "cryptography"]
+categories = ["authentication", "cryptography", "wasm"]
+
+[dependencies]
+async-trait = "0.1"
+base64ct = { version = "1.8", features = ["alloc"] }
+jwt-simple = { version = "0.12", optional = true, default-features = false, features = ["pure-rust"] }
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+subtle = "2.6"
+thiserror = "2.0"
+tokio = { version = "1.49", optional = true, features = ["sync"] }
+worker = { version = "0.7", optional = true }
+zeroize = { version = "1.8", features = ["derive"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[features]
+default = []
+cache-inmemory = ["dep:tokio"]
+cloudflare = ["dep:worker"]
+http = ["dep:reqwest"]
+jwt-simple = ["dep:jwt-simple"]
+
+[dev-dependencies]
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }
+serde_json = "1.0"
+criterion = "0.8"
+
+[[bench]]
+name = "benchmarks"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[package.metadata.release]
+sign-commit = true
+sign-tag = true
+tag-message = "Release {{version}}"
+tag-prefix = ""

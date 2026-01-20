@@ -1,0 +1,256 @@
+# jwk-simple
+
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/sagikazarmark/jwk-simple/ci.yaml?style=flat-square)
+![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/sagikazarmark/jwk-simple/badge?style=flat-square)
+
+> [!WARNING]
+> This project is a work in progress. The API may change.
+
+A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defined in RFC 7517, with WASM compatibility and optional jwt-simple integration.
+
+## Features
+
+- **Full RFC compliance**: Supports RFC 7517 (JWK), RFC 7518 (algorithms), RFC 8037 (EdDSA), and RFC 7638 (thumbprints)
+- **Multiple key types**: RSA, EC (P-256, P-384, P-521, secp256k1), Symmetric (HMAC), and OKP (Ed25519, Ed448, X25519, X448)
+- **WASM compatible**: Core functionality works in WebAssembly environments
+- **Security-first**: Zeroize support for sensitive data, constant-time comparisons
+- **jwt-simple integration**: Optional feature for converting JWKs to jwt-simple key types
+- **Remote fetching**: Load JWKS from HTTP endpoints with caching support
+- **Caching**: Optional TTL-based caching of decoded keys
+
+## Quick Start
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+jwk-simple = "0.1"
+```
+
+Parse a JWKS and find a key:
+
+```rust
+use jwk_simple::KeySet;
+
+let json = r#"{
+    "keys": [{
+        "kty": "RSA",
+        "kid": "my-key-id",
+        "use": "sig",
+        "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+        "e": "AQAB"
+    }]
+}"#;
+
+let jwks: KeySet = serde_json::from_str(json)?;
+let key = jwks.find_by_kid("my-key-id").expect("key not found");
+assert!(key.is_public_key_only());
+```
+
+## Feature Flags
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `jwt-simple` | ❌ | Integration with the jwt-simple crate |
+| `http` | ❌ | Async HTTP fetching with caching support (reqwest) |
+| `cloudflare` | ❌ | Cloudflare Workers KV cache support |
+
+## Usage Examples
+
+### Basic JWKS Parsing
+
+```rust
+use jwk_simple::{KeySet, KeyType, KeyUse};
+
+// Parse from JSON string
+let jwks: KeySet = serde_json::from_str(json)?;
+
+// Find keys by various criteria
+let key = jwks.find_by_kid("key-id");
+let rsa_keys = jwks.find_by_kty(KeyType::Rsa);
+let signing_keys = jwks.find_by_use(KeyUse::Signature);
+
+// Get the first signing key (common pattern)
+let first_signing = jwks.first_signing_key();
+
+// Iterate over all keys
+for key in &jwks {
+    println!("Key: {:?}", key.kid);
+}
+```
+
+### Converting to jwt-simple Keys
+
+With the `jwt-simple` feature enabled:
+
+```rust
+use jwk_simple::KeySet;
+use jwt_simple::prelude::*;
+
+let jwks: KeySet = serde_json::from_str(json)?;
+let jwk = jwks.find_by_kid("my-key").unwrap();
+
+// Convert to jwt-simple key type using TryFrom/TryInto
+let key: RS256PublicKey = jwk.try_into()?;
+
+// Verify a JWT
+let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
+```
+
+### Fetching from HTTP
+
+With the `http` feature enabled:
+
+```rust
+use jwk_simple::{KeySource, RemoteKeySet, InMemoryCachedKeySet};
+use std::time::Duration;
+
+// Create remote key set (uses default 30s timeout)
+let remote = RemoteKeySet::new("https://example.com/.well-known/jwks.json");
+
+// For custom timeout, use a custom client
+let client = reqwest::Client::builder()
+    .timeout(Duration::from_secs(10))
+    .build()?;
+let remote = RemoteKeySet::new_with_client(
+    "https://example.com/.well-known/jwks.json",
+    client,
+);
+
+// Fetch the JWKS
+let jwks = remote.get_keyset().await?;
+
+// For production, wrap with caching (5 minute TTL)
+let cached = InMemoryCachedKeySet::with_ttl(
+    RemoteKeySet::new("https://example.com/.well-known/jwks.json"),
+    Duration::from_secs(300),
+);
+let key = cached.get_key("my-key-id").await?;
+```
+
+### Caching Keys
+
+With the `http` feature enabled:
+
+```rust
+use jwk_simple::{InMemoryKeyCache, InMemoryCachedKeySet, KeyCache, KeySource, RemoteKeySet};
+use std::time::Duration;
+
+// Create a cached remote key source
+let cached = InMemoryCachedKeySet::with_ttl(
+    RemoteKeySet::new("https://example.com/.well-known/jwks.json"),
+    Duration::from_secs(300), // 5 minute TTL
+);
+
+// Keys are automatically cached on first access
+let key = cached.get_key("key-id").await?;
+
+// Invalidate the entire cache when needed
+cached.invalidate().await;
+
+// Or invalidate a specific key
+cached.invalidate_key("key-id").await;
+```
+
+### JWK Thumbprints (RFC 7638)
+
+```rust
+use jwk_simple::KeySet;
+
+let jwks: KeySet = serde_json::from_str(json)?;
+let key = jwks.first().unwrap();
+
+// Calculate thumbprint (base64url-encoded SHA-256)
+let thumbprint = key.thumbprint();
+
+// Find key by thumbprint
+let key = jwks.find_by_thumbprint(&thumbprint);
+```
+
+## Supported Key Types
+
+### RSA (kty: "RSA")
+- Public keys: n, e
+- Private keys: n, e, d, p, q, dp, dq, qi
+- Algorithms: RS256, RS384, RS512, PS256, PS384, PS512
+
+### Elliptic Curve (kty: "EC")
+- Curves: P-256, P-384, P-521, secp256k1
+- Public keys: crv, x, y
+- Private keys: crv, x, y, d
+- Algorithms: ES256, ES384, ES512, ES256K
+
+### Symmetric (kty: "oct")
+- Keys: k
+- Algorithms: HS256, HS384, HS512, A128KW, A192KW, A256KW
+
+### Octet Key Pair (kty: "OKP")
+- Curves: Ed25519, Ed448, X25519, X448
+- Public keys: crv, x
+- Private keys: crv, x, d
+- Algorithms: EdDSA
+
+## Comparison to Other Libraries
+
+| Feature | jwk-simple | jwks-client | jsonwebkey | jwt-simple | jsonwebtoken |
+|---------|-------------|-------------|------------|------------|--------------|
+| Full JWKS spec | ✅ | ✅ | ❌ | ❌ | ❌ |
+| RSA keys | ✅ | ✅ | ✅ | ✅ | ✅ |
+| EC keys (P-256/384/521) | ✅ | ⚠️ | ✅ | ✅ | ✅ |
+| EdDSA (Ed25519) | ✅ | ❌ | ❌ | ✅ | ✅ |
+| Symmetric keys | ✅ | ❌ | ✅ | ✅ | ✅ |
+| OKP keys (X25519) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| WASM support | ✅ | ❌ | ❓ | ✅ | ❓ |
+| jwt-simple integration | ✅ | ❌ | ❌ | N/A | ❌ |
+| HTTP fetching | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Caching | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Zeroize support | ✅ | ❌ | ✅ | ✅ | ❌ |
+| No-panic guarantee | ✅ | ✅ | ❌ | ✅ | ❌ |
+| JWK thumbprint (RFC 7638) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| TryFrom/TryInto traits | ✅ | ❌ | ❌ | ❌ | ✅ |
+| Private key support | ✅ | ❌ | ✅ | ✅ | ❌ |
+
+### When to use jwk-simple
+
+- **You need jwt-simple integration** - Direct conversion to jwt-simple key types
+- **You're building Cloudflare Workers** - Native KV cache support
+- **You need WASM support** - Core parsing works in browser
+- **You want full spec compliance** - All key types including OKP
+
+### When to use alternatives
+
+- **jwks-client** - If you only need RSA and want mature async HTTP
+- **jsonwebkey** - If you need key generation and PEM/DER conversion
+- **jwt-simple** - If you only need JWT operations, not JWKS
+- **jsonwebtoken** - If you want the most widely-used JWT library
+
+## Security Considerations
+
+This crate prioritizes security:
+
+- **Zeroize**: Private key parameters are zeroed from memory on drop via the `zeroize` crate
+- **Constant-time base64**: Base64 encoding uses constant-time operations via `base64ct`
+- **Debug redaction**: Debug output redacts sensitive key material
+- **No panics**: All public functions return `Result` types
+- **Input validation**: Key parameters are validated for correct sizes
+
+## WASM Usage
+
+Core JWKS parsing works in WebAssembly environments. The following features are NOT available in WASM:
+
+- `http` - No async HTTP in WASM (use browser fetch and pass JSON string)
+- File-based sources - No filesystem access
+
+Example for WASM:
+
+```rust
+use jwk_simple::KeySet;
+
+// In WASM, fetch JWKS via browser APIs, then parse
+let jwks: KeySet = serde_json::from_str(&json_string)?;
+let key = jwks.find_by_kid("key-id").expect("key not found");
+```
+
+## License
+
+The project is licensed under the [MIT License](LICENSE).

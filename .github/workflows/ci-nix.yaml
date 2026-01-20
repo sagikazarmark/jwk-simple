@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up environment
+        uses: ./.github/actions/devenv/
+        with:
+          build: "true"
+
+      - name: Set up Rust
+        uses: ./.github/actions/rust/
+
+      - name: Build
+        shell: devenv shell bash -- -e {0}
+        run: cargo build --all-features
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up environment
+        uses: ./.github/actions/devenv/
+        with:
+          build: "true"
+
+      - name: Set up Rust
+        uses: ./.github/actions/rust/
+
+      - name: Run tests
+        shell: devenv shell bash -- -e {0}
+        run: cargo test --all-features
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up environment
+        uses: ./.github/actions/devenv/
+        with:
+          build: "true"
+
+      - name: Set up Rust
+        uses: ./.github/actions/rust/
+
+      - name: Run fmt
+        shell: devenv shell bash -- -e {0}
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        shell: devenv shell bash -- -e {0}
+        run: cargo clippy --all-features
+
+      - name: Run check
+        shell: devenv shell bash -- -e {0}
+        run: cargo check --all-features

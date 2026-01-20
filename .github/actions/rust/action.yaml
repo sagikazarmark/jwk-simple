@@ -1,0 +1,26 @@
+name: Setup Rust
+description: "Set up Rust"
+author: sagikazarmark
+
+branding:
+  icon: command
+  color: blue
+
+runs:
+  using: composite
+  steps:
+    - name: Configure cache
+      uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          cargo-${{ runner.os }}
+
+    - name: Install dependencies
+      shell: bash
+      run: cargo fetch
