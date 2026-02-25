@@ -312,7 +312,7 @@ fn build_ec_algorithm(curve: EcCurve, usage: KeyUsage) -> Result<Object> {
         EcCurve::Secp256k1 => {
             return Err(Error::UnsupportedForWebCrypto {
                 reason: "secp256k1 curve is not supported by WebCrypto",
-            })
+            });
         }
     };
 
@@ -363,6 +363,105 @@ fn build_symmetric_algorithm(key: &Key, usage: KeyUsage) -> Result<Object> {
             let length: u32 = val.parse().unwrap_or(256);
             Reflect::set(&obj, &"length".into(), &length.into())
                 .map_err(|e| Error::WebCrypto(format!("failed to set length: {:?}", e)))?;
+        }
+    }
+
+    Ok(obj)
+}
+
+/// Builds a WebCrypto algorithm object for use with `SubtleCrypto.verify()`.
+///
+/// This is different from the import algorithm: `verify()` requires algorithm-specific
+/// parameters like `saltLength` (RSA-PSS) or `hash` (ECDSA), while not needing
+/// parameters like `namedCurve` that are only needed during import.
+///
+/// # Supported Algorithms
+///
+/// | Algorithm | Verify Object |
+/// |-----------|---------------|
+/// | RS256/384/512 | `{ name: "RSASSA-PKCS1-v1_5" }` |
+/// | PS256/384/512 | `{ name: "RSA-PSS", saltLength }` |
+/// | ES256/384/512 | `{ name: "ECDSA", hash }` |
+/// | HS256/384/512 | `{ name: "HMAC" }` |
+///
+/// # Errors
+///
+/// Returns [`Error::UnsupportedForWebCrypto`] if the algorithm is not supported
+/// by WebCrypto (e.g., EdDSA, ES256K).
+///
+/// # Examples
+///
+/// ```ignore
+/// use jwk_simple::{Algorithm, integrations::web_crypto};
+///
+/// let alg = Algorithm::Rs256;
+/// let verify_algo = web_crypto::build_verify_algorithm(&alg)?;
+///
+/// // Use with SubtleCrypto.verify()
+/// let subtle = web_crypto::get_subtle_crypto()?;
+/// let result = subtle.verify_with_object_and_buffer_source_and_buffer_source(
+///     &verify_algo, &crypto_key, &signature, &data,
+/// )?;
+/// ```
+pub fn build_verify_algorithm(alg: &Algorithm) -> Result<Object> {
+    let obj = Object::new();
+
+    match alg {
+        // RSASSA-PKCS1-v1_5: only needs the algorithm name
+        Algorithm::Rs256 | Algorithm::Rs384 | Algorithm::Rs512 => {
+            Reflect::set(&obj, &"name".into(), &"RSASSA-PKCS1-v1_5".into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set algorithm name: {:?}", e)))?;
+        }
+
+        // RSA-PSS: needs algorithm name and salt length (= hash output size in bytes)
+        Algorithm::Ps256 => {
+            Reflect::set(&obj, &"name".into(), &"RSA-PSS".into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set algorithm name: {:?}", e)))?;
+            Reflect::set(&obj, &"saltLength".into(), &32.into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set saltLength: {:?}", e)))?;
+        }
+        Algorithm::Ps384 => {
+            Reflect::set(&obj, &"name".into(), &"RSA-PSS".into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set algorithm name: {:?}", e)))?;
+            Reflect::set(&obj, &"saltLength".into(), &48.into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set saltLength: {:?}", e)))?;
+        }
+        Algorithm::Ps512 => {
+            Reflect::set(&obj, &"name".into(), &"RSA-PSS".into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set algorithm name: {:?}", e)))?;
+            Reflect::set(&obj, &"saltLength".into(), &64.into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set saltLength: {:?}", e)))?;
+        }
+
+        // ECDSA: needs algorithm name and hash
+        Algorithm::Es256 | Algorithm::Es384 | Algorithm::Es512 => {
+            Reflect::set(&obj, &"name".into(), &"ECDSA".into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set algorithm name: {:?}", e)))?;
+
+            let hash = match alg {
+                Algorithm::Es256 => "SHA-256",
+                Algorithm::Es384 => "SHA-384",
+                Algorithm::Es512 => "SHA-512",
+                _ => unreachable!(),
+            };
+
+            let hash_obj = Object::new();
+            Reflect::set(&hash_obj, &"name".into(), &hash.into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set hash name: {:?}", e)))?;
+            Reflect::set(&obj, &"hash".into(), &hash_obj.into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set hash: {:?}", e)))?;
+        }
+
+        // HMAC: only needs the algorithm name
+        Algorithm::Hs256 | Algorithm::Hs384 | Algorithm::Hs512 => {
+            Reflect::set(&obj, &"name".into(), &"HMAC".into())
+                .map_err(|e| Error::WebCrypto(format!("failed to set algorithm name: {:?}", e)))?;
+        }
+
+        _ => {
+            return Err(Error::UnsupportedForWebCrypto {
+                reason: "algorithm not supported for WebCrypto verify",
+            });
         }
     }
 
@@ -763,20 +862,14 @@ mod tests {
     fn test_okp_key_unsupported() {
         let key: Key = serde_json::from_str(OKP_ED25519_KEY).unwrap();
         let result = to_json_web_key(&key);
-        assert!(matches!(
-            result,
-            Err(Error::UnsupportedForWebCrypto { .. })
-        ));
+        assert!(matches!(result, Err(Error::UnsupportedForWebCrypto { .. })));
     }
 
     #[test]
     fn test_secp256k1_key_unsupported() {
         let key: Key = serde_json::from_str(EC_SECP256K1_KEY).unwrap();
         let result = to_json_web_key(&key);
-        assert!(matches!(
-            result,
-            Err(Error::UnsupportedForWebCrypto { .. })
-        ));
+        assert!(matches!(result, Err(Error::UnsupportedForWebCrypto { .. })));
     }
 
     #[test]
@@ -840,5 +933,97 @@ mod tests {
 
         let name = Reflect::get(&alg, &"name".into()).unwrap();
         assert_eq!(name.as_string().unwrap(), "HMAC");
+    }
+
+    #[test]
+    fn test_build_verify_algorithm_rs256() {
+        let alg = Algorithm::Rs256;
+        let obj = build_verify_algorithm(&alg).unwrap();
+
+        let name = Reflect::get(&obj, &"name".into()).unwrap();
+        assert_eq!(name.as_string().unwrap(), "RSASSA-PKCS1-v1_5");
+
+        // RSASSA-PKCS1-v1_5 verify does NOT need hash
+        let hash = Reflect::get(&obj, &"hash".into()).unwrap();
+        assert!(hash.is_undefined());
+    }
+
+    #[test]
+    fn test_build_verify_algorithm_ps256() {
+        let alg = Algorithm::Ps256;
+        let obj = build_verify_algorithm(&alg).unwrap();
+
+        let name = Reflect::get(&obj, &"name".into()).unwrap();
+        assert_eq!(name.as_string().unwrap(), "RSA-PSS");
+
+        let salt_length = Reflect::get(&obj, &"saltLength".into()).unwrap();
+        assert_eq!(salt_length.as_f64().unwrap() as u32, 32);
+    }
+
+    #[test]
+    fn test_build_verify_algorithm_ps384() {
+        let alg = Algorithm::Ps384;
+        let obj = build_verify_algorithm(&alg).unwrap();
+
+        let salt_length = Reflect::get(&obj, &"saltLength".into()).unwrap();
+        assert_eq!(salt_length.as_f64().unwrap() as u32, 48);
+    }
+
+    #[test]
+    fn test_build_verify_algorithm_ps512() {
+        let alg = Algorithm::Ps512;
+        let obj = build_verify_algorithm(&alg).unwrap();
+
+        let salt_length = Reflect::get(&obj, &"saltLength".into()).unwrap();
+        assert_eq!(salt_length.as_f64().unwrap() as u32, 64);
+    }
+
+    #[test]
+    fn test_build_verify_algorithm_es256() {
+        let alg = Algorithm::Es256;
+        let obj = build_verify_algorithm(&alg).unwrap();
+
+        let name = Reflect::get(&obj, &"name".into()).unwrap();
+        assert_eq!(name.as_string().unwrap(), "ECDSA");
+
+        let hash = Reflect::get(&obj, &"hash".into()).unwrap();
+        let hash_name = Reflect::get(&hash, &"name".into()).unwrap();
+        assert_eq!(hash_name.as_string().unwrap(), "SHA-256");
+    }
+
+    #[test]
+    fn test_build_verify_algorithm_es384() {
+        let alg = Algorithm::Es384;
+        let obj = build_verify_algorithm(&alg).unwrap();
+
+        let hash = Reflect::get(&obj, &"hash".into()).unwrap();
+        let hash_name = Reflect::get(&hash, &"name".into()).unwrap();
+        assert_eq!(hash_name.as_string().unwrap(), "SHA-384");
+    }
+
+    #[test]
+    fn test_build_verify_algorithm_es512() {
+        let alg = Algorithm::Es512;
+        let obj = build_verify_algorithm(&alg).unwrap();
+
+        let hash = Reflect::get(&obj, &"hash".into()).unwrap();
+        let hash_name = Reflect::get(&hash, &"name".into()).unwrap();
+        assert_eq!(hash_name.as_string().unwrap(), "SHA-512");
+    }
+
+    #[test]
+    fn test_build_verify_algorithm_hs256() {
+        let alg = Algorithm::Hs256;
+        let obj = build_verify_algorithm(&alg).unwrap();
+
+        let name = Reflect::get(&obj, &"name".into()).unwrap();
+        assert_eq!(name.as_string().unwrap(), "HMAC");
+    }
+
+    #[test]
+    fn test_build_verify_algorithm_unsupported() {
+        let alg = Algorithm::EdDsa;
+        let result = build_verify_algorithm(&alg);
+        assert!(result.is_err());
     }
 }
