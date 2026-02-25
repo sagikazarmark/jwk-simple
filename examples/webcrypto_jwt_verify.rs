@@ -42,12 +42,12 @@
 #![cfg(target_arch = "wasm32")]
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use js_sys::{Object, Reflect, Uint8Array};
+use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-use jwk_simple::{web_crypto, Algorithm, Key, KeySet};
+use jwk_simple::{Algorithm, Key, KeySet, web_crypto};
 
 // ============================================================================
 // JWT Types (hand-crafted, minimal)
@@ -170,8 +170,7 @@ impl std::fmt::Display for JwtError {
 
 /// Decodes a base64url string (no padding)
 fn base64url_decode(input: &str) -> Result<Vec<u8>, JwtError> {
-    Base64UrlUnpadded::decode_vec(input)
-        .map_err(|e| JwtError::Base64Error(format!("{:?}", e)))
+    Base64UrlUnpadded::decode_vec(input).map_err(|e| JwtError::Base64Error(format!("{:?}", e)))
 }
 
 /// Parses a JWT string into its components
@@ -185,11 +184,11 @@ pub fn parse_jwt(token: &str) -> Result<ParsedJwt, JwtError> {
     let payload_bytes = base64url_decode(parts[1])?;
     let signature = base64url_decode(parts[2])?;
 
-    let header: JwtHeader = serde_json::from_slice(&header_bytes)
-        .map_err(|e| JwtError::JsonError(e.to_string()))?;
+    let header: JwtHeader =
+        serde_json::from_slice(&header_bytes).map_err(|e| JwtError::JsonError(e.to_string()))?;
 
-    let claims: JwtClaims = serde_json::from_slice(&payload_bytes)
-        .map_err(|e| JwtError::JsonError(e.to_string()))?;
+    let claims: JwtClaims =
+        serde_json::from_slice(&payload_bytes).map_err(|e| JwtError::JsonError(e.to_string()))?;
 
     // The signing input is the first two parts joined by '.'
     let signing_input = format!("{}.{}", parts[0], parts[1]);
@@ -206,73 +205,21 @@ pub fn parse_jwt(token: &str) -> Result<ParsedJwt, JwtError> {
 // WebCrypto Verification
 // ============================================================================
 
-/// Builds the WebCrypto algorithm object for verification
-fn build_verify_algorithm(alg: &str) -> Result<Object, JwtError> {
-    let obj = Object::new();
-
-    match alg {
-        "RS256" | "RS384" | "RS512" => {
-            Reflect::set(&obj, &"name".into(), &"RSASSA-PKCS1-v1_5".into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-        }
-        "PS256" => {
-            Reflect::set(&obj, &"name".into(), &"RSA-PSS".into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-            Reflect::set(&obj, &"saltLength".into(), &32.into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-        }
-        "PS384" => {
-            Reflect::set(&obj, &"name".into(), &"RSA-PSS".into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-            Reflect::set(&obj, &"saltLength".into(), &48.into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-        }
-        "PS512" => {
-            Reflect::set(&obj, &"name".into(), &"RSA-PSS".into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-            Reflect::set(&obj, &"saltLength".into(), &64.into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-        }
-        "ES256" | "ES384" | "ES512" => {
-            Reflect::set(&obj, &"name".into(), &"ECDSA".into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-
-            let hash = match alg {
-                "ES256" => "SHA-256",
-                "ES384" => "SHA-384",
-                "ES512" => "SHA-512",
-                _ => unreachable!(),
-            };
-            let hash_obj = Object::new();
-            Reflect::set(&hash_obj, &"name".into(), &hash.into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-            Reflect::set(&obj, &"hash".into(), &hash_obj.into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-        }
-        "HS256" | "HS384" | "HS512" => {
-            Reflect::set(&obj, &"name".into(), &"HMAC".into())
-                .map_err(|e| JwtError::CryptoError(format!("{:?}", e)))?;
-        }
-        _ => {
-            return Err(JwtError::UnsupportedKey(format!(
-                "algorithm {} not supported",
-                alg
-            )));
-        }
-    }
-
-    Ok(obj)
-}
-
 /// Verifies a JWT signature using WebCrypto
 pub async fn verify_signature(
     jwt: &ParsedJwt,
     crypto_key: &web_sys::CryptoKey,
 ) -> Result<bool, JwtError> {
-    let algorithm = build_verify_algorithm(&jwt.header.alg)?;
-
-    let subtle = web_crypto::get_subtle_crypto()
+    let alg: Algorithm = jwt
+        .header
+        .alg
+        .parse()
+        .unwrap_or(Algorithm::Unknown(jwt.header.alg.clone()));
+    let algorithm = web_crypto::build_verify_algorithm(&alg)
         .map_err(|e| JwtError::CryptoError(e.to_string()))?;
+
+    let subtle =
+        web_crypto::get_subtle_crypto().map_err(|e| JwtError::CryptoError(e.to_string()))?;
 
     // Convert data to Uint8Array
     let data = jwt.signing_input.as_bytes();
@@ -397,8 +344,12 @@ fn find_key_for_jwt<'a>(jwks: &'a KeySet, jwt: &ParsedJwt) -> Result<&'a Key, Jw
     }
 
     // Try to find by algorithm
-    let alg: Algorithm = jwt.header.alg.parse().unwrap_or(Algorithm::Unknown(jwt.header.alg.clone()));
-    if let Some(key) = jwks.find_by_alg(&alg) {
+    let alg: Algorithm = jwt
+        .header
+        .alg
+        .parse()
+        .unwrap_or(Algorithm::Unknown(jwt.header.alg.clone()));
+    if let Some(key) = jwks.find_first_by_alg(&alg) {
         return Ok(key);
     }
 
@@ -527,9 +478,18 @@ mod tests {
 
     #[test]
     fn test_invalid_jwt_format() {
-        assert!(matches!(parse_jwt("not.a.valid.jwt.token"), Err(JwtError::InvalidFormat)));
-        assert!(matches!(parse_jwt("only-one-part"), Err(JwtError::InvalidFormat)));
-        assert!(matches!(parse_jwt("two.parts"), Err(JwtError::InvalidFormat)));
+        assert!(matches!(
+            parse_jwt("not.a.valid.jwt.token"),
+            Err(JwtError::InvalidFormat)
+        ));
+        assert!(matches!(
+            parse_jwt("only-one-part"),
+            Err(JwtError::InvalidFormat)
+        ));
+        assert!(matches!(
+            parse_jwt("two.parts"),
+            Err(JwtError::InvalidFormat)
+        ));
     }
 
     #[test]
