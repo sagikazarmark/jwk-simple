@@ -1,8 +1,22 @@
-//! Conversions between JWK types and jwt-simple key types.
+//! Integrations with external cryptographic libraries.
 //!
-//! This module provides `TryFrom` implementations for converting JWK keys
-//! to jwt-simple key types, enabling seamless JWT verification with keys
-//! loaded from a JWKS.
+//! This module provides conversions between JWK types and various
+//! cryptographic library types, enabling seamless use of keys loaded from
+//! a JWKS with different verification and signing implementations.
+//!
+//! # Available Integrations
+//!
+//! ## jwt-simple (feature: `jwt-simple`)
+//!
+//! Provides `TryFrom` implementations for converting JWK keys to jwt-simple
+//! key types, enabling JWT verification with keys loaded from a JWKS.
+//!
+//! ## WebCrypto (feature: `web-crypto`)
+//!
+//! Provides conversions to `web_sys::JsonWebKey` and helpers for importing
+//! keys as `CryptoKey` for use with the browser's native SubtleCrypto API.
+//! This is useful for WASM applications that want to use browser-native
+//! cryptographic operations.
 //!
 //! # Supported Conversions
 //!
@@ -44,3 +58,7 @@
 #[cfg(feature = "jwt-simple")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
 mod jwt_simple;
+
+#[cfg(feature = "web-crypto")]
+#[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
+pub mod web_crypto;

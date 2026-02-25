@@ -42,6 +42,7 @@
 //! | Feature | Description |
 //! |---------|-------------|
 //! | `jwt-simple` | Integration with the jwt-simple crate |
+//! | `web-crypto` | WebCrypto integration for browser/WASM environments |
 //! | `http` | Async HTTP fetching with `RemoteKeySet` |
 //! | `cache-inmemory` | In-memory `KeyCache` implementation using Tokio |
 //! | `cloudflare` | Cloudflare Workers support (Fetch API + KV cache) |
@@ -63,6 +64,32 @@
 //! // Use for JWT verification
 //! let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 //! ```
+//!
+//! ## Using with WebCrypto (Browser/WASM)
+//!
+//! With the `web-crypto` feature enabled, you can use JWKs with the browser's
+//! native SubtleCrypto API:
+//!
+//! ```ignore
+//! use jwk_simple::{KeySet, integrations::web_crypto};
+//!
+//! // Parse a JWKS
+//! let jwks: KeySet = serde_json::from_str(json)?;
+//! let key = jwks.find_by_kid("my-key-id").unwrap();
+//!
+//! // Check if the key is WebCrypto compatible
+//! if key.is_web_crypto_compatible() {
+//!     // Import as a CryptoKey for verification
+//!     let crypto_key = key.import_as_verify_key().await?;
+//!
+//!     // Or get the JsonWebKey directly
+//!     let jwk = key.to_web_crypto_jwk()?;
+//! }
+//! ```
+//!
+//! **Note:** WebCrypto does not support OKP keys (Ed25519, Ed448, X25519, X448)
+//! or the secp256k1 curve. Use [`Key::is_web_crypto_compatible()`] to check
+//! compatibility before attempting to use a key with WebCrypto.
 //!
 //! ## Security
 //!
@@ -103,3 +130,7 @@ pub use jwks::{InMemoryCachedKeySet, InMemoryKeyCache, DEFAULT_CACHE_TTL};
 #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "cloudflare")))]
 pub use jwks::cloudflare;
+
+#[cfg(feature = "web-crypto")]
+#[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
+pub use integrations::web_crypto;

@@ -63,6 +63,19 @@ pub enum Error {
 
     /// Other error (for platform-specific or miscellaneous errors).
     Other(String),
+
+    /// Key type or curve not supported by WebCrypto.
+    #[cfg(feature = "web-crypto")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
+    UnsupportedForWebCrypto {
+        /// Description of what is unsupported.
+        reason: &'static str,
+    },
+
+    /// WebCrypto operation failed.
+    #[cfg(feature = "web-crypto")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
+    WebCrypto(String),
 }
 
 impl fmt::Display for Error {
@@ -94,6 +107,12 @@ impl fmt::Display for Error {
             #[cfg(feature = "http")]
             Error::Http(e) => write!(f, "HTTP error: {}", e),
             Error::Other(msg) => write!(f, "{}", msg),
+            #[cfg(feature = "web-crypto")]
+            Error::UnsupportedForWebCrypto { reason } => {
+                write!(f, "unsupported for WebCrypto: {}", reason)
+            }
+            #[cfg(feature = "web-crypto")]
+            Error::WebCrypto(msg) => write!(f, "WebCrypto error: {}", msg),
         }
     }
 }
