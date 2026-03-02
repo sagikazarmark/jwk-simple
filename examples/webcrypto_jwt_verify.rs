@@ -273,7 +273,6 @@ pub async fn verify_signature(
 
 /// Options for JWT verification
 #[cfg(target_arch = "wasm32")]
-#[derive(Default)]
 pub struct VerifyOptions<'a> {
     /// Expected issuer (if set, must match)
     pub issuer: Option<&'a str>,
@@ -288,8 +287,8 @@ pub struct VerifyOptions<'a> {
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<'a> VerifyOptions<'a> {
-    pub fn new() -> Self {
+impl<'a> Default for VerifyOptions<'a> {
+    fn default() -> Self {
         Self {
             issuer: None,
             audience: None,
@@ -297,6 +296,13 @@ impl<'a> VerifyOptions<'a> {
             validate_nbf: true,
             clock_skew: 60,
         }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<'a> VerifyOptions<'a> {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn with_issuer(mut self, issuer: &'a str) -> Self {
@@ -368,18 +374,16 @@ fn find_key_for_jwt<'a>(jwks: &'a KeySet, jwt: &ParsedJwt) -> Result<&'a Key, Jw
         }
     }
 
-    // Try to find by algorithm
+    // Try to find a signing key compatible with the JWT's algorithm.
+    // This handles keys both with and without an explicit `alg` field,
+    // which is common with real-world OIDC providers.
     let alg: Algorithm = jwt
         .header
         .alg
         .parse()
         .unwrap_or(Algorithm::Unknown(jwt.header.alg.clone()));
-    if let Some(key) = jwks.find_first_by_alg(&alg) {
-        return Ok(key);
-    }
-
-    // Fall back to first signing key
-    jwks.first_signing_key().ok_or(JwtError::KeyNotFound)
+    jwks.find_compatible_signing_key(&alg)
+        .ok_or(JwtError::KeyNotFound)
 }
 
 /// Verifies a JWT token using a JWKS

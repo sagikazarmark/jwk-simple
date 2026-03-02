@@ -54,7 +54,7 @@ assert!(key.is_public_key_only());
 | `jwt-simple` | ❌ | Integration with the jwt-simple crate |
 | `http` | ❌ | Async HTTP fetching (reqwest) |
 | `cache-inmemory` | ❌ | In-memory TTL-based key caching (tokio) |
-| `cloudflare` | ❌ | Cloudflare Workers KV cache support |
+| `cloudflare` | ❌ | Cloudflare Workers support (KV cache + fetch), wasm32 targets only |
 | `web-crypto` | ❌ | WebCrypto API integration for WASM |
 
 ## Usage Examples
@@ -110,7 +110,9 @@ use std::time::Duration;
 // Create remote key store (uses default 30s timeout)
 let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
 
-// For custom timeout, use a custom client
+// For custom timeout, use a custom client.
+// Note: reqwest is not re-exported, so add it to your own Cargo.toml:
+//   reqwest = "0.13"
 let client = reqwest::Client::builder()
     .timeout(Duration::from_secs(10))
     .build()?;
@@ -240,7 +242,7 @@ This crate prioritizes security:
 
 Core JWKS parsing works in WebAssembly environments. The following features are NOT available in WASM:
 
-- `http` - No async HTTP in WASM (use browser fetch and pass JSON string)
+- `http` - reqwest is not available in browser WASM (use browser fetch and pass JSON string); for Cloudflare Workers, use the `cloudflare` feature instead
 - File-based sources - No filesystem access
 
 Example for WASM:
