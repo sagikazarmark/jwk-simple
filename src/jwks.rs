@@ -301,7 +301,7 @@ impl KeySet {
 
     /// Finds all keys with the specified key type.
     pub fn find_by_kty(&self, kty: KeyType) -> impl Iterator<Item = &Key> {
-        self.keys.iter().filter(move |k| k.kty == kty)
+        self.keys.iter().filter(move |k| k.kty() == kty)
     }
 
     /// Finds all keys with the specified use.

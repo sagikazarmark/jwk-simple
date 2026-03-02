@@ -187,7 +187,7 @@ macro_rules! impl_rsa_public_key_conversion {
                     _ => {
                         return Err(Error::KeyTypeMismatch {
                             expected: "RSA",
-                            actual: jwk.kty.as_str().to_string(),
+                            actual: jwk.kty().as_str().to_string(),
                         });
                     }
                 };
@@ -219,7 +219,7 @@ macro_rules! impl_rsa_key_pair_conversion {
                     _ => {
                         return Err(Error::KeyTypeMismatch {
                             expected: "RSA",
-                            actual: jwk.kty.as_str().to_string(),
+                            actual: jwk.kty().as_str().to_string(),
                         });
                     }
                 };
@@ -274,7 +274,7 @@ macro_rules! impl_ec_public_key_conversion {
                     _ => {
                         return Err(Error::KeyTypeMismatch {
                             expected: "EC",
-                            actual: jwk.kty.as_str().to_string(),
+                            actual: jwk.kty().as_str().to_string(),
                         });
                     }
                 };
@@ -313,7 +313,7 @@ macro_rules! impl_ec_key_pair_conversion {
                     _ => {
                         return Err(Error::KeyTypeMismatch {
                             expected: "EC",
-                            actual: jwk.kty.as_str().to_string(),
+                            actual: jwk.kty().as_str().to_string(),
                         });
                     }
                 };
@@ -364,7 +364,7 @@ impl TryFrom<&Key> for Ed25519PublicKey {
             _ => {
                 return Err(Error::KeyTypeMismatch {
                     expected: "OKP",
-                    actual: jwk.kty.as_str().to_string(),
+                    actual: jwk.kty().as_str().to_string(),
                 });
             }
         };
@@ -397,7 +397,7 @@ impl TryFrom<&Key> for Ed25519KeyPair {
             _ => {
                 return Err(Error::KeyTypeMismatch {
                     expected: "OKP",
-                    actual: jwk.kty.as_str().to_string(),
+                    actual: jwk.kty().as_str().to_string(),
                 });
             }
         };
@@ -437,7 +437,7 @@ impl TryFrom<&Key> for HS256Key {
             _ => {
                 return Err(Error::KeyTypeMismatch {
                     expected: "oct",
-                    actual: jwk.kty.as_str().to_string(),
+                    actual: jwk.kty().as_str().to_string(),
                 });
             }
         };
@@ -463,7 +463,7 @@ impl TryFrom<&Key> for HS384Key {
             _ => {
                 return Err(Error::KeyTypeMismatch {
                     expected: "oct",
-                    actual: jwk.kty.as_str().to_string(),
+                    actual: jwk.kty().as_str().to_string(),
                 });
             }
         };
@@ -489,7 +489,7 @@ impl TryFrom<&Key> for HS512Key {
             _ => {
                 return Err(Error::KeyTypeMismatch {
                     expected: "oct",
-                    actual: jwk.kty.as_str().to_string(),
+                    actual: jwk.kty().as_str().to_string(),
                 });
             }
         };

@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "  - kid: {}, kty: {:?}, alg: {:?}",
             key.kid.as_deref().unwrap_or("(none)"),
-            key.kty,
+            key.kty(),
             key.alg
         );
     }

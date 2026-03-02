@@ -652,25 +652,11 @@ impl std::hash::Hash for KeyParams {
 /// let jwk: Key = serde_json::from_str(json).unwrap();
 ///
 /// // Check key properties
-/// assert_eq!(jwk.kty, KeyType::Rsa);
+/// assert_eq!(jwk.kty(), KeyType::Rsa);
 /// assert!(jwk.is_public_key_only());
 /// ```
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct Key {
-    /// The key type.
-    ///
-    /// # Invariant
-    ///
-    /// This field **must** match the variant of [`params`](Key::params). For example,
-    /// if `params` is [`KeyParams::Rsa`], then `kty` must be [`KeyType::Rsa`].
-    ///
-    /// [`Key::new`] enforces this invariant by deriving `kty` from the `KeyParams`
-    /// variant. However, since this field is `pub`, callers can break the invariant
-    /// by assigning a different value directly. Use [`Key::validate`] to check
-    /// consistency if the key was not constructed via [`Key::new`].
-    #[zeroize(skip)]
-    pub kty: KeyType,
-
     /// The key ID.
     #[zeroize(skip)]
     pub kid: Option<String>,
@@ -711,8 +697,9 @@ pub struct Key {
 impl Key {
     /// Creates a new `Key` from key-type-specific parameters.
     ///
-    /// The `kty` field is automatically derived from the [`KeyParams`] variant,
-    /// which makes it impossible to construct a `Key` with a mismatched key type.
+    /// The key type is automatically derived from the [`KeyParams`] variant via
+    /// the [`kty()`](Key::kty) accessor, which makes it impossible to construct
+    /// a `Key` with a mismatched key type.
     ///
     /// Use the `with_*` methods to set optional metadata fields:
     ///
@@ -730,13 +717,12 @@ impl Key {
     /// .with_alg(Algorithm::Rs256)
     /// .with_use(KeyUse::Signature);
     ///
-    /// assert_eq!(key.kty, KeyType::Rsa);
+    /// assert_eq!(key.kty(), KeyType::Rsa);
     /// assert_eq!(key.kid.as_deref(), Some("my-key-id"));
     /// ```
     #[must_use]
     pub fn new(params: KeyParams) -> Self {
         Self {
-            kty: params.key_type(),
             kid: None,
             key_use: None,
             key_ops: None,
@@ -747,6 +733,19 @@ impl Key {
             x5t_s256: None,
             x5u: None,
         }
+    }
+
+    /// Returns the key type, derived from the [`KeyParams`] variant.
+    ///
+    /// This is always consistent with the key's parameters:
+    /// - [`KeyParams::Rsa`] → [`KeyType::Rsa`]
+    /// - [`KeyParams::Ec`] → [`KeyType::Ec`]
+    /// - [`KeyParams::Symmetric`] → [`KeyType::Symmetric`]
+    /// - [`KeyParams::Okp`] → [`KeyType::Okp`]
+    #[inline]
+    #[must_use]
+    pub fn kty(&self) -> KeyType {
+        self.params.key_type()
     }
 
     /// Sets the key ID (`kid`).
@@ -821,23 +820,9 @@ impl Key {
     ///
     /// Returns an error if:
     /// - The key parameters are invalid
-    /// - The key type doesn't match the parameters
     /// - The algorithm doesn't match the key type
     /// - Both `use` and `key_ops` are specified (RFC 7517 Section 4.3 SHOULD NOT)
     pub fn validate(&self) -> Result<()> {
-        // Verify kty matches params
-        let expected_kty = self.params.key_type();
-
-        if self.kty != expected_kty {
-            return Err(Error::Validation(ValidationError::InconsistentParameters(
-                format!(
-                    "kty '{}' doesn't match key parameters (expected '{}')",
-                    self.kty.as_str(),
-                    expected_kty.as_str()
-                ),
-            )));
-        }
-
         // RFC 7517 Section 4.3: "use" and "key_ops" SHOULD NOT be used together
         if self.key_use.is_some() && self.key_ops.is_some() {
             return Err(Error::Validation(ValidationError::InconsistentParameters(
@@ -1047,7 +1032,7 @@ impl Key {
                 format!(
                     "algorithm '{}' is not compatible with key type '{}'",
                     alg.as_str(),
-                    self.kty.as_str()
+                    self.kty().as_str()
                 ),
             )));
         }
@@ -1129,7 +1114,6 @@ impl Key {
         };
 
         Some(Key {
-            kty: self.kty,
             kid: self.kid.clone(),
             key_use: self.key_use.clone(),
             key_ops: self.key_ops.clone(),
@@ -1146,7 +1130,7 @@ impl Key {
 impl std::fmt::Debug for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Key")
-            .field("kty", &self.kty)
+            .field("kty", &self.kty())
             .field("kid", &self.kid)
             .field("key_use", &self.key_use)
             .field("alg", &self.alg)
@@ -1161,7 +1145,7 @@ impl std::fmt::Debug for Key {
 /// of the same cryptographic key may carry different certificate metadata.
 impl PartialEq for Key {
     fn eq(&self, other: &Self) -> bool {
-        self.kty == other.kty
+        self.kty() == other.kty()
             && self.kid == other.kid
             && self.key_use == other.key_use
             && self.key_ops == other.key_ops
@@ -1176,7 +1160,7 @@ impl std::hash::Hash for Key {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Same fields as PartialEq: kty, kid, key_use, key_ops, alg, params
         // Excludes X.509 fields, consistent with the PartialEq contract.
-        self.kty.hash(state);
+        self.kty().hash(state);
         self.kid.hash(state);
         self.key_use.hash(state);
         self.key_ops.hash(state);
@@ -1239,7 +1223,7 @@ impl Serialize for Key {
         let mut map = serializer.serialize_map(Some(field_count))?;
 
         // Serialize kty first
-        map.serialize_entry("kty", self.kty.as_str())?;
+        map.serialize_entry("kty", self.kty().as_str())?;
 
         // Serialize optional common fields
         if let Some(ref kid) = self.kid {
@@ -1421,7 +1405,6 @@ impl<'de> Deserialize<'de> for Key {
         };
 
         Ok(Key {
-            kty,
             kid: raw.kid,
             key_use: raw.key_use,
             key_ops: raw.key_ops,
@@ -1625,7 +1608,7 @@ mod tests {
         }"#;
 
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Rsa);
+        assert_eq!(jwk.kty(), KeyType::Rsa);
         assert_eq!(jwk.kid, Some("test-key".to_string()));
         assert_eq!(jwk.key_use, Some(KeyUse::Signature));
         assert_eq!(jwk.alg, Some(Algorithm::Rs256));
@@ -1642,7 +1625,7 @@ mod tests {
         }"#;
 
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Ec);
+        assert_eq!(jwk.kty(), KeyType::Ec);
 
         let ec = jwk.as_ec().unwrap();
         assert_eq!(ec.crv, EcCurve::P256);
@@ -1657,7 +1640,7 @@ mod tests {
         }"#;
 
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Symmetric);
+        assert_eq!(jwk.kty(), KeyType::Symmetric);
         assert!(jwk.as_symmetric().is_some());
     }
 
@@ -1670,7 +1653,7 @@ mod tests {
         }"#;
 
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Okp);
+        assert_eq!(jwk.kty(), KeyType::Okp);
 
         let okp = jwk.as_okp().unwrap();
         assert_eq!(okp.crv, OkpCurve::Ed25519);
@@ -1766,7 +1749,7 @@ mod tests {
 
         let public_key = private_key.to_public().unwrap();
         assert!(public_key.is_public_key_only());
-        assert_eq!(public_key.kty, KeyType::Rsa);
+        assert_eq!(public_key.kty(), KeyType::Rsa);
         assert_eq!(public_key.kid, Some("rsa-key".to_string()));
         assert_eq!(public_key.key_use, Some(KeyUse::Signature));
         assert_eq!(public_key.alg, Some(Algorithm::Rs256));
@@ -1791,7 +1774,7 @@ mod tests {
 
         let public_key = private_key.to_public().unwrap();
         assert!(public_key.is_public_key_only());
-        assert_eq!(public_key.kty, KeyType::Ec);
+        assert_eq!(public_key.kty(), KeyType::Ec);
 
         let ec = public_key.as_ec().unwrap();
         assert!(ec.d.is_none());
@@ -1811,7 +1794,7 @@ mod tests {
 
         let public_key = private_key.to_public().unwrap();
         assert!(public_key.is_public_key_only());
-        assert_eq!(public_key.kty, KeyType::Okp);
+        assert_eq!(public_key.kty(), KeyType::Okp);
 
         let okp = public_key.as_okp().unwrap();
         assert!(okp.d.is_none());

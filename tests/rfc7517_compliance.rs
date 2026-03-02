@@ -43,22 +43,22 @@ mod kty_parameter {
         // RSA
         let json = r#"{"kty": "RSA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Rsa);
+        assert_eq!(jwk.kty(), KeyType::Rsa);
 
         // EC
         let json = r#"{"kty": "EC", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Ec);
+        assert_eq!(jwk.kty(), KeyType::Ec);
 
         // oct (symmetric)
         let json = r#"{"kty": "oct", "k": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Symmetric);
+        assert_eq!(jwk.kty(), KeyType::Symmetric);
 
         // OKP
         let json = r#"{"kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Okp);
+        assert_eq!(jwk.kty(), KeyType::Okp);
     }
 }
 
@@ -531,7 +531,7 @@ mod unknown_members {
             "nested_unknown": {"foo": "bar"}
         }"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Rsa);
+        assert_eq!(jwk.kty(), KeyType::Rsa);
         assert!(jwk.validate().is_ok());
     }
 }
@@ -640,7 +640,7 @@ mod serialization {
         let serialized = serde_json::to_string(&jwk).unwrap();
         let roundtrip: Key = serde_json::from_str(&serialized).unwrap();
 
-        assert_eq!(jwk.kty, roundtrip.kty);
+        assert_eq!(jwk.kty(), roundtrip.kty());
         assert_eq!(jwk.kid, roundtrip.kid);
         assert_eq!(jwk.key_use, roundtrip.key_use);
         assert_eq!(jwk.alg, roundtrip.alg);
@@ -680,7 +680,7 @@ mod rsa_multi_prime {
         }"#;
 
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kty, KeyType::Rsa);
+        assert_eq!(jwk.kty(), KeyType::Rsa);
 
         let rsa = jwk.as_rsa().unwrap();
         assert!(rsa.oth.is_some());

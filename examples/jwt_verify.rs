@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwk = jwks.find_by_kid("my-signing-key").ok_or("Key not found")?;
 
     println!("Found key: {:?}", jwk.kid);
-    println!("Key type: {:?}", jwk.kty);
+    println!("Key type: {:?}", jwk.kty());
     println!("Algorithm: {:?}", jwk.alg);
 
     // Convert to jwt-simple key type

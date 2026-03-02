@@ -88,7 +88,7 @@ fn build_okp_canonical(params: &OkpParams) -> String {
 mod tests {
     use super::*;
     use crate::encoding::Base64UrlBytes;
-    use crate::jwk::{EcCurve, KeyType, OkpCurve};
+    use crate::jwk::{EcCurve, OkpCurve};
 
     #[test]
     fn test_rsa_canonical_order() {
@@ -132,21 +132,11 @@ mod tests {
 
     #[test]
     fn test_thumbprint_deterministic() {
-        let jwk = Key {
-            kty: KeyType::Rsa,
-            kid: Some("test-kid".to_string()),
-            key_use: None,
-            key_ops: None,
-            alg: None,
-            params: KeyParams::Rsa(RsaParams::new_public(
-                Base64UrlBytes::new(vec![1, 2, 3, 4, 5]),
-                Base64UrlBytes::new(vec![1, 0, 1]),
-            )),
-            x5c: None,
-            x5t: None,
-            x5t_s256: None,
-            x5u: None,
-        };
+        let jwk = Key::new(KeyParams::Rsa(RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3, 4, 5]),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        )))
+        .with_kid("test-kid");
 
         let t1 = calculate_thumbprint(&jwk);
         let t2 = calculate_thumbprint(&jwk);
@@ -155,37 +145,18 @@ mod tests {
 
     #[test]
     fn test_thumbprint_ignores_optional_fields() {
-        let jwk1 = Key {
-            kty: KeyType::Rsa,
-            kid: None,
-            key_use: None,
-            key_ops: None,
-            alg: None,
-            params: KeyParams::Rsa(RsaParams::new_public(
-                Base64UrlBytes::new(vec![1, 2, 3]),
-                Base64UrlBytes::new(vec![1, 0, 1]),
-            )),
-            x5c: None,
-            x5t: None,
-            x5t_s256: None,
-            x5u: None,
-        };
+        let jwk1 = Key::new(KeyParams::Rsa(RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        )));
 
-        let jwk2 = Key {
-            kty: KeyType::Rsa,
-            kid: Some("different-kid".to_string()),
-            key_use: Some(crate::jwk::KeyUse::Signature),
-            key_ops: None,
-            alg: Some(crate::jwk::Algorithm::Rs256),
-            params: KeyParams::Rsa(RsaParams::new_public(
-                Base64UrlBytes::new(vec![1, 2, 3]),
-                Base64UrlBytes::new(vec![1, 0, 1]),
-            )),
-            x5c: None,
-            x5t: None,
-            x5t_s256: None,
-            x5u: None,
-        };
+        let jwk2 = Key::new(KeyParams::Rsa(RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        )))
+        .with_kid("different-kid")
+        .with_use(crate::jwk::KeyUse::Signature)
+        .with_alg(crate::jwk::Algorithm::Rs256);
 
         // Same key material, different optional fields = same thumbprint
         assert_eq!(calculate_thumbprint(&jwk1), calculate_thumbprint(&jwk2));

@@ -17,14 +17,15 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// This implementation does **not** cache keys. Every call to [`get_key`](KeyStore::get_key)
 /// or [`get_keyset`](KeyStore::get_keyset) will make an HTTP request.
 ///
-/// For production use with high request volumes, wrap this in [`CachedKeyStore`](super::CachedKeyStore):
+/// For production use with high request volumes, wrap this in
+/// [`InMemoryCachedKeyStore`](super::InMemoryCachedKeyStore):
 ///
 /// ```ignore
-/// use jwk_simple::{RemoteKeyStore, CachedKeyStore};
+/// use jwk_simple::{RemoteKeyStore, InMemoryCachedKeyStore};
 /// use std::time::Duration;
 ///
 /// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
-/// let cached = CachedKeyStore::new(remote, Duration::from_secs(300));
+/// let cached = InMemoryCachedKeyStore::with_ttl(remote, Duration::from_secs(300));
 /// ```
 ///
 /// # Examples

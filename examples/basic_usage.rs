@@ -43,7 +43,7 @@ fn main() {
     // Find a key by its ID
     if let Some(key) = jwks.find_by_kid("rsa-signing-key") {
         println!("\nFound RSA key:");
-        println!("  Key type: {:?}", key.kty);
+        println!("  Key type: {:?}", key.kty());
         println!("  Key use: {:?}", key.key_use);
         println!("  Algorithm: {:?}", key.alg);
         println!("  Is public key only: {}", key.is_public_key_only());
@@ -56,7 +56,7 @@ fn main() {
         println!(
             "  - {} ({:?})",
             key.kid.as_deref().unwrap_or("no kid"),
-            key.kty
+            key.kty()
         );
     }
 
@@ -83,7 +83,9 @@ fn main() {
     for key in &jwks {
         println!(
             "  - kid={:?}, kty={:?}, use={:?}",
-            key.kid, key.kty, key.key_use
+            key.kid,
+            key.kty(),
+            key.key_use
         );
     }
 }

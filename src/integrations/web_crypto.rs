@@ -134,7 +134,7 @@ pub fn to_json_web_key(key: &Key) -> Result<web_sys::JsonWebKey> {
     // Validate that the key type is supported
     validate_webcrypto_support(key)?;
 
-    let jwk = web_sys::JsonWebKey::new(&key.kty.as_str());
+    let jwk = web_sys::JsonWebKey::new(&key.kty().as_str());
 
     // Set common optional fields
     if let Some(kid) = &key.kid {

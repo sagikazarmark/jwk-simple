@@ -115,13 +115,14 @@ pub mod integrations;
 // Re-exports for convenience
 pub use error::{Error, Result};
 pub use jwk::{
-    Algorithm, EcCurve, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve, RsaOtherPrime,
+    Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
+    OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,
 };
 pub use jwks::{CachedKeyStore, KeyCache, KeySet, KeyStore};
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
-pub use jwks::RemoteKeyStore;
+pub use jwks::{DEFAULT_TIMEOUT, RemoteKeyStore};
 
 #[cfg(feature = "cache-inmemory")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cache-inmemory")))]

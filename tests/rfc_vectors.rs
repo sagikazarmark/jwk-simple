@@ -40,7 +40,7 @@ mod public_keys {
         let jwks = serde_json::from_str::<KeySet>(EXAMPLE_JWKS).unwrap();
         let ec_key = jwks.find_by_kid("1").unwrap();
 
-        assert_eq!(ec_key.kty, KeyType::Ec);
+        assert_eq!(ec_key.kty(), KeyType::Ec);
         assert_eq!(ec_key.key_use, Some(KeyUse::Encryption));
         assert!(ec_key.is_public_key_only());
 
@@ -55,7 +55,7 @@ mod public_keys {
         let jwks = serde_json::from_str::<KeySet>(EXAMPLE_JWKS).unwrap();
         let rsa_key = jwks.find_by_kid("2011-04-29").unwrap();
 
-        assert_eq!(rsa_key.kty, KeyType::Rsa);
+        assert_eq!(rsa_key.kty(), KeyType::Rsa);
         assert_eq!(rsa_key.alg, Some(Algorithm::Rs256));
         assert!(rsa_key.is_public_key_only());
 
@@ -166,7 +166,7 @@ mod symmetric_keys {
 
         // First key (A128KW)
         let first = &jwks[0];
-        assert_eq!(first.kty, KeyType::Symmetric);
+        assert_eq!(first.kty(), KeyType::Symmetric);
         assert_eq!(first.alg, Some(Algorithm::A128kw));
 
         let params = first.as_symmetric().unwrap();
@@ -176,7 +176,7 @@ mod symmetric_keys {
         let hmac_key = jwks
             .find_by_kid("HMAC key used in JWS A.1 example")
             .unwrap();
-        assert_eq!(hmac_key.kty, KeyType::Symmetric);
+        assert_eq!(hmac_key.kty(), KeyType::Symmetric);
 
         let hmac_params = hmac_key.as_symmetric().unwrap();
         assert_eq!(hmac_params.key_size_bits(), 512); // 64 bytes * 8
@@ -213,7 +213,7 @@ mod okp_keys {
         let jwks = serde_json::from_str::<KeySet>(&jwks_json).unwrap();
         let key = jwks.first().unwrap();
 
-        assert_eq!(key.kty, KeyType::Okp);
+        assert_eq!(key.kty(), KeyType::Okp);
         assert!(key.is_public_key_only());
 
         let params = key.as_okp().unwrap();
