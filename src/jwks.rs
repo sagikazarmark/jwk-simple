@@ -55,7 +55,8 @@ pub use remote::{DEFAULT_TIMEOUT, RemoteKeyStore};
 ///
 /// ```ignore
 /// async fn verify_token<S: KeyStore>(store: &S, kid: &str) -> Result<()> {
-///     let key = store.get_key(kid).await?.ok_or(Error::KeyNotFound)?;
+///     let key = store.get_key(kid).await?
+///         .ok_or_else(|| Error::Other("key not found".into()))?;
 ///     // ... verify with key
 ///     Ok(())
 /// }

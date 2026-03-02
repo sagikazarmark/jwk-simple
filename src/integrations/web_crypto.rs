@@ -17,7 +17,7 @@
 //! | OKP | Ed25519/Ed448 | **No** |
 //! | OKP | X25519/X448 | **No** |
 //! | Symmetric | HMAC | Yes |
-//! | Symmetric | AES | Yes |
+//! | Symmetric | AES-GCM, AES-KW | Yes |
 //!
 //! # Examples
 //!
@@ -633,7 +633,7 @@ pub async fn import_sign_key(key: &Key) -> Result<CryptoKey> {
 /// # Supported Key Types
 ///
 /// - RSA public keys (RSA-OAEP)
-/// - Symmetric keys (AES-GCM, AES-CBC)
+/// - Symmetric keys (AES-GCM, AES-KW)
 ///
 /// # Errors
 ///

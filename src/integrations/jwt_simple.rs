@@ -58,6 +58,15 @@ fn build_rsa_public_key_der(params: &RsaParams) -> Vec<u8> {
 /// }
 /// ```
 fn build_rsa_private_key_der(params: &RsaParams) -> Result<Vec<u8>> {
+    // Multi-prime RSA keys (with `oth` parameter) require PKCS#1 version 1
+    // encoding with otherPrimeInfos, which is not implemented. Reject them
+    // explicitly rather than producing a structurally incorrect two-prime DER.
+    if params.oth.is_some() {
+        return Err(Error::Other(
+            "multi-prime RSA keys are not supported for jwt-simple conversion".into(),
+        ));
+    }
+
     let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
     let p = params
         .p
