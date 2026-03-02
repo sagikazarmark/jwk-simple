@@ -189,23 +189,33 @@ let key = jwks.find_by_thumbprint(&thumbprint);
 
 ## Comparison to Other Libraries
 
+Status below is based on current crates.io releases as of 2026-03.
+
 | Feature | jwk-simple | jwks-client | jsonwebkey | jwt-simple | jsonwebtoken |
 |---------|-------------|-------------|------------|------------|--------------|
-| Full JWKS spec | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Full JWKS spec | ✅ | ❌ | ❌ | ❌ | ❌ |
 | RSA keys | ✅ | ✅ | ✅ | ✅ | ✅ |
-| EC keys (P-256/384/521) | ✅ | ⚠️ | ✅ | ✅ | ✅ |
+| EC keys (P-256/384/521) | ✅ | ❌ | ⚠️ | ⚠️ | ⚠️ |
 | EdDSA (Ed25519) | ✅ | ❌ | ❌ | ✅ | ✅ |
 | Symmetric keys | ✅ | ❌ | ✅ | ✅ | ✅ |
 | OKP keys (X25519) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| WASM support | ✅ | ❌ | ❓ | ✅ | ❓ |
+| WASM support | ✅ | ❌ | ⚠️ | ✅ | ✅ |
 | jwt-simple integration | ✅ | ❌ | ❌ | N/A | ❌ |
 | HTTP fetching | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Caching | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Zeroize support | ✅ | ❌ | ✅ | ✅ | ❌ |
-| No-panic guarantee | ✅ | ✅ | ❌ | ✅ | ❌ |
-| JWK thumbprint (RFC 7638) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| TryFrom/TryInto traits | ✅ | ❌ | ❌ | ❌ | ✅ |
-| Private key support | ✅ | ❌ | ✅ | ✅ | ❌ |
+| No-panic guarantee | ✅ | ✅ | ❌ | ❌ | ❌ |
+| JWK thumbprint (RFC 7638) | ✅ | ❌ | ⚠️ | ❌ | ✅ |
+| TryFrom/TryInto traits | ✅ | ❌ | ❌ | ❌ | ⚠️ |
+| Private key support | ✅ | ❌ | ✅ | ✅ | ✅ |
+
+Legend for partial support (`⚠️`):
+- `jsonwebkey` EC = P-256 only; thumbprints require the `thumbprint` feature
+- `jwt-simple` EC = P-256/P-384/secp256k1 (not P-521)
+- `jsonwebtoken` EC = P-256/P-384 (P-521 JWK exists but is not supported by the crypto backend)
+- `jsonwebkey` WASM = core parsing works; behavior can depend on enabled optional features
+- `jsonwebtoken` WASM = works on `wasm32` with `rust_crypto` (or a custom `CryptoProvider`)
+- `jsonwebtoken` TryFrom/TryInto = `TryFrom<&Jwk>` is available for `DecodingKey`
 
 ### When to use jwk-simple
 
