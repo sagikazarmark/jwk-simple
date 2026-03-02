@@ -71,7 +71,7 @@
 //! native SubtleCrypto API:
 //!
 //! ```ignore
-//! use jwk_simple::{KeySet, integrations::web_crypto};
+//! use jwk_simple::{Algorithm, KeySet, integrations::web_crypto};
 //!
 //! // Parse a JWKS
 //! let keyset: KeySet = serde_json::from_str(json)?;
@@ -79,13 +79,21 @@
 //!
 //! // Check if the key is WebCrypto compatible
 //! if key.is_web_crypto_compatible() {
-//!     // Import as a CryptoKey for verification
-//!     let crypto_key = key.import_as_verify_key().await?;
+//!     // Import as a CryptoKey for verification.
+//!     // Use the _for_alg variant because many JWKS keys (especially from OIDC
+//!     // providers) omit the `alg` field, and WebCrypto requires the algorithm
+//!     // to be known at import time for RSA and HMAC keys.
+//!     let alg = Algorithm::Rs256; // typically from the JWT header
+//!     let crypto_key = key.import_as_verify_key_for_alg(&alg).await?;
 //!
 //!     // Or get the JsonWebKey directly
 //!     let jwk = key.to_web_crypto_jwk()?;
 //! }
 //! ```
+//!
+//! If the key's `alg` field is present, you can use the simpler
+//! [`Key::import_as_verify_key`] instead. EC keys always work without an explicit
+//! algorithm since the curve determines the WebCrypto parameters.
 //!
 //! **Note:** WebCrypto does not support OKP keys (Ed25519, Ed448, X25519, X448)
 //! or the secp256k1 curve. Use [`Key::is_web_crypto_compatible()`] to check

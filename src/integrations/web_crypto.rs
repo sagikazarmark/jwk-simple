@@ -529,18 +529,24 @@ pub fn build_verify_algorithm(alg: &Algorithm) -> Result<Object> {
 
 /// Imports a JWK as a [`CryptoKey`] for signature verification.
 ///
-/// This is the most common use case: importing a public key from a JWKS
-/// to verify JWT signatures.
+/// This requires the key's `alg` field to be set for RSA and HMAC keys, because
+/// WebCrypto locks the hash algorithm at import time. EC keys do not require `alg`
+/// since the curve already determines the algorithm parameters.
+///
+/// **For keys without an `alg` field** (common in JWKS from OIDC providers), use
+/// [`import_verify_key_for_alg`] instead, passing the algorithm from the JWT header.
 ///
 /// # Supported Key Types
 ///
-/// - RSA public keys (RS256, RS384, RS512, PS256, PS384, PS512)
+/// - RSA public keys (RS256, RS384, RS512, PS256, PS384, PS512) — requires `alg`
 /// - EC public keys (P-256, P-384, P-521)
+/// - HMAC symmetric keys (HS256, HS384, HS512) — requires `alg`
 ///
 /// # Errors
 ///
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
-/// - [`Error::WebCrypto`] if the import operation fails
+/// - [`Error::WebCrypto`] if the import operation fails or the key is missing
+///   a required `alg` field (RSA/HMAC only)
 ///
 /// # Examples
 ///
@@ -549,6 +555,8 @@ pub fn build_verify_algorithm(alg: &Algorithm) -> Result<Object> {
 ///
 /// let jwks: KeySet = serde_json::from_str(jwks_json)?;
 /// let key = jwks.find_by_kid("my-key-id").unwrap();
+///
+/// // Works when the key has an `alg` field set
 /// let crypto_key = web_crypto::import_verify_key(key).await?;
 /// ```
 pub async fn import_verify_key(key: &Key) -> Result<CryptoKey> {
@@ -557,12 +565,17 @@ pub async fn import_verify_key(key: &Key) -> Result<CryptoKey> {
 
 /// Imports a JWK as a [`CryptoKey`] for signing.
 ///
-/// This requires a private key (RSA or EC with the `d` parameter).
+/// This requires a private key (RSA or EC with the `d` parameter) and, for RSA
+/// and HMAC keys, the key's `alg` field must be set because WebCrypto locks the
+/// hash algorithm at import time.
+///
+/// **For keys without an `alg` field**, use [`import_sign_key_for_alg`] instead.
 ///
 /// # Errors
 ///
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
-/// - [`Error::WebCrypto`] if the import operation fails (e.g., missing private key)
+/// - [`Error::WebCrypto`] if the import operation fails (e.g., missing private key
+///   or missing `alg` field for RSA/HMAC)
 ///
 /// # Examples
 ///
@@ -767,7 +780,7 @@ impl Key {
     ///
     /// ```ignore
     /// if key.is_web_crypto_compatible() {
-    ///     let crypto_key = key.import_as_verify_key().await?;
+    ///     let crypto_key = key.import_as_verify_key_for_alg(&alg).await?;
     /// }
     /// ```
     #[cfg(feature = "web-crypto")]
@@ -778,10 +791,15 @@ impl Key {
 
     /// Imports this key as a [`CryptoKey`] for signature verification.
     ///
+    /// RSA and HMAC keys must have their `alg` field set. For keys without `alg`
+    /// (common in JWKS from OIDC providers), use
+    /// [`import_as_verify_key_for_alg`](Key::import_as_verify_key_for_alg) instead.
+    ///
     /// # Errors
     ///
     /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
-    /// - [`Error::WebCrypto`] if the import operation fails
+    /// - [`Error::WebCrypto`] if the import operation fails or the key is missing
+    ///   a required `alg` field (RSA/HMAC only)
     #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub async fn import_as_verify_key(&self) -> Result<CryptoKey> {
@@ -790,10 +808,14 @@ impl Key {
 
     /// Imports this key as a [`CryptoKey`] for signing.
     ///
+    /// RSA and HMAC keys must have their `alg` field set. For keys without `alg`,
+    /// use [`import_as_sign_key_for_alg`](Key::import_as_sign_key_for_alg) instead.
+    ///
     /// # Errors
     ///
     /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
-    /// - [`Error::WebCrypto`] if the import operation fails
+    /// - [`Error::WebCrypto`] if the import operation fails or the key is missing
+    ///   a required `alg` field (RSA/HMAC only)
     #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub async fn import_as_sign_key(&self) -> Result<CryptoKey> {
