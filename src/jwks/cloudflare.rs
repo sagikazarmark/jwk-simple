@@ -9,7 +9,7 @@
 //! Using `RemoteKeyStore` to fetch JWKS in a Cloudflare Worker:
 //!
 //! ```ignore
-//! use jwk_simple::cloudflare;
+//! use jwk_simple::jwks::cloudflare;
 //! use jwk_simple::KeyStore;
 //!
 //! let store = cloudflare::RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
@@ -19,7 +19,7 @@
 //! Using `KeyCache` with KV storage:
 //!
 //! ```ignore
-//! use jwk_simple::cloudflare;
+//! use jwk_simple::jwks::cloudflare;
 //! use worker::kv::KvStore;
 //!
 //! let kv: KvStore = env.kv("JWKS_CACHE")?;
@@ -51,7 +51,7 @@ pub const DEFAULT_KV_TTL_SECONDS: u64 = 300;
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::cloudflare;
+/// use jwk_simple::jwks::cloudflare;
 /// use jwk_simple::KeyStore;
 ///
 /// let store = cloudflare::RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
@@ -126,7 +126,7 @@ impl KeyStore for RemoteKeyStore {
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::cloudflare;
+/// use jwk_simple::jwks::cloudflare;
 /// use std::time::Duration;
 ///
 /// let kv = env.kv("JWKS_CACHE")?;

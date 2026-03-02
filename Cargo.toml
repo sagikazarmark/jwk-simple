@@ -2,12 +2,12 @@
 name = "jwk-simple"
 edition = "2024"
 version = "0.1.0"
-description = "JWK/JWKS support with WASM compatibility and jwt-simple integration"
+description = "JWK/JWKS for Rust and WASM (RFC 7517, 7518, 7638, 8037, 9864) with jwt-simple integration"
 license = "MIT"
 repository = "https://github.com/sagikazarmark/jwk-simple"
 homepage = "https://github.com/sagikazarmark/jwk-simple"
-keywords = ["jwk", "jwks", "jwt", "wasm", "cryptography"]
-categories = ["authentication", "cryptography", "wasm"]
+keywords = ["jwk", "jwks", "jose", "jwt", "webcrypto"]
+categories = ["authentication", "cryptography", "web-programming", "wasm"]
 
 [dependencies]
 async-trait = "0.1"

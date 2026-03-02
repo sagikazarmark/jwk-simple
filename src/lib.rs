@@ -139,10 +139,6 @@ pub use jwks::{DEFAULT_TIMEOUT, RemoteKeyStore};
 #[cfg_attr(docsrs, doc(cfg(feature = "cache-inmemory")))]
 pub use jwks::{DEFAULT_CACHE_TTL, InMemoryCachedKeyStore, InMemoryKeyCache};
 
-#[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "cloudflare")))]
-pub use jwks::cloudflare;
-
 #[cfg(feature = "web-crypto")]
 #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
 pub use integrations::web_crypto;
