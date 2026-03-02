@@ -248,7 +248,39 @@ fn build_algorithm_object_with_alg(
 ) -> Result<Object> {
     match &key.params {
         KeyParams::Rsa(_) => build_rsa_algorithm(key, usage, alg_override),
-        KeyParams::Ec(params) => build_ec_algorithm(params.crv, usage),
+        KeyParams::Ec(params) => {
+            // When an explicit algorithm is provided, validate that it is
+            // compatible with the key's curve before building the import
+            // algorithm object. This catches mismatches like ES384 with a
+            // P-256 key early, instead of letting them surface as opaque
+            // WebCrypto errors during verify/sign.
+            if let Some(alg) = alg_override {
+                let expected_curve = match alg {
+                    Algorithm::Es256 => Some(EcCurve::P256),
+                    Algorithm::Es384 => Some(EcCurve::P384),
+                    Algorithm::Es512 => Some(EcCurve::P521),
+                    _ => None,
+                };
+                match expected_curve {
+                    Some(curve) if curve != params.crv => {
+                        return Err(Error::WebCrypto(format!(
+                            "algorithm {} requires curve {}, but the key uses {}",
+                            alg.as_str(),
+                            curve.name(),
+                            params.crv.name(),
+                        )));
+                    }
+                    None => {
+                        return Err(Error::WebCrypto(format!(
+                            "algorithm {} is not supported for EC key import in WebCrypto",
+                            alg.as_str(),
+                        )));
+                    }
+                    _ => {} // curve matches, proceed
+                }
+            }
+            build_ec_algorithm(params.crv, usage)
+        }
         KeyParams::Symmetric(_) => build_symmetric_algorithm(key, usage, alg_override),
         KeyParams::Okp(_) => Err(Error::UnsupportedForWebCrypto {
             reason: "OKP keys are not supported by WebCrypto",

@@ -1,15 +1,13 @@
 //! Error types for JWK/JWKS operations.
 //!
 //! This module provides a comprehensive error type that covers all failure
-//! modes in the library. All public functions return `Result<T, Error>` to
-//! maintain the no-panic guarantee.
+//! modes in the library. All fallible operations return `Result<T, Error>`.
 
 use std::fmt;
 
 /// The main error type for this crate.
 ///
-/// All public functions return `Result<T, Error>` to ensure no panics occur
-/// in library code.
+/// All fallible operations return `Result<T, Error>`.
 #[derive(Debug)]
 pub enum Error {
     /// Failed to parse JSON.

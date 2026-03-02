@@ -106,7 +106,9 @@
 //! - Private key parameters are zeroed from memory on drop via `zeroize`
 //! - Base64 encoding uses constant-time operations via `base64ct`
 //! - Debug output redacts sensitive key material
-//! - All public functions return `Result` types (no panics)
+//! - All fallible operations return `Result` types — the crate avoids panics,
+//!   though standard trait implementations like `Index` follow normal Rust
+//!   semantics and may panic on invalid input (e.g., out-of-bounds indexing)
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]

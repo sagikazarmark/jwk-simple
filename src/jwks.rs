@@ -164,9 +164,11 @@ impl<'de> Deserialize<'de> for KeySet {
 
         let raw = RawJwkSet::deserialize(deserializer)?;
 
-        // Parse each key, silently skipping those with unknown kty values
+        // Parse each key, silently skipping those with unknown or missing kty values
         // per RFC 7517 Section 5: "Implementations SHOULD ignore JWKs within
         // a JWK Set that use 'kty' (key type) values that are not understood"
+        // Keys with a missing kty are also skipped since they cannot be
+        // identified as any known key type.
         //
         // Keys with known kty values that fail to parse for other reasons
         // (e.g., missing required fields, invalid base64url) are treated as

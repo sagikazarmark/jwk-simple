@@ -177,7 +177,7 @@ fn encode_der_length(der: &mut Vec<u8>, len: usize) {
 
 // Macro to implement RSA public key conversions
 macro_rules! impl_rsa_public_key_conversion {
-    ($key_type:ty, $alg_name:expr) => {
+    ($key_type:ty) => {
         impl TryFrom<&Key> for $key_type {
             type Error = Error;
 
@@ -244,12 +244,12 @@ macro_rules! impl_rsa_key_pair_conversion {
 }
 
 // Implement conversions for all RSA types
-impl_rsa_public_key_conversion!(RS256PublicKey, "RS256");
-impl_rsa_public_key_conversion!(RS384PublicKey, "RS384");
-impl_rsa_public_key_conversion!(RS512PublicKey, "RS512");
-impl_rsa_public_key_conversion!(PS256PublicKey, "PS256");
-impl_rsa_public_key_conversion!(PS384PublicKey, "PS384");
-impl_rsa_public_key_conversion!(PS512PublicKey, "PS512");
+impl_rsa_public_key_conversion!(RS256PublicKey);
+impl_rsa_public_key_conversion!(RS384PublicKey);
+impl_rsa_public_key_conversion!(RS512PublicKey);
+impl_rsa_public_key_conversion!(PS256PublicKey);
+impl_rsa_public_key_conversion!(PS384PublicKey);
+impl_rsa_public_key_conversion!(PS512PublicKey);
 
 impl_rsa_key_pair_conversion!(RS256KeyPair);
 impl_rsa_key_pair_conversion!(RS384KeyPair);
