@@ -256,6 +256,14 @@ impl PartialEq for OkpParams {
 
 impl Eq for OkpParams {}
 
+impl std::hash::Hash for OkpParams {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.crv.hash(state);
+        self.x.hash(state);
+        self.d.hash(state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

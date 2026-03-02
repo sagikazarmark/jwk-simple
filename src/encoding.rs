@@ -186,6 +186,12 @@ impl PartialEq for Base64UrlBytes {
 
 impl Eq for Base64UrlBytes {}
 
+impl std::hash::Hash for Base64UrlBytes {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
 impl From<Vec<u8>> for Base64UrlBytes {
     fn from(bytes: Vec<u8>) -> Self {
         Self::new(bytes)

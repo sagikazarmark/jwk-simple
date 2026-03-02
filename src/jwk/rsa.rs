@@ -70,6 +70,14 @@ impl PartialEq for RsaOtherPrime {
 
 impl Eq for RsaOtherPrime {}
 
+impl std::hash::Hash for RsaOtherPrime {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.r.hash(state);
+        self.d.hash(state);
+        self.t.hash(state);
+    }
+}
+
 /// RSA key parameters (RFC 7518 Section 6.3).
 ///
 /// Contains the public key parameters `n` (modulus) and `e` (exponent),
@@ -565,6 +573,20 @@ impl PartialEq for RsaParams {
 }
 
 impl Eq for RsaParams {}
+
+impl std::hash::Hash for RsaParams {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.n.hash(state);
+        self.e.hash(state);
+        self.d.hash(state);
+        self.p.hash(state);
+        self.q.hash(state);
+        self.dp.hash(state);
+        self.dq.hash(state);
+        self.qi.hash(state);
+        self.oth.hash(state);
+    }
+}
 
 #[cfg(test)]
 mod tests {

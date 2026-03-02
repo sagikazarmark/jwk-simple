@@ -967,20 +967,35 @@ mod permissive_parsing {
     }
 
     #[test]
-    fn test_jwks_mixed_valid_and_malformed() {
-        // JWKS containing valid keys and malformed keys should keep valid ones
+    fn test_jwks_malformed_known_kty_is_error() {
+        // JWKS containing a key with a known kty but missing required fields
+        // should fail to parse (not silently skip).
+        // Only unknown kty values are silently skipped per RFC 7517 Section 5.
+
+        // RSA key missing required "n" and "e" parameters
         let json = r#"{
             "keys": [
                 {"kty": "RSA", "kid": "valid", "n": "AQAB", "e": "AQAB"},
-                {"kty": "RSA", "kid": "missing-params"},
+                {"kty": "RSA", "kid": "missing-params"}
+            ]
+        }"#;
+        let result = serde_json::from_str::<KeySet>(json);
+        assert!(
+            result.is_err(),
+            "Malformed key with known kty should cause a parse error"
+        );
+
+        // EC key missing required "crv" parameter
+        let json = r#"{
+            "keys": [
                 {"kty": "EC", "kid": "missing-curve", "x": "AQAB", "y": "AQAB"}
             ]
         }"#;
-        let jwks = serde_json::from_str::<KeySet>(json).unwrap();
-
-        // Only the fully valid key should be present
-        assert_eq!(jwks.len(), 1);
-        assert!(jwks.find_by_kid("valid").is_some());
+        let result = serde_json::from_str::<KeySet>(json);
+        assert!(
+            result.is_err(),
+            "Malformed key with known kty should cause a parse error"
+        );
     }
 
     // RFC 7517 Section 4.2: "use" parameter can have other values

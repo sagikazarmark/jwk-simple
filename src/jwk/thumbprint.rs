@@ -27,6 +27,8 @@ use crate::jwk::{EcParams, Key, KeyParams, OkpParams, RsaParams, SymmetricParams
 /// The thumbprint is a base64url-encoded SHA-256 hash of a canonical JSON
 /// representation of the key's required members.
 ///
+/// Prefer using [`Key::thumbprint()`] instead of calling this function directly.
+///
 /// # Arguments
 ///
 /// * `jwk` - The JWK to calculate the thumbprint for.
@@ -34,34 +36,7 @@ use crate::jwk::{EcParams, Key, KeyParams, OkpParams, RsaParams, SymmetricParams
 /// # Returns
 ///
 /// The base64url-encoded SHA-256 thumbprint.
-///
-/// # Examples
-///
-/// ```
-/// use jwk_simple::jwk::{Key, KeyType, KeyParams, RsaParams};
-/// use jwk_simple::jwk::thumbprint::calculate_thumbprint;
-/// use jwk_simple::encoding::Base64UrlBytes;
-///
-/// let jwk = Key {
-///     kty: KeyType::Rsa,
-///     kid: None,
-///     key_use: None,
-///     key_ops: None,
-///     alg: None,
-///     params: KeyParams::Rsa(RsaParams::new_public(
-///         Base64UrlBytes::new(vec![1, 2, 3]),
-///         Base64UrlBytes::new(vec![1, 0, 1]),
-///     )),
-///     x5c: None,
-///     x5t: None,
-///     x5t_s256: None,
-///     x5u: None,
-/// };
-///
-/// let thumbprint = calculate_thumbprint(&jwk);
-/// assert!(!thumbprint.is_empty());
-/// ```
-pub fn calculate_thumbprint(jwk: &Key) -> String {
+pub(crate) fn calculate_thumbprint(jwk: &Key) -> String {
     let canonical_json = build_canonical_json(jwk);
     let hash = Sha256::digest(canonical_json.as_bytes());
     base64ct::Base64UrlUnpadded::encode_string(&hash)

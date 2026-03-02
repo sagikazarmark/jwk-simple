@@ -141,10 +141,11 @@ where
     async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
         // Try cache first
         if let Some(keyset) = self.cache.get().await
-            && let Some(key) = keyset.find_by_kid(kid) {
-                return Ok(Some(key.clone()));
-            }
-            // Key not in cached set — could be a newly added key, refetch
+            && let Some(key) = keyset.find_by_kid(kid)
+        {
+            return Ok(Some(key.clone()));
+        }
+        // Key not in cached set — could be a newly added key, refetch
 
         // Cache miss or key not found: fetch from underlying store
         let keyset = self.source.get_keyset().await?;

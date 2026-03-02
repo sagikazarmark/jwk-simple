@@ -270,6 +270,8 @@ fn build_rsa_algorithm(key: &Key, usage: KeyUsage) -> Result<Object> {
         Some(Algorithm::Ps512) => ("RSA-PSS", "SHA-512"),
         Some(Algorithm::RsaOaep) => ("RSA-OAEP", "SHA-1"),
         Some(Algorithm::RsaOaep256) => ("RSA-OAEP", "SHA-256"),
+        Some(Algorithm::RsaOaep384) => ("RSA-OAEP", "SHA-384"),
+        Some(Algorithm::RsaOaep512) => ("RSA-OAEP", "SHA-512"),
         _ => {
             // Default based on usage
             match usage {

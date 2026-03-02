@@ -34,7 +34,7 @@ mod ec;
 mod okp;
 mod rsa;
 mod symmetric;
-pub mod thumbprint;
+pub(crate) mod thumbprint;
 
 pub use ec::{EcCurve, EcParams};
 pub use okp::{OkpCurve, OkpParams};
@@ -71,6 +71,12 @@ impl KeyType {
             KeyType::Symmetric => "oct",
             KeyType::Okp => "OKP",
         }
+    }
+}
+
+impl std::fmt::Display for KeyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -145,6 +151,22 @@ impl KeyUse {
 impl std::fmt::Display for KeyUse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for KeyUse {
+    type Err = std::convert::Infallible;
+
+    /// Parses a key use string.
+    ///
+    /// Per RFC 7517, unknown key use values are accepted and stored as `Unknown`.
+    /// This function never fails - unrecognized values become `KeyUse::Unknown(s)`.
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "sig" => KeyUse::Signature,
+            "enc" => KeyUse::Encryption,
+            _ => KeyUse::Unknown(s.to_string()),
+        })
     }
 }
 
@@ -228,6 +250,28 @@ impl std::fmt::Display for KeyOperation {
     }
 }
 
+impl std::str::FromStr for KeyOperation {
+    type Err = std::convert::Infallible;
+
+    /// Parses a key operation string.
+    ///
+    /// Per RFC 7517, unknown key operation values are accepted and stored as `Unknown`.
+    /// This function never fails - unrecognized values become `KeyOperation::Unknown(s)`.
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "sign" => KeyOperation::Sign,
+            "verify" => KeyOperation::Verify,
+            "encrypt" => KeyOperation::Encrypt,
+            "decrypt" => KeyOperation::Decrypt,
+            "wrapKey" => KeyOperation::WrapKey,
+            "unwrapKey" => KeyOperation::UnwrapKey,
+            "deriveKey" => KeyOperation::DeriveKey,
+            "deriveBits" => KeyOperation::DeriveBits,
+            _ => KeyOperation::Unknown(s.to_string()),
+        })
+    }
+}
+
 impl Serialize for KeyOperation {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -306,6 +350,10 @@ pub enum Algorithm {
     RsaOaep,
     /// RSAES-OAEP using SHA-256 and MGF1 with SHA-256.
     RsaOaep256,
+    /// RSAES-OAEP using SHA-384 and MGF1 with SHA-384.
+    RsaOaep384,
+    /// RSAES-OAEP using SHA-512 and MGF1 with SHA-512.
+    RsaOaep512,
     /// RSAES-PKCS1-v1_5.
     Rsa1_5,
 
@@ -371,8 +419,7 @@ pub enum Algorithm {
 impl Algorithm {
     /// Returns the algorithm as a string.
     ///
-    /// For unknown algorithms, this returns a static "unknown" string.
-    /// Use [`Algorithm::to_string()`] to get the actual algorithm name for unknown variants.
+    /// For unknown algorithms, this returns the original algorithm name.
     pub fn as_str(&self) -> &str {
         match self {
             Algorithm::Hs256 => "HS256",
@@ -391,6 +438,8 @@ impl Algorithm {
             Algorithm::EdDsa => "EdDSA",
             Algorithm::RsaOaep => "RSA-OAEP",
             Algorithm::RsaOaep256 => "RSA-OAEP-256",
+            Algorithm::RsaOaep384 => "RSA-OAEP-384",
+            Algorithm::RsaOaep512 => "RSA-OAEP-512",
             Algorithm::Rsa1_5 => "RSA1_5",
             Algorithm::A128kw => "A128KW",
             Algorithm::A192kw => "A192KW",
@@ -444,7 +493,10 @@ impl Algorithm {
         )
     }
 
-    /// Returns `true` if this is a key encryption algorithm.
+    /// Returns `true` if this is a key encryption (key management) algorithm.
+    ///
+    /// These are algorithms used in the JWE "alg" header parameter for
+    /// key encryption or key agreement (RFC 7518 Section 4).
     ///
     /// Unknown algorithms return `false` since their purpose cannot be determined.
     pub fn is_key_encryption(&self) -> bool {
@@ -452,6 +504,8 @@ impl Algorithm {
             self,
             Algorithm::RsaOaep
                 | Algorithm::RsaOaep256
+                | Algorithm::RsaOaep384
+                | Algorithm::RsaOaep512
                 | Algorithm::Rsa1_5
                 | Algorithm::A128kw
                 | Algorithm::A192kw
@@ -467,6 +521,180 @@ impl Algorithm {
                 | Algorithm::Pbes2Hs256A128kw
                 | Algorithm::Pbes2Hs384A192kw
                 | Algorithm::Pbes2Hs512A256kw
+        )
+    }
+
+    /// Returns the key types compatible with this algorithm.
+    ///
+    /// This reflects the key type requirements defined in RFC 7518.
+    /// For example, `RS256` requires an RSA key, `ES256` requires an EC key, etc.
+    ///
+    /// Some algorithms are compatible with multiple key types. For example,
+    /// `ECDH-ES` can be used with both EC and OKP keys.
+    ///
+    /// Unknown algorithms return an empty slice since their requirements
+    /// cannot be determined.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::{Algorithm, KeyType};
+    ///
+    /// assert_eq!(Algorithm::Rs256.compatible_key_types(), &[KeyType::Rsa]);
+    /// assert_eq!(Algorithm::Es256.compatible_key_types(), &[KeyType::Ec]);
+    /// assert_eq!(Algorithm::Hs256.compatible_key_types(), &[KeyType::Symmetric]);
+    /// assert!(Algorithm::EcdhEs.compatible_key_types().contains(&KeyType::Ec));
+    /// assert!(Algorithm::EcdhEs.compatible_key_types().contains(&KeyType::Okp));
+    /// ```
+    pub fn compatible_key_types(&self) -> &'static [KeyType] {
+        match self {
+            // RSA signing and encryption algorithms
+            Algorithm::Rs256
+            | Algorithm::Rs384
+            | Algorithm::Rs512
+            | Algorithm::Ps256
+            | Algorithm::Ps384
+            | Algorithm::Ps512
+            | Algorithm::RsaOaep
+            | Algorithm::RsaOaep256
+            | Algorithm::RsaOaep384
+            | Algorithm::RsaOaep512
+            | Algorithm::Rsa1_5 => &[KeyType::Rsa],
+
+            // ECDSA algorithms
+            Algorithm::Es256 | Algorithm::Es384 | Algorithm::Es512 | Algorithm::Es256k => {
+                &[KeyType::Ec]
+            }
+
+            // EdDSA
+            Algorithm::EdDsa => &[KeyType::Okp],
+
+            // ECDH-ES algorithms work with both EC and OKP keys
+            Algorithm::EcdhEs
+            | Algorithm::EcdhEsA128kw
+            | Algorithm::EcdhEsA192kw
+            | Algorithm::EcdhEsA256kw => &[KeyType::Ec, KeyType::Okp],
+
+            // Symmetric algorithms (HMAC, AES KW, AES-GCM KW, Direct, PBES2, Content Encryption)
+            Algorithm::Hs256
+            | Algorithm::Hs384
+            | Algorithm::Hs512
+            | Algorithm::A128kw
+            | Algorithm::A192kw
+            | Algorithm::A256kw
+            | Algorithm::A128gcmkw
+            | Algorithm::A192gcmkw
+            | Algorithm::A256gcmkw
+            | Algorithm::Dir
+            | Algorithm::Pbes2Hs256A128kw
+            | Algorithm::Pbes2Hs384A192kw
+            | Algorithm::Pbes2Hs512A256kw
+            | Algorithm::A128cbcHs256
+            | Algorithm::A192cbcHs384
+            | Algorithm::A256cbcHs512
+            | Algorithm::A128gcm
+            | Algorithm::A192gcm
+            | Algorithm::A256gcm => &[KeyType::Symmetric],
+
+            // Unknown algorithms cannot be mapped
+            Algorithm::Unknown(_) => &[],
+        }
+    }
+
+    /// Returns the minimum key size in bits required by this algorithm per RFC 7518.
+    ///
+    /// For RSA algorithms, this returns 2048 (the RFC 7518 recommendation).
+    /// For symmetric algorithms, this returns the exact key size required.
+    /// For EC and OKP algorithms, key sizes are determined by the curve, so
+    /// this returns `None` (use [`EcCurve::coordinate_size`] or
+    /// [`OkpCurve::public_key_size`] instead).
+    ///
+    /// Unknown algorithms return `None` since their requirements cannot be determined.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::Algorithm;
+    ///
+    /// assert_eq!(Algorithm::Rs256.min_key_size_bits(), Some(2048));
+    /// assert_eq!(Algorithm::Hs256.min_key_size_bits(), Some(256));
+    /// assert_eq!(Algorithm::A128kw.min_key_size_bits(), Some(128));
+    /// assert_eq!(Algorithm::Es256.min_key_size_bits(), None); // determined by curve
+    /// ```
+    pub fn min_key_size_bits(&self) -> Option<usize> {
+        match self {
+            // RSA: RFC 7518 recommends at least 2048 bits
+            Algorithm::Rs256
+            | Algorithm::Rs384
+            | Algorithm::Rs512
+            | Algorithm::Ps256
+            | Algorithm::Ps384
+            | Algorithm::Ps512
+            | Algorithm::RsaOaep
+            | Algorithm::RsaOaep256
+            | Algorithm::RsaOaep384
+            | Algorithm::RsaOaep512
+            | Algorithm::Rsa1_5 => Some(2048),
+
+            // HMAC: RFC 7518 Section 3.2 - key size must be >= hash output size
+            Algorithm::Hs256 => Some(256),
+            Algorithm::Hs384 => Some(384),
+            Algorithm::Hs512 => Some(512),
+
+            // AES Key Wrap: exact key sizes
+            Algorithm::A128kw | Algorithm::A128gcmkw => Some(128),
+            Algorithm::A192kw | Algorithm::A192gcmkw => Some(192),
+            Algorithm::A256kw | Algorithm::A256gcmkw => Some(256),
+
+            // AES-CBC + HMAC content encryption: key = enc_key + mac_key
+            Algorithm::A128cbcHs256 => Some(256),
+            Algorithm::A192cbcHs384 => Some(384),
+            Algorithm::A256cbcHs512 => Some(512),
+
+            // AES-GCM content encryption
+            Algorithm::A128gcm => Some(128),
+            Algorithm::A192gcm => Some(192),
+            Algorithm::A256gcm => Some(256),
+
+            // PBES2: password-based, minimum key size is algorithm-dependent
+            Algorithm::Pbes2Hs256A128kw => Some(128),
+            Algorithm::Pbes2Hs384A192kw => Some(192),
+            Algorithm::Pbes2Hs512A256kw => Some(256),
+
+            // Direct key agreement: no specific size requirement
+            Algorithm::Dir => None,
+
+            // EC, OKP, ECDH: key size determined by curve, not algorithm
+            Algorithm::Es256
+            | Algorithm::Es384
+            | Algorithm::Es512
+            | Algorithm::Es256k
+            | Algorithm::EdDsa
+            | Algorithm::EcdhEs
+            | Algorithm::EcdhEsA128kw
+            | Algorithm::EcdhEsA192kw
+            | Algorithm::EcdhEsA256kw => None,
+
+            // Unknown algorithms
+            Algorithm::Unknown(_) => None,
+        }
+    }
+
+    /// Returns `true` if this is a content encryption algorithm.
+    ///
+    /// These are algorithms used in the JWE "enc" header parameter for
+    /// content encryption (RFC 7518 Section 5).
+    ///
+    /// Unknown algorithms return `false` since their purpose cannot be determined.
+    pub fn is_content_encryption(&self) -> bool {
+        matches!(
+            self,
+            Algorithm::A128cbcHs256
+                | Algorithm::A192cbcHs384
+                | Algorithm::A256cbcHs512
+                | Algorithm::A128gcm
+                | Algorithm::A192gcm
+                | Algorithm::A256gcm
         )
     }
 }
@@ -502,6 +730,8 @@ impl std::str::FromStr for Algorithm {
             "EdDSA" => Algorithm::EdDsa,
             "RSA-OAEP" => Algorithm::RsaOaep,
             "RSA-OAEP-256" => Algorithm::RsaOaep256,
+            "RSA-OAEP-384" => Algorithm::RsaOaep384,
+            "RSA-OAEP-512" => Algorithm::RsaOaep512,
             "RSA1_5" => Algorithm::Rsa1_5,
             "A128KW" => Algorithm::A128kw,
             "A192KW" => Algorithm::A192kw,
@@ -561,6 +791,16 @@ pub enum KeyParams {
 }
 
 impl KeyParams {
+    /// Returns the [`KeyType`] corresponding to this variant.
+    pub fn key_type(&self) -> KeyType {
+        match self {
+            KeyParams::Rsa(_) => KeyType::Rsa,
+            KeyParams::Ec(_) => KeyType::Ec,
+            KeyParams::Symmetric(_) => KeyType::Symmetric,
+            KeyParams::Okp(_) => KeyType::Okp,
+        }
+    }
+
     /// Returns `true` if this contains only public key parameters.
     pub fn is_public_key_only(&self) -> bool {
         match self {
@@ -584,6 +824,30 @@ impl KeyParams {
             KeyParams::Symmetric(p) => p.validate(),
             KeyParams::Okp(p) => p.validate(),
         }
+    }
+}
+
+impl From<RsaParams> for KeyParams {
+    fn from(p: RsaParams) -> Self {
+        KeyParams::Rsa(p)
+    }
+}
+
+impl From<EcParams> for KeyParams {
+    fn from(p: EcParams) -> Self {
+        KeyParams::Ec(p)
+    }
+}
+
+impl From<SymmetricParams> for KeyParams {
+    fn from(p: SymmetricParams) -> Self {
+        KeyParams::Symmetric(p)
+    }
+}
+
+impl From<OkpParams> for KeyParams {
+    fn from(p: OkpParams) -> Self {
+        KeyParams::Okp(p)
     }
 }
 
@@ -612,6 +876,18 @@ impl PartialEq for KeyParams {
 
 impl Eq for KeyParams {}
 
+impl std::hash::Hash for KeyParams {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            KeyParams::Rsa(p) => p.hash(state),
+            KeyParams::Ec(p) => p.hash(state),
+            KeyParams::Symmetric(p) => p.hash(state),
+            KeyParams::Okp(p) => p.hash(state),
+        }
+    }
+}
+
 /// A JSON Web Key (RFC 7517).
 ///
 /// Represents a single cryptographic key with its parameters and metadata.
@@ -632,6 +908,16 @@ impl Eq for KeyParams {}
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct Key {
     /// The key type.
+    ///
+    /// # Invariant
+    ///
+    /// This field **must** match the variant of [`params`](Key::params). For example,
+    /// if `params` is [`KeyParams::Rsa`], then `kty` must be [`KeyType::Rsa`].
+    ///
+    /// [`Key::new`] enforces this invariant by deriving `kty` from the `KeyParams`
+    /// variant. However, since this field is `pub`, callers can break the invariant
+    /// by assigning a different value directly. Use [`Key::validate`] to check
+    /// consistency if the key was not constructed via [`Key::new`].
     #[zeroize(skip)]
     pub kty: KeyType,
 
@@ -673,6 +959,102 @@ pub struct Key {
 }
 
 impl Key {
+    /// Creates a new `Key` from key-type-specific parameters.
+    ///
+    /// The `kty` field is automatically derived from the [`KeyParams`] variant,
+    /// which makes it impossible to construct a `Key` with a mismatched key type.
+    ///
+    /// Use the `with_*` methods to set optional metadata fields:
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::jwk::{Key, KeyType, KeyParams, RsaParams, KeyUse, Algorithm};
+    /// use jwk_simple::encoding::Base64UrlBytes;
+    ///
+    /// let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
+    ///     Base64UrlBytes::new(vec![1, 2, 3]),
+    ///     Base64UrlBytes::new(vec![1, 0, 1]),
+    /// )))
+    /// .with_kid("my-key-id")
+    /// .with_alg(Algorithm::Rs256)
+    /// .with_use(KeyUse::Signature);
+    ///
+    /// assert_eq!(key.kty, KeyType::Rsa);
+    /// assert_eq!(key.kid.as_deref(), Some("my-key-id"));
+    /// ```
+    #[must_use]
+    pub fn new(params: KeyParams) -> Self {
+        Self {
+            kty: params.key_type(),
+            kid: None,
+            key_use: None,
+            key_ops: None,
+            alg: None,
+            params,
+            x5c: None,
+            x5t: None,
+            x5t_s256: None,
+            x5u: None,
+        }
+    }
+
+    /// Sets the key ID (`kid`).
+    #[must_use]
+    pub fn with_kid(mut self, kid: impl Into<String>) -> Self {
+        self.kid = Some(kid.into());
+        self
+    }
+
+    /// Sets the intended use of the key (`use`).
+    #[must_use]
+    pub fn with_use(mut self, key_use: KeyUse) -> Self {
+        self.key_use = Some(key_use);
+        self
+    }
+
+    /// Sets the permitted key operations (`key_ops`).
+    #[must_use]
+    pub fn with_key_ops(mut self, key_ops: Vec<KeyOperation>) -> Self {
+        self.key_ops = Some(key_ops);
+        self
+    }
+
+    /// Sets the algorithm intended for use with the key (`alg`).
+    #[must_use]
+    pub fn with_alg(mut self, alg: Algorithm) -> Self {
+        self.alg = Some(alg);
+        self
+    }
+
+    /// Sets the X.509 certificate chain (`x5c`).
+    #[must_use]
+    pub fn with_x5c(mut self, x5c: Vec<String>) -> Self {
+        self.x5c = Some(x5c);
+        self
+    }
+
+    /// Sets the X.509 certificate SHA-1 thumbprint (`x5t`).
+    #[must_use]
+    pub fn with_x5t(mut self, x5t: impl Into<String>) -> Self {
+        self.x5t = Some(x5t.into());
+        self
+    }
+
+    /// Sets the X.509 certificate SHA-256 thumbprint (`x5t#S256`).
+    #[must_use]
+    pub fn with_x5t_s256(mut self, x5t_s256: impl Into<String>) -> Self {
+        self.x5t_s256 = Some(x5t_s256.into());
+        self
+    }
+
+    /// Sets the X.509 URL (`x5u`).
+    #[must_use]
+    pub fn with_x5u(mut self, x5u: impl Into<String>) -> Self {
+        self.x5u = Some(x5u.into());
+        self
+    }
+
     /// Returns `true` if this contains only public key parameters.
     pub fn is_public_key_only(&self) -> bool {
         self.params.is_public_key_only()
@@ -694,12 +1076,7 @@ impl Key {
     /// - Both `use` and `key_ops` are specified (RFC 7517 Section 4.3 SHOULD NOT)
     pub fn validate(&self) -> Result<()> {
         // Verify kty matches params
-        let expected_kty = match &self.params {
-            KeyParams::Rsa(_) => KeyType::Rsa,
-            KeyParams::Ec(_) => KeyType::Ec,
-            KeyParams::Symmetric(_) => KeyType::Symmetric,
-            KeyParams::Okp(_) => KeyType::Okp,
-        };
+        let expected_kty = self.params.key_type();
 
         if self.kty != expected_kty {
             return Err(Error::Validation(ValidationError::InconsistentParameters(
@@ -846,6 +1223,8 @@ impl Key {
             | (KeyParams::Rsa(_), Algorithm::Ps512)
             | (KeyParams::Rsa(_), Algorithm::RsaOaep)
             | (KeyParams::Rsa(_), Algorithm::RsaOaep256)
+            | (KeyParams::Rsa(_), Algorithm::RsaOaep384)
+            | (KeyParams::Rsa(_), Algorithm::RsaOaep512)
             | (KeyParams::Rsa(_), Algorithm::Rsa1_5) => true,
 
             // HMAC algorithms require symmetric keys
@@ -1030,6 +1409,10 @@ impl std::fmt::Debug for Key {
     }
 }
 
+/// Equality is based on the key type, key ID, use, operations, algorithm,
+/// and key material parameters. X.509 certificate fields (`x5c`, `x5t`,
+/// `x5t#S256`, `x5u`) are **not** compared, because two representations
+/// of the same cryptographic key may carry different certificate metadata.
 impl PartialEq for Key {
     fn eq(&self, other: &Self) -> bool {
         self.kty == other.kty
@@ -1042,6 +1425,19 @@ impl PartialEq for Key {
 }
 
 impl Eq for Key {}
+
+impl std::hash::Hash for Key {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Same fields as PartialEq: kty, kid, key_use, key_ops, alg, params
+        // Excludes X.509 fields, consistent with the PartialEq contract.
+        self.kty.hash(state);
+        self.kid.hash(state);
+        self.key_use.hash(state);
+        self.key_ops.hash(state);
+        self.alg.hash(state);
+        self.params.hash(state);
+    }
+}
 
 // Custom serialization for Key that flattens the params
 impl Serialize for Key {

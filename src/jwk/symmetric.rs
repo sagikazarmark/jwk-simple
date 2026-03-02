@@ -145,6 +145,12 @@ impl PartialEq for SymmetricParams {
 
 impl Eq for SymmetricParams {}
 
+impl std::hash::Hash for SymmetricParams {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.k.hash(state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

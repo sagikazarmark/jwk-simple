@@ -239,6 +239,15 @@ impl PartialEq for EcParams {
 
 impl Eq for EcParams {}
 
+impl std::hash::Hash for EcParams {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.crv.hash(state);
+        self.x.hash(state);
+        self.y.hash(state);
+        self.d.hash(state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
