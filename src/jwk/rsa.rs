@@ -17,6 +17,15 @@ use crate::error::{Error, Result, ValidationError};
 /// except for the value zero itself which is represented as a single zero byte.
 fn validate_base64url_uint(value: &Base64UrlBytes, name: &str) -> Result<()> {
     let bytes = value.as_bytes();
+    if bytes.is_empty() {
+        return Err(Error::Validation(ValidationError::InvalidParameter {
+            name: "Base64urlUInt",
+            reason: format!(
+                "RFC 7518: '{}' must be a non-empty Base64urlUInt value",
+                name
+            ),
+        }));
+    }
     if bytes.len() > 1 && bytes[0] == 0 {
         return Err(Error::Validation(ValidationError::InvalidParameter {
             name: "Base64urlUInt",
@@ -348,6 +357,13 @@ impl RsaParams {
 
             // Validate each entry in oth
             if let Some(ref oth) = self.oth {
+                if oth.is_empty() {
+                    return Err(Error::Validation(ValidationError::InvalidParameter {
+                        name: "oth",
+                        reason: "RFC 7518: 'oth' must contain one or more entries when present"
+                            .to_string(),
+                    }));
+                }
                 for (i, prime) in oth.iter().enumerate() {
                     prime.validate().map_err(|e| {
                         Error::Validation(ValidationError::InconsistentParameters(format!(
@@ -641,6 +657,38 @@ mod tests {
             dq: None,
             qi: None,
             oth: None,
+        };
+        assert!(params.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_private_integer() {
+        let params = RsaParams {
+            n: Base64UrlBytes::new(vec![1]),
+            e: Base64UrlBytes::new(vec![1]),
+            d: Some(Base64UrlBytes::new(vec![])),
+            p: None,
+            q: None,
+            dp: None,
+            dq: None,
+            qi: None,
+            oth: None,
+        };
+        assert!(params.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_oth_array() {
+        let params = RsaParams {
+            n: Base64UrlBytes::new(vec![1]),
+            e: Base64UrlBytes::new(vec![1]),
+            d: Some(Base64UrlBytes::new(vec![1])),
+            p: Some(Base64UrlBytes::new(vec![1])),
+            q: Some(Base64UrlBytes::new(vec![1])),
+            dp: Some(Base64UrlBytes::new(vec![1])),
+            dq: Some(Base64UrlBytes::new(vec![1])),
+            qi: Some(Base64UrlBytes::new(vec![1])),
+            oth: Some(vec![]),
         };
         assert!(params.validate().is_err());
     }

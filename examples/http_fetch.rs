@@ -46,22 +46,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // For production use, wrap with InMemoryCachedKeyStore for TTL-based caching
-    println!("\n--- Using InMemoryCachedKeyStore for production ---");
-    use jwk_simple::InMemoryCachedKeyStore;
+    #[cfg(feature = "cache-inmemory")]
+    {
+        // For production use, wrap with InMemoryCachedKeyStore for TTL-based caching
+        println!("\n--- Using InMemoryCachedKeyStore for production ---");
+        use jwk_simple::InMemoryCachedKeyStore;
 
-    let cached = InMemoryCachedKeyStore::with_ttl(
-        RemoteKeyStore::new(google_jwks_url)?,
-        Duration::from_secs(300), // 5 minute TTL
-    );
+        let cached = InMemoryCachedKeyStore::with_ttl(
+            RemoteKeyStore::new(google_jwks_url)?,
+            Duration::from_secs(300), // 5 minute TTL
+        );
 
-    // First call fetches from network
-    let _jwks = cached.get_keyset().await?;
-    println!("First call: fetched from network");
+        // First call fetches from network
+        let _jwks = cached.get_keyset().await?;
+        println!("First call: fetched from network");
 
-    // Second call uses cache
-    let _jwks = cached.get_keyset().await?;
-    println!("Second call: served from cache");
+        // Second call uses cache
+        let _jwks = cached.get_keyset().await?;
+        println!("Second call: served from cache");
+    }
+
+    #[cfg(not(feature = "cache-inmemory"))]
+    {
+        println!("\nTip: enable 'cache-inmemory' to use InMemoryCachedKeyStore.");
+        println!("Run with: cargo run --example http_fetch --features \"http cache-inmemory\"");
+    }
 
     Ok(())
 }

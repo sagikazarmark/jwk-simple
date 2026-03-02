@@ -434,7 +434,11 @@ impl KeySet {
     ///
     /// This combines compatibility matching with a signing-key filter: a key matches
     /// if it is compatible with the given algorithm (by key type/curve, not just the
-    /// `alg` field) AND it is a signing key (i.e., `use` is `"sig"` or unspecified).
+    /// `alg` field) AND it is a signing key.
+    ///
+    /// Signing-key determination is:
+    /// - if `key_ops` is present, it must contain `sign` or `verify`
+    /// - otherwise, `use` must be `"sig"` or unspecified
     ///
     /// This is the recommended lookup method for JWKS consumers that need to
     /// verify JWT signatures, as it handles keys both with and without an explicit
@@ -462,7 +466,9 @@ impl KeySet {
     ///
     /// This combines algorithm matching with a signing-key filter: a key matches
     /// if its `alg` field equals the given algorithm AND it is a signing key
-    /// (i.e., `use` is `"sig"` or unspecified).
+    /// according to the same rules as [`signing_keys`](KeySet::signing_keys):
+    /// - if `key_ops` is present, it must contain `sign` or `verify`
+    /// - otherwise, `use` must be `"sig"` or unspecified
     ///
     /// This is the most common lookup pattern for JWKS consumers that need to
     /// verify JWT signatures.

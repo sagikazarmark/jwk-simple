@@ -207,6 +207,8 @@ mod key_ops_parameter {
 mod alg_parameter {
     use super::*;
 
+    const RSA_2048_N: &str = "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw";
+
     #[test]
     fn test_alg_optional() {
         let json = r#"{"kty": "RSA", "n": "AQAB", "e": "AQAB"}"#;
@@ -225,8 +227,8 @@ mod alg_parameter {
             ("PS512", Algorithm::Ps512),
         ] {
             let json = format!(
-                r#"{{"kty": "RSA", "alg": "{}", "n": "AQAB", "e": "AQAB"}}"#,
-                alg_str
+                r#"{{"kty": "RSA", "alg": "{}", "n": "{}", "e": "AQAB"}}"#,
+                alg_str, RSA_2048_N
             );
             let jwk: Key = serde_json::from_str(&json).unwrap();
             assert_eq!(jwk.alg, Some(alg_enum));
@@ -256,6 +258,28 @@ mod alg_parameter {
         assert!(
             result.is_err(),
             "RS256 with symmetric key should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_alg_rsa_key_size_minimum_enforced() {
+        // RS256 requires RSA modulus >= 2048 bits.
+        let json = r#"{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        assert!(
+            jwk.validate().is_err(),
+            "RS256 should reject RSA keys smaller than 2048 bits"
+        );
+    }
+
+    #[test]
+    fn test_alg_hs256_key_size_minimum_enforced() {
+        // HS256 requires key length >= 256 bits.
+        let json = r#"{"kty": "oct", "alg": "HS256", "k": "AQAB"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        assert!(
+            jwk.validate().is_err(),
+            "HS256 should reject keys smaller than 256 bits"
         );
     }
 }
@@ -392,8 +416,28 @@ mod x5c_parameter {
         );
         let jwk: Key = serde_json::from_str(&json).unwrap();
         assert!(
+            jwk.validate().is_err(),
+            "x5c certificate public key MUST match JWK key material"
+        );
+    }
+
+    #[test]
+    fn test_x5c_valid_der_certificate_with_matching_key() {
+        // Same TEST_CERT, but with matching EC P-256 key material extracted from cert.
+        let json = format!(
+            r#"{{
+                "kty": "EC",
+                "crv": "P-256",
+                "x5c": ["{}"],
+                "x": "eXgQGgNDS5eXfJgrSTRh25w1DnYdu8g_zYhT4o_7TmA",
+                "y": "bgsnNuWe_E7-lA-25VtFXmktQIrp80YyGoitGsay3z4"
+            }}"#,
+            TEST_CERT
+        );
+        let jwk: Key = serde_json::from_str(&json).unwrap();
+        assert!(
             jwk.validate().is_ok(),
-            "Valid DER certificate should pass validation"
+            "Matching cert and JWK public key should validate"
         );
     }
 
@@ -418,7 +462,13 @@ mod x5c_parameter {
         // Standard base64 uses '+' and '/' - the test cert contains these characters
         // Just verify parsing succeeds (the cert above naturally contains + and /)
         let json = format!(
-            r#"{{"kty": "RSA", "x5c": ["{}"], "n": "AQAB", "e": "AQAB"}}"#,
+            r#"{{
+                "kty": "EC",
+                "crv": "P-256",
+                "x5c": ["{}"],
+                "x": "eXgQGgNDS5eXfJgrSTRh25w1DnYdu8g_zYhT4o_7TmA",
+                "y": "bgsnNuWe_E7-lA-25VtFXmktQIrp80YyGoitGsay3z4"
+            }}"#,
             TEST_CERT
         );
         let jwk: Key = serde_json::from_str(&json).unwrap();
@@ -444,7 +494,13 @@ mod x5c_parameter {
     fn test_x5c_array_multiple_certs() {
         // Array can contain certificate chain - use same cert twice for simplicity
         let json = format!(
-            r#"{{"kty": "RSA", "x5c": ["{}", "{}"], "n": "AQAB", "e": "AQAB"}}"#,
+            r#"{{
+                "kty": "EC",
+                "crv": "P-256",
+                "x5c": ["{}", "{}"],
+                "x": "eXgQGgNDS5eXfJgrSTRh25w1DnYdu8g_zYhT4o_7TmA",
+                "y": "bgsnNuWe_E7-lA-25VtFXmktQIrp80YyGoitGsay3z4"
+            }}"#,
             TEST_CERT, TEST_CERT
         );
         let jwk: Key = serde_json::from_str(&json).unwrap();

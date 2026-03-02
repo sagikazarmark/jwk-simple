@@ -44,6 +44,7 @@ pub use symmetric::SymmetricParams;
 use std::collections::HashSet;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use x509_parser::prelude::parse_x509_certificate;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::encoding::Base64UrlBytes;
@@ -866,6 +867,8 @@ impl Key {
 
         // RFC 7517 Section 4.7: x5c contains "a chain of one or more PKIX certificates"
         if let Some(ref certs) = self.x5c {
+            let mut first_cert_der: Option<Vec<u8>> = None;
+
             if certs.is_empty() {
                 return Err(Error::Validation(ValidationError::InvalidParameter {
                     name: "x5c",
@@ -901,6 +904,10 @@ impl Key {
                 // Decode and validate basic DER certificate structure
                 use base64ct::{Base64, Encoding};
                 if let Ok(der_bytes) = Base64::decode_vec(cert) {
+                    if i == 0 {
+                        first_cert_der = Some(der_bytes.clone());
+                    }
+
                     if !is_valid_der_certificate(&der_bytes) {
                         return Err(Error::Validation(ValidationError::InvalidParameter {
                             name: "x5c",
@@ -917,6 +924,12 @@ impl Key {
                     }));
                 }
             }
+
+            // RFC 7517 Section 4.7: the key in the first certificate MUST match
+            // the public key represented by other JWK members.
+            if let Some(first_der) = first_cert_der {
+                self.validate_x5c_public_key_match(&first_der)?;
+            }
         }
 
         // RFC 7517 Section 4.8: x5t is base64url-encoded SHA-1 thumbprint (20 bytes)
@@ -932,6 +945,7 @@ impl Key {
         // Validate algorithm matches key type if specified
         if let Some(ref alg) = self.alg {
             self.validate_algorithm_key_type_match(alg)?;
+            self.validate_algorithm_key_strength(alg)?;
         }
 
         // Validate key parameters
@@ -1052,6 +1066,108 @@ impl Key {
                     self.kty().as_str()
                 ),
             )));
+        }
+
+        Ok(())
+    }
+
+    /// Validates algorithm-specific key strength requirements.
+    fn validate_algorithm_key_strength(&self, alg: &Algorithm) -> Result<()> {
+        match (&self.params, alg) {
+            (
+                KeyParams::Rsa(rsa),
+                Algorithm::Rs256
+                | Algorithm::Rs384
+                | Algorithm::Rs512
+                | Algorithm::Ps256
+                | Algorithm::Ps384
+                | Algorithm::Ps512
+                | Algorithm::Rsa1_5
+                | Algorithm::RsaOaep
+                | Algorithm::RsaOaep256
+                | Algorithm::RsaOaep384
+                | Algorithm::RsaOaep512,
+            ) => rsa.validate_key_size(2048),
+            (KeyParams::Symmetric(sym), Algorithm::Hs256) => sym.validate_min_size(256),
+            (KeyParams::Symmetric(sym), Algorithm::Hs384) => sym.validate_min_size(384),
+            (KeyParams::Symmetric(sym), Algorithm::Hs512) => sym.validate_min_size(512),
+            _ => Ok(()),
+        }
+    }
+
+    /// Validates that the first `x5c` certificate public key matches JWK key material.
+    fn validate_x5c_public_key_match(&self, cert_der: &[u8]) -> Result<()> {
+        let (_, cert) = parse_x509_certificate(cert_der).map_err(|_| {
+            Error::Validation(ValidationError::InvalidParameter {
+                name: "x5c",
+                reason: "RFC 7517: x5c[0] is not a parseable X.509 certificate".to_string(),
+            })
+        })?;
+
+        let spki = &cert.tbs_certificate.subject_pki;
+        let cert_alg_oid = spki.algorithm.algorithm.to_id_string();
+        let cert_key = spki.subject_public_key.data.as_ref();
+
+        match &self.params {
+            KeyParams::Rsa(rsa) => {
+                if cert_alg_oid != "1.2.840.113549.1.1.1" {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        "RFC 7517: x5c[0] public key algorithm does not match JWK RSA key"
+                            .to_string(),
+                    )));
+                }
+
+                let expected_der = encode_rsa_public_key_der(rsa.n.as_bytes(), rsa.e.as_bytes());
+                if cert_key != expected_der.as_slice() {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        "RFC 7517: x5c[0] public key does not match JWK RSA key parameters"
+                            .to_string(),
+                    )));
+                }
+            }
+            KeyParams::Ec(ec) => {
+                if cert_alg_oid != "1.2.840.10045.2.1" {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        "RFC 7517: x5c[0] public key algorithm does not match JWK EC key"
+                            .to_string(),
+                    )));
+                }
+
+                let expected_point = ec.to_uncompressed_point();
+                if cert_key != expected_point.as_slice() {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        "RFC 7517: x5c[0] public key does not match JWK EC key parameters"
+                            .to_string(),
+                    )));
+                }
+            }
+            KeyParams::Okp(okp) => {
+                let expected_oid = match okp.crv {
+                    OkpCurve::Ed25519 => "1.3.101.112",
+                    OkpCurve::Ed448 => "1.3.101.113",
+                    OkpCurve::X25519 => "1.3.101.110",
+                    OkpCurve::X448 => "1.3.101.111",
+                };
+
+                if cert_alg_oid != expected_oid {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        "RFC 7517: x5c[0] public key algorithm does not match JWK OKP key"
+                            .to_string(),
+                    )));
+                }
+
+                if cert_key != okp.x.as_bytes() {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        "RFC 7517: x5c[0] public key does not match JWK OKP key parameters"
+                            .to_string(),
+                    )));
+                }
+            }
+            KeyParams::Symmetric(_) => {
+                return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    "RFC 7517: x5c is not valid for symmetric (oct) keys".to_string(),
+                )));
+            }
         }
 
         Ok(())
@@ -1542,6 +1658,66 @@ fn parse_der_length(data: &[u8]) -> Option<(usize, usize)> {
 
         Some((length, 1 + num_bytes))
     }
+}
+
+/// Encodes a byte slice as a DER INTEGER.
+fn encode_der_integer(bytes: &[u8]) -> Vec<u8> {
+    if bytes.is_empty() {
+        return vec![0x02, 0x01, 0x00];
+    }
+
+    let bytes = {
+        let mut start = 0;
+        while start < bytes.len() - 1 && bytes[start] == 0 {
+            start += 1;
+        }
+        &bytes[start..]
+    };
+
+    let needs_padding = (bytes[0] & 0x80) != 0;
+    let len = bytes.len() + if needs_padding { 1 } else { 0 };
+
+    let mut der = Vec::with_capacity(2 + len + 2);
+    der.push(0x02);
+    encode_der_length(&mut der, len);
+    if needs_padding {
+        der.push(0);
+    }
+    der.extend_from_slice(bytes);
+    der
+}
+
+/// Encodes a DER length value.
+fn encode_der_length(der: &mut Vec<u8>, len: usize) {
+    if len < 128 {
+        der.push(len as u8);
+    } else if len < 256 {
+        der.push(0x81);
+        der.push(len as u8);
+    } else if len < 65536 {
+        der.push(0x82);
+        der.push((len >> 8) as u8);
+        der.push(len as u8);
+    } else {
+        der.push(0x83);
+        der.push((len >> 16) as u8);
+        der.push((len >> 8) as u8);
+        der.push(len as u8);
+    }
+}
+
+/// Encodes PKCS#1 RSAPublicKey DER (`SEQUENCE { n INTEGER, e INTEGER }`).
+fn encode_rsa_public_key_der(n: &[u8], e: &[u8]) -> Vec<u8> {
+    let n_der = encode_der_integer(n);
+    let e_der = encode_der_integer(e);
+
+    let content_len = n_der.len() + e_der.len();
+    let mut der = Vec::with_capacity(4 + content_len);
+    der.push(0x30);
+    encode_der_length(&mut der, content_len);
+    der.extend_from_slice(&n_der);
+    der.extend_from_slice(&e_der);
+    der
 }
 
 /// Validates that a string is valid standard base64 encoding.
