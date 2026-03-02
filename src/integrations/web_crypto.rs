@@ -766,7 +766,6 @@ impl Key {
     /// ```ignore
     /// let jwk = key.to_web_crypto_jwk()?;
     /// ```
-    #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub fn to_web_crypto_jwk(&self) -> Result<web_sys::JsonWebKey> {
         to_json_web_key(self)
@@ -783,7 +782,6 @@ impl Key {
     ///     let crypto_key = key.import_as_verify_key_for_alg(&alg).await?;
     /// }
     /// ```
-    #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub fn is_web_crypto_compatible(&self) -> bool {
         validate_webcrypto_support(self).is_ok()
@@ -800,7 +798,6 @@ impl Key {
     /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
     /// - [`Error::WebCrypto`] if the import operation fails or the key is missing
     ///   a required `alg` field (RSA/HMAC only)
-    #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub async fn import_as_verify_key(&self) -> Result<CryptoKey> {
         import_verify_key(self).await
@@ -816,7 +813,6 @@ impl Key {
     /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
     /// - [`Error::WebCrypto`] if the import operation fails or the key is missing
     ///   a required `alg` field (RSA/HMAC only)
-    #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub async fn import_as_sign_key(&self) -> Result<CryptoKey> {
         import_sign_key(self).await
@@ -828,7 +824,6 @@ impl Key {
     ///
     /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
     /// - [`Error::WebCrypto`] if the import operation fails
-    #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub async fn import_as_encrypt_key(&self) -> Result<CryptoKey> {
         import_encrypt_key(self).await
@@ -840,7 +835,6 @@ impl Key {
     ///
     /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
     /// - [`Error::WebCrypto`] if the import operation fails
-    #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub async fn import_as_decrypt_key(&self) -> Result<CryptoKey> {
         import_decrypt_key(self).await
@@ -857,7 +851,6 @@ impl Key {
     ///
     /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
     /// - [`Error::WebCrypto`] if the import operation fails
-    #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub async fn import_as_verify_key_for_alg(&self, alg: &Algorithm) -> Result<CryptoKey> {
         import_verify_key_for_alg(self, alg).await
@@ -872,7 +865,6 @@ impl Key {
     ///
     /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
     /// - [`Error::WebCrypto`] if the import operation fails
-    #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     pub async fn import_as_sign_key_for_alg(&self, alg: &Algorithm) -> Result<CryptoKey> {
         import_sign_key_for_alg(self, alg).await
