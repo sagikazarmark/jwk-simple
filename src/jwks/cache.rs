@@ -74,7 +74,7 @@ pub trait KeyCache {
 ///
 /// // Create a cached remote key store
 /// let cache = InMemoryKeyCache::new(Duration::from_secs(300));
-/// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
+/// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
 /// let cached = CachedKeyStore::new(cache, remote);
 ///
 /// // First call fetches from remote, caches the key set

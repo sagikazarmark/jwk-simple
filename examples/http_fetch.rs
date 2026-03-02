@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use jwk_simple::InMemoryCachedKeyStore;
 
     let cached = InMemoryCachedKeyStore::with_ttl(
-        RemoteKeyStore::new(google_jwks_url),
+        RemoteKeyStore::new(google_jwks_url)?,
         Duration::from_secs(300), // 5 minute TTL
     );
 

@@ -106,7 +106,7 @@ use jwk_simple::{KeyStore, RemoteKeyStore, InMemoryCachedKeyStore};
 use std::time::Duration;
 
 // Create remote key store (uses default 30s timeout)
-let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
+let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
 
 // For custom timeout, use a custom client
 let client = reqwest::Client::builder()
@@ -122,7 +122,7 @@ let jwks = remote.get_keyset().await?;
 
 // For production, wrap with caching (5 minute TTL)
 let cached = InMemoryCachedKeyStore::with_ttl(
-    RemoteKeyStore::new("https://example.com/.well-known/jwks.json"),
+    RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?,
     Duration::from_secs(300),
 );
 let key = cached.get_key("my-key-id").await?;
@@ -138,7 +138,7 @@ use std::time::Duration;
 
 // Create a cached remote key store
 let cached = InMemoryCachedKeyStore::with_ttl(
-    RemoteKeyStore::new("https://example.com/.well-known/jwks.json"),
+    RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?,
     Duration::from_secs(300), // 5 minute TTL
 );
 

@@ -24,7 +24,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// use jwk_simple::{RemoteKeyStore, InMemoryCachedKeyStore};
 /// use std::time::Duration;
 ///
-/// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
+/// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
 /// let cached = InMemoryCachedKeyStore::with_ttl(remote, Duration::from_secs(300));
 /// ```
 ///
@@ -33,7 +33,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// ```ignore
 /// use jwk_simple::{KeyStore, RemoteKeyStore};
 ///
-/// let store = RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
+/// let store = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
 /// let key = store.get_key("my-key-id").await?;
 /// ```
 ///
@@ -67,16 +67,15 @@ impl RemoteKeyStore {
     ///
     /// Uses a default HTTP client with a 30-second timeout. To customize the client,
     /// use [`new_with_client`](Self::new_with_client).
-    pub fn new(url: impl Into<String>) -> Self {
+    pub fn new(url: impl Into<String>) -> Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_TIMEOUT)
-            .build()
-            .expect("failed to build default HTTP client");
+            .build()?;
 
-        Self {
+        Ok(Self {
             url: url.into(),
             client,
-        }
+        })
     }
 
     /// Creates a new `RemoteKeyStore` with a custom HTTP client.
