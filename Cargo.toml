@@ -18,7 +18,7 @@ reqwest = { version = "0.13", optional = true, default-features = false, feature
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
-tokio = { version = "1.49", optional = true, features = ["sync"] }
+tokio = { version = "1.49", optional = true, features = ["sync", "time"] }
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 web-sys = { version = "0.3", optional = true, features = [
@@ -44,7 +44,7 @@ jwt-simple = ["dep:jwt-simple"]
 web-crypto = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys"]
 
 [dev-dependencies]
-tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "test-util"] }
 serde_json = "1.0"
 criterion = "0.8"
 wasm-bindgen-test = "0.3"

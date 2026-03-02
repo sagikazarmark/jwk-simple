@@ -423,12 +423,15 @@ fn build_symmetric_algorithm(
         Some(Algorithm::Hs256) => ("HMAC", Some(("hash", "SHA-256"))),
         Some(Algorithm::Hs384) => ("HMAC", Some(("hash", "SHA-384"))),
         Some(Algorithm::Hs512) => ("HMAC", Some(("hash", "SHA-512"))),
-        Some(Algorithm::A128kw) => ("AES-KW", Some(("length", "128"))),
-        Some(Algorithm::A192kw) => ("AES-KW", Some(("length", "192"))),
-        Some(Algorithm::A256kw) => ("AES-KW", Some(("length", "256"))),
-        Some(Algorithm::A128gcm) => ("AES-GCM", Some(("length", "128"))),
-        Some(Algorithm::A192gcm) => ("AES-GCM", Some(("length", "192"))),
-        Some(Algorithm::A256gcm) => ("AES-GCM", Some(("length", "256"))),
+        // AES-KW and AES-GCM importKey takes no algorithm parameters beyond the name.
+        // The key size is determined from the imported key material itself.
+        // See W3C WebCrypto spec sections 30.3.4 (AES-KW) and 29.4.4 (AES-GCM).
+        Some(Algorithm::A128kw) | Some(Algorithm::A192kw) | Some(Algorithm::A256kw) => {
+            ("AES-KW", None)
+        }
+        Some(Algorithm::A128gcm) | Some(Algorithm::A192gcm) | Some(Algorithm::A256gcm) => {
+            ("AES-GCM", None)
+        }
         Some(Algorithm::A128cbcHs256)
         | Some(Algorithm::A192cbcHs384)
         | Some(Algorithm::A256cbcHs512) => {
@@ -452,17 +455,12 @@ fn build_symmetric_algorithm(
         .map_err(|e| Error::WebCrypto(format!("failed to set algorithm name: {:?}", e)))?;
 
     if let Some((prop, val)) = extra {
-        if prop == "hash" {
-            let hash_obj = Object::new();
-            Reflect::set(&hash_obj, &"name".into(), &val.into())
-                .map_err(|e| Error::WebCrypto(format!("failed to set hash name: {:?}", e)))?;
-            Reflect::set(&obj, &"hash".into(), &hash_obj.into())
-                .map_err(|e| Error::WebCrypto(format!("failed to set hash: {:?}", e)))?;
-        } else if prop == "length" {
-            let length: u32 = val.parse().unwrap_or(256);
-            Reflect::set(&obj, &"length".into(), &length.into())
-                .map_err(|e| Error::WebCrypto(format!("failed to set length: {:?}", e)))?;
-        }
+        debug_assert_eq!(prop, "hash", "only HMAC uses extra parameters");
+        let hash_obj = Object::new();
+        Reflect::set(&hash_obj, &"name".into(), &val.into())
+            .map_err(|e| Error::WebCrypto(format!("failed to set hash name: {:?}", e)))?;
+        Reflect::set(&obj, &"hash".into(), &hash_obj.into())
+            .map_err(|e| Error::WebCrypto(format!("failed to set hash: {:?}", e)))?;
     }
 
     Ok(obj)

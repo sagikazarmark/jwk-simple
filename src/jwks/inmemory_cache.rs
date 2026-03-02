@@ -18,7 +18,7 @@ pub const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(300);
 /// Internal cache entry with timestamp.
 struct CacheEntry {
     keyset: KeySet,
-    inserted_at: std::time::Instant,
+    inserted_at: tokio::time::Instant,
 }
 
 /// An in-memory key cache with TTL-based expiration.
@@ -95,7 +95,7 @@ impl KeyCache for InMemoryKeyCache {
         let mut entry = self.entry.write().await;
         *entry = Some(CacheEntry {
             keyset,
-            inserted_at: std::time::Instant::now(),
+            inserted_at: tokio::time::Instant::now(),
         });
     }
 
@@ -129,6 +129,7 @@ impl<S> InMemoryCachedKeyStore<S> {
 mod tests {
     use super::*;
     use crate::jwks::KeyStore;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
     async fn test_in_memory_cache_basic() {
@@ -151,20 +152,22 @@ mod tests {
         assert!(cache.get().await.is_none());
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_in_memory_cache_expiration() {
         let json = r#"{"keys": [{"kty": "oct", "kid": "test-key", "k": "AQAB"}]}"#;
         let keyset: KeySet = serde_json::from_str(json).unwrap();
 
-        // Very short TTL
-        let cache = InMemoryKeyCache::new(Duration::from_millis(50));
+        let cache = InMemoryKeyCache::new(Duration::from_secs(300));
 
         cache.set(keyset).await;
         assert!(cache.get().await.is_some());
 
-        // Wait for expiration
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Advance time just before TTL — should still be cached
+        tokio::time::advance(Duration::from_secs(299)).await;
+        assert!(cache.get().await.is_some());
 
+        // Advance past the TTL boundary — should be expired
+        tokio::time::advance(Duration::from_secs(2)).await;
         assert!(cache.get().await.is_none());
     }
 
@@ -234,5 +237,90 @@ mod tests {
         // Invalidate
         cached.invalidate().await;
         assert!(cached.cache().get().await.is_none());
+    }
+
+    /// A mock KeyStore that returns different keysets on successive calls,
+    /// simulating key rotation at the source.
+    struct RotatingKeyStore {
+        keysets: Vec<KeySet>,
+        call_count: AtomicUsize,
+    }
+
+    impl RotatingKeyStore {
+        fn new(keysets: Vec<KeySet>) -> Self {
+            Self {
+                keysets,
+                call_count: AtomicUsize::new(0),
+            }
+        }
+
+        /// Returns the number of times `get_keyset` has been called.
+        fn fetch_count(&self) -> usize {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    impl KeyStore for RotatingKeyStore {
+        async fn get_keyset(&self) -> crate::error::Result<KeySet> {
+            let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
+            // Return the last keyset if we've exhausted the list
+            let keyset = self
+                .keysets
+                .get(idx)
+                .unwrap_or_else(|| self.keysets.last().unwrap());
+            Ok(keyset.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cached_key_store_refetches_on_unknown_kid() {
+        // Simulate key rotation: initial keyset has "old-key", rotated keyset adds "new-key"
+        let initial: KeySet =
+            serde_json::from_str(r#"{"keys": [{"kty": "oct", "kid": "old-key", "k": "AQAB"}]}"#)
+                .unwrap();
+        let rotated: KeySet = serde_json::from_str(
+            r#"{"keys": [
+                {"kty": "oct", "kid": "old-key", "k": "AQAB"},
+                {"kty": "oct", "kid": "new-key", "k": "AQAB"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let source = RotatingKeyStore::new(vec![initial, rotated]);
+        let cached = CachedKeyStore::new(InMemoryKeyCache::new(Duration::from_secs(300)), source);
+
+        // First lookup: populates cache from initial keyset
+        let key = cached.get_key("old-key").await.unwrap();
+        assert!(key.is_some(), "old-key should be found");
+        assert_eq!(cached.source().fetch_count(), 1);
+
+        // Second lookup for same key: should use cache, no refetch
+        let key = cached.get_key("old-key").await.unwrap();
+        assert!(key.is_some(), "old-key should still be found from cache");
+        assert_eq!(
+            cached.source().fetch_count(),
+            1,
+            "should not refetch for cached key"
+        );
+
+        // Lookup new-key: not in cache, should trigger refetch from rotated keyset
+        let key = cached.get_key("new-key").await.unwrap();
+        assert!(key.is_some(), "new-key should be found after refetch");
+        assert_eq!(
+            cached.source().fetch_count(),
+            2,
+            "should refetch when key not in cache"
+        );
+
+        // Verify new-key is now cached (no additional fetch)
+        let key = cached.get_key("new-key").await.unwrap();
+        assert!(key.is_some(), "new-key should be in cache now");
+        assert_eq!(
+            cached.source().fetch_count(),
+            2,
+            "should not refetch for newly cached key"
+        );
     }
 }

@@ -913,6 +913,7 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let parsed: KeySet = serde_json::from_str(&json).unwrap();
         assert_eq!(original.len(), parsed.len());
+        assert_eq!(original.keys(), parsed.keys());
     }
 
     #[test]
