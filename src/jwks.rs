@@ -10,18 +10,18 @@ use crate::error::Result;
 use crate::jwk::{Algorithm, Key, KeyType, KeyUse};
 
 mod cache;
-#[cfg(feature = "http")]
-mod remote;
-#[cfg(feature = "cache-inmemory")]
-mod inmemory_cache;
 #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
 pub mod cloudflare;
+#[cfg(feature = "cache-inmemory")]
+mod inmemory_cache;
+#[cfg(feature = "http")]
+mod remote;
 
 pub use cache::{CachedKeySet, KeyCache};
-#[cfg(feature = "http")]
-pub use remote::{RemoteKeySet, DEFAULT_TIMEOUT};
 #[cfg(feature = "cache-inmemory")]
-pub use inmemory_cache::{InMemoryCachedKeySet, InMemoryKeyCache, DEFAULT_CACHE_TTL};
+pub use inmemory_cache::{DEFAULT_CACHE_TTL, InMemoryCachedKeySet, InMemoryKeyCache};
+#[cfg(feature = "http")]
+pub use remote::{DEFAULT_TIMEOUT, RemoteKeySet};
 
 /// A trait for types that can provide JWK keys.
 ///
@@ -392,6 +392,64 @@ impl KeySet {
         self.signing_keys().into_iter().next()
     }
 
+    /// Returns the first key matching the specified algorithm, if any.
+    ///
+    /// This is a convenience method that returns a single key instead of the
+    /// vector returned by [`find_by_alg`].
+    ///
+    /// # Arguments
+    ///
+    /// * `alg` - The algorithm to search for.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::{KeySet, Algorithm};
+    ///
+    /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
+    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
+    ///
+    /// let key = jwks.find_first_by_alg(&Algorithm::Rs256);
+    /// assert!(key.is_some());
+    /// ```
+    pub fn find_first_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
+        self.keys.iter().find(|k| k.alg.as_ref() == Some(alg))
+    }
+
+    /// Returns the first signing key matching the specified algorithm, if any.
+    ///
+    /// This combines algorithm matching with a signing-key filter: a key matches
+    /// if its `alg` field equals the given algorithm AND it is a signing key
+    /// (i.e., `use` is `"sig"` or unspecified).
+    ///
+    /// This is the most common lookup pattern for JWKS consumers that need to
+    /// verify JWT signatures.
+    ///
+    /// # Arguments
+    ///
+    /// * `alg` - The algorithm to search for.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::{KeySet, Algorithm};
+    ///
+    /// let json = r#"{"keys": [
+    ///     {"kty": "RSA", "alg": "RS256", "use": "enc", "n": "AQAB", "e": "AQAB"},
+    ///     {"kty": "RSA", "alg": "RS256", "use": "sig", "kid": "signing-key", "n": "AQAB", "e": "AQAB"}
+    /// ]}"#;
+    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
+    ///
+    /// let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
+    /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
+    /// ```
+    pub fn find_signing_key_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
+        self.keys.iter().find(|k| {
+            k.alg.as_ref() == Some(alg)
+                && (k.key_use.is_none() || k.key_use.as_ref() == Some(&KeyUse::Signature))
+        })
+    }
+
     /// Returns the first key, if any.
     ///
     /// # Examples
@@ -433,9 +491,7 @@ impl KeySet {
     ///
     /// A reference to the key, or `None` if not found.
     pub fn find_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
-        self.keys
-            .iter()
-            .find(|k| k.thumbprint() == thumbprint)
+        self.keys.iter().find(|k| k.thumbprint() == thumbprint)
     }
 }
 
@@ -568,6 +624,69 @@ mod tests {
     }
 
     #[test]
+    fn test_find_first_by_alg() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+
+        let key = jwks.find_first_by_alg(&Algorithm::Rs256);
+        assert!(key.is_some());
+        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-key-1"));
+
+        let key = jwks.find_first_by_alg(&Algorithm::Es256);
+        assert!(key.is_some());
+        assert_eq!(key.unwrap().kid.as_deref(), Some("ec-key-1"));
+
+        let missing = jwks.find_first_by_alg(&Algorithm::Ps512);
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_find_signing_key_by_alg() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa-enc", "alg": "RS256", "use": "enc", "n": "AQAB", "e": "AQAB"},
+            {"kty": "RSA", "kid": "rsa-sig", "alg": "RS256", "use": "sig", "n": "AQAB", "e": "AQAB"},
+            {"kty": "EC", "kid": "ec-sig", "alg": "ES256", "use": "sig", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        // Should find the signing key, not the encryption key
+        let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
+        assert!(key.is_some());
+        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-sig"));
+
+        // Should find ES256 signing key
+        let key = jwks.find_signing_key_by_alg(&Algorithm::Es256);
+        assert!(key.is_some());
+        assert_eq!(key.unwrap().kid.as_deref(), Some("ec-sig"));
+
+        // No PS512 key exists
+        assert!(jwks.find_signing_key_by_alg(&Algorithm::Ps512).is_none());
+    }
+
+    #[test]
+    fn test_find_signing_key_by_alg_no_use() {
+        // Keys without "use" should be treated as signing keys
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa-no-use", "alg": "RS256", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
+        assert!(key.is_some());
+        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-no-use"));
+    }
+
+    #[test]
+    fn test_find_signing_key_by_alg_only_enc() {
+        // Only encryption keys — should return None
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa-enc", "alg": "RS256", "use": "enc", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        assert!(jwks.find_signing_key_by_alg(&Algorithm::Rs256).is_none());
+    }
+
+    #[test]
     fn test_empty_jwks() {
         let jwks = KeySet::new();
         assert!(jwks.is_empty());
@@ -591,10 +710,7 @@ mod tests {
         let count = jwks.iter().count();
         assert_eq!(count, 3);
 
-        let kids: Vec<_> = jwks
-            .iter()
-            .filter_map(|k| k.kid.as_deref())
-            .collect();
+        let kids: Vec<_> = jwks.iter().filter_map(|k| k.kid.as_deref()).collect();
         assert!(kids.contains(&"rsa-key-1"));
     }
 

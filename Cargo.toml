@@ -12,6 +12,7 @@ categories = ["authentication", "cryptography", "wasm"]
 [dependencies]
 async-trait = "0.1"
 base64ct = { version = "1.8", features = ["alloc"] }
+js-sys = { version = "0.3", optional = true }
 jwt-simple = { version = "0.12", optional = true, default-features = false, features = ["pure-rust"] }
 reqwest = { version = "0.13", optional = true, default-features = false, features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -20,6 +21,15 @@ sha2 = "0.10"
 subtle = "2.6"
 thiserror = "2.0"
 tokio = { version = "1.49", optional = true, features = ["sync"] }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+    "Crypto",
+    "CryptoKey",
+    "SubtleCrypto",
+    "Window",
+    "WorkerGlobalScope",
+] }
 worker = { version = "0.7", optional = true }
 zeroize = { version = "1.8", features = ["derive"] }
 
@@ -32,11 +42,13 @@ cache-inmemory = ["dep:tokio"]
 cloudflare = ["dep:worker"]
 http = ["dep:reqwest"]
 jwt-simple = ["dep:jwt-simple"]
+web-crypto = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys"]
 
 [dev-dependencies]
 tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }
 serde_json = "1.0"
 criterion = "0.8"
+wasm-bindgen-test = "0.3"
 
 [[bench]]
 name = "benchmarks"

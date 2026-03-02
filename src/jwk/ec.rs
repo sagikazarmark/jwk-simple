@@ -129,7 +129,12 @@ impl EcParams {
     /// * `x` - The x coordinate.
     /// * `y` - The y coordinate.
     /// * `d` - The private key scalar.
-    pub fn new_private(crv: EcCurve, x: Base64UrlBytes, y: Base64UrlBytes, d: Base64UrlBytes) -> Self {
+    pub fn new_private(
+        crv: EcCurve,
+        x: Base64UrlBytes,
+        y: Base64UrlBytes,
+        d: Base64UrlBytes,
+    ) -> Self {
         Self {
             crv,
             x,
@@ -179,13 +184,14 @@ impl EcParams {
 
         // Validate d parameter size if present
         if let Some(ref d) = self.d
-            && d.len() != expected_size {
-                return Err(Error::Validation(ValidationError::InvalidKeySize {
-                    expected: expected_size,
-                    actual: d.len(),
-                    context: "EC private key d",
-                }));
-            }
+            && d.len() != expected_size
+        {
+            return Err(Error::Validation(ValidationError::InvalidKeySize {
+                expected: expected_size,
+                actual: d.len(),
+                context: "EC private key d",
+            }));
+        }
 
         Ok(())
     }

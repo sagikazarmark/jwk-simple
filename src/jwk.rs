@@ -735,12 +735,13 @@ impl Key {
 
         // RFC 7517 Section 4.6: x5u MUST use TLS (HTTPS)
         if let Some(ref url) = self.x5u
-            && !url.starts_with("https://") {
-                return Err(Error::Validation(ValidationError::InvalidParameter {
-                    name: "x5u",
-                    reason: "RFC 7517: x5u URL must use HTTPS for integrity protection".to_string(),
-                }));
-            }
+            && !url.starts_with("https://")
+        {
+            return Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5u",
+                reason: "RFC 7517: x5u URL must use HTTPS for integrity protection".to_string(),
+            }));
+        }
 
         // RFC 7517 Section 4.7: x5c values are base64 encoded (NOT base64url)
         if let Some(ref certs) = self.x5c {
@@ -808,15 +809,34 @@ impl Key {
         self.params.validate()
     }
 
-    /// Validates that the algorithm matches the key type.
-    fn validate_algorithm_key_type_match(&self, alg: &Algorithm) -> Result<()> {
+    /// Returns `true` if this key's type (and curve, where applicable) is
+    /// compatible with the given algorithm per RFC 7518.
+    ///
+    /// This checks that the key type matches what the algorithm requires.
+    /// For example, an RSA key is compatible with RS256 but not with ES256.
+    /// For EC keys, the curve is also checked (e.g., P-256 for ES256).
+    ///
+    /// Unknown algorithms always return `false` since their requirements
+    /// cannot be determined.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::{Key, Algorithm};
+    ///
+    /// let json = r#"{"kty":"RSA","n":"AQAB","e":"AQAB"}"#;
+    /// let key: Key = serde_json::from_str(json).unwrap();
+    ///
+    /// assert!(key.is_algorithm_compatible(&Algorithm::Rs256));
+    /// assert!(!key.is_algorithm_compatible(&Algorithm::Es256));
+    /// ```
+    pub fn is_algorithm_compatible(&self, alg: &Algorithm) -> bool {
         // Unknown algorithms cannot be validated against key types
-        // Per RFC 7517, we accept them but cannot verify compatibility
         if alg.is_unknown() {
-            return Ok(());
+            return false;
         }
 
-        let valid = match (&self.params, alg) {
+        match (&self.params, alg) {
             // RSA algorithms require RSA keys
             (KeyParams::Rsa(_), Algorithm::Rs256)
             | (KeyParams::Rsa(_), Algorithm::Rs384)
@@ -880,11 +900,20 @@ impl Key {
                 okp.crv == OkpCurve::X25519 || okp.crv == OkpCurve::X448
             }
 
-            // All other combinations are invalid (including Unknown which is handled above)
+            // All other combinations are invalid
             _ => false,
-        };
+        }
+    }
 
-        if !valid {
+    /// Validates that the algorithm matches the key type.
+    fn validate_algorithm_key_type_match(&self, alg: &Algorithm) -> Result<()> {
+        // Unknown algorithms cannot be validated against key types
+        // Per RFC 7517, we accept them but cannot verify compatibility
+        if alg.is_unknown() {
+            return Ok(());
+        }
+
+        if !self.is_algorithm_compatible(alg) {
             return Err(Error::Validation(ValidationError::InconsistentParameters(
                 format!(
                     "algorithm '{}' is not compatible with key type '{}'",
@@ -1203,12 +1232,8 @@ impl<'de> Deserialize<'de> for Key {
 
         let params = match kty {
             KeyType::Rsa => {
-                let n = raw
-                    .n
-                    .ok_or_else(|| serde::de::Error::missing_field("n"))?;
-                let e = raw
-                    .e
-                    .ok_or_else(|| serde::de::Error::missing_field("e"))?;
+                let n = raw.n.ok_or_else(|| serde::de::Error::missing_field("n"))?;
+                let e = raw.e.ok_or_else(|| serde::de::Error::missing_field("e"))?;
 
                 KeyParams::Rsa(RsaParams {
                     n,
@@ -1227,12 +1252,8 @@ impl<'de> Deserialize<'de> for Key {
                     .crv
                     .ok_or_else(|| serde::de::Error::missing_field("crv"))?;
                 let crv: EcCurve = crv_str.parse().map_err(serde::de::Error::custom)?;
-                let x = raw
-                    .x
-                    .ok_or_else(|| serde::de::Error::missing_field("x"))?;
-                let y = raw
-                    .y
-                    .ok_or_else(|| serde::de::Error::missing_field("y"))?;
+                let x = raw.x.ok_or_else(|| serde::de::Error::missing_field("x"))?;
+                let y = raw.y.ok_or_else(|| serde::de::Error::missing_field("y"))?;
 
                 KeyParams::Ec(EcParams {
                     crv,
@@ -1242,9 +1263,7 @@ impl<'de> Deserialize<'de> for Key {
                 })
             }
             KeyType::Symmetric => {
-                let k = raw
-                    .k
-                    .ok_or_else(|| serde::de::Error::missing_field("k"))?;
+                let k = raw.k.ok_or_else(|| serde::de::Error::missing_field("k"))?;
 
                 KeyParams::Symmetric(SymmetricParams { k })
             }
@@ -1253,9 +1272,7 @@ impl<'de> Deserialize<'de> for Key {
                     .crv
                     .ok_or_else(|| serde::de::Error::missing_field("crv"))?;
                 let crv: OkpCurve = crv_str.parse().map_err(serde::de::Error::custom)?;
-                let x = raw
-                    .x
-                    .ok_or_else(|| serde::de::Error::missing_field("x"))?;
+                let x = raw.x.ok_or_else(|| serde::de::Error::missing_field("x"))?;
 
                 KeyParams::Okp(OkpParams { crv, x, d: raw.d })
             }
@@ -1391,7 +1408,11 @@ fn is_valid_base64(s: &str) -> bool {
 /// RFC 7517 Section 4.8 and 4.9: These are base64url-encoded certificate digests.
 /// - x5t: SHA-1 digest (20 bytes)
 /// - x5t#S256: SHA-256 digest (32 bytes)
-fn validate_x509_thumbprint(thumbprint: &str, param_name: &'static str, expected_bytes: usize) -> Result<()> {
+fn validate_x509_thumbprint(
+    thumbprint: &str,
+    param_name: &'static str,
+    expected_bytes: usize,
+) -> Result<()> {
     use base64ct::{Base64UrlUnpadded, Encoding};
 
     // Validate it's valid base64url
@@ -1520,5 +1541,70 @@ mod tests {
         let serialized = serde_json::to_string(&jwk).unwrap();
         let deserialized: Key = serde_json::from_str(&serialized).unwrap();
         assert_eq!(jwk, deserialized);
+    }
+
+    #[test]
+    fn test_is_algorithm_compatible_rsa() {
+        let json = r#"{"kty":"RSA","n":"AQAB","e":"AQAB"}"#;
+        let key: Key = serde_json::from_str(json).unwrap();
+
+        // RSA key should be compatible with RSA algorithms
+        assert!(key.is_algorithm_compatible(&Algorithm::Rs256));
+        assert!(key.is_algorithm_compatible(&Algorithm::Rs384));
+        assert!(key.is_algorithm_compatible(&Algorithm::Rs512));
+        assert!(key.is_algorithm_compatible(&Algorithm::Ps256));
+        assert!(key.is_algorithm_compatible(&Algorithm::Ps384));
+        assert!(key.is_algorithm_compatible(&Algorithm::Ps512));
+        assert!(key.is_algorithm_compatible(&Algorithm::RsaOaep));
+        assert!(key.is_algorithm_compatible(&Algorithm::RsaOaep256));
+
+        // RSA key should NOT be compatible with other algorithms
+        assert!(!key.is_algorithm_compatible(&Algorithm::Es256));
+        assert!(!key.is_algorithm_compatible(&Algorithm::Hs256));
+        assert!(!key.is_algorithm_compatible(&Algorithm::EdDsa));
+    }
+
+    #[test]
+    fn test_is_algorithm_compatible_ec() {
+        let p256_json = r#"{"kty":"EC","crv":"P-256","x":"MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4","y":"4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}"#;
+        let p256: Key = serde_json::from_str(p256_json).unwrap();
+
+        assert!(p256.is_algorithm_compatible(&Algorithm::Es256));
+        assert!(!p256.is_algorithm_compatible(&Algorithm::Es384));
+        assert!(!p256.is_algorithm_compatible(&Algorithm::Rs256));
+        assert!(!p256.is_algorithm_compatible(&Algorithm::Hs256));
+    }
+
+    #[test]
+    fn test_is_algorithm_compatible_symmetric() {
+        let json = r#"{"kty":"oct","k":"GawgguFyGrWKav7AX4VKUg"}"#;
+        let key: Key = serde_json::from_str(json).unwrap();
+
+        assert!(key.is_algorithm_compatible(&Algorithm::Hs256));
+        assert!(key.is_algorithm_compatible(&Algorithm::Hs384));
+        assert!(key.is_algorithm_compatible(&Algorithm::Hs512));
+        assert!(key.is_algorithm_compatible(&Algorithm::A128kw));
+
+        assert!(!key.is_algorithm_compatible(&Algorithm::Rs256));
+        assert!(!key.is_algorithm_compatible(&Algorithm::Es256));
+    }
+
+    #[test]
+    fn test_is_algorithm_compatible_okp() {
+        let json =
+            r#"{"kty":"OKP","crv":"Ed25519","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#;
+        let key: Key = serde_json::from_str(json).unwrap();
+
+        assert!(key.is_algorithm_compatible(&Algorithm::EdDsa));
+        assert!(!key.is_algorithm_compatible(&Algorithm::Rs256));
+        assert!(!key.is_algorithm_compatible(&Algorithm::Es256));
+    }
+
+    #[test]
+    fn test_is_algorithm_compatible_unknown_algorithm() {
+        let json = r#"{"kty":"RSA","n":"AQAB","e":"AQAB"}"#;
+        let key: Key = serde_json::from_str(json).unwrap();
+
+        assert!(!key.is_algorithm_compatible(&Algorithm::Unknown("CUSTOM".to_string())));
     }
 }

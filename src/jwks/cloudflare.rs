@@ -89,10 +89,9 @@ impl KeySet {
         .await
         .map_err(|e| crate::error::Error::Other(format!("fetch failed: {}", e)))?;
 
-        let text = response
-            .text()
-            .await
-            .map_err(|e| crate::error::Error::Other(format!("failed to read response body: {}", e)))?;
+        let text = response.text().await.map_err(|e| {
+            crate::error::Error::Other(format!("failed to read response body: {}", e))
+        })?;
 
         Ok(serde_json::from_str::<crate::jwks::KeySet>(&text)?)
     }

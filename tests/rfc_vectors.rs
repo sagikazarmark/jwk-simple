@@ -173,7 +173,9 @@ mod symmetric_keys {
         assert_eq!(params.key_size_bits(), 128); // 16 bytes * 8
 
         // Second key (HMAC)
-        let hmac_key = jwks.find_by_kid("HMAC key used in JWS A.1 example").unwrap();
+        let hmac_key = jwks
+            .find_by_kid("HMAC key used in JWS A.1 example")
+            .unwrap();
         assert_eq!(hmac_key.kty, KeyType::Symmetric);
 
         let hmac_params = hmac_key.as_symmetric().unwrap();

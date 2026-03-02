@@ -3,7 +3,7 @@
 //! These tests verify strict compliance with RFC 7517 (JSON Web Key)
 //! requirements, particularly Section 4 parameter validation.
 
-use jwk_simple::{Algorithm, Key, KeySet, KeyOperation, KeyType, KeyUse};
+use jwk_simple::{Algorithm, Key, KeyOperation, KeySet, KeyType, KeyUse};
 
 // ============================================================================
 // Section 4.1: "kty" (Key Type) Parameter - REQUIRED
@@ -32,7 +32,10 @@ mod kty_parameter {
         // RFC 7517: kty values are case-sensitive
         let json = r#"{"kty": "rsa", "n": "AQAB", "e": "AQAB"}"#;
         let result: Result<Key, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "kty should be case-sensitive ('RSA' not 'rsa')");
+        assert!(
+            result.is_err(),
+            "kty should be case-sensitive ('RSA' not 'rsa')"
+        );
     }
 
     #[test]
@@ -120,9 +123,16 @@ mod key_ops_parameter {
         let json = r#"{"kty": "RSA", "key_ops": ["sign", "sign"], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "Duplicate key_ops values should be rejected");
+        assert!(
+            result.is_err(),
+            "Duplicate key_ops values should be rejected"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("duplicate"), "Error should mention 'duplicate': {}", err);
+        assert!(
+            err.contains("duplicate"),
+            "Error should mention 'duplicate': {}",
+            err
+        );
     }
 
     #[test]
@@ -131,7 +141,10 @@ mod key_ops_parameter {
         let json = r#"{"kty": "RSA", "use": "sig", "key_ops": ["sign"], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "'use' and 'key_ops' together should be rejected");
+        assert!(
+            result.is_err(),
+            "'use' and 'key_ops' together should be rejected"
+        );
     }
 
     #[test]
@@ -168,10 +181,17 @@ mod alg_parameter {
             ("PS384", Algorithm::Ps384),
             ("PS512", Algorithm::Ps512),
         ] {
-            let json = format!(r#"{{"kty": "RSA", "alg": "{}", "n": "AQAB", "e": "AQAB"}}"#, alg_str);
+            let json = format!(
+                r#"{{"kty": "RSA", "alg": "{}", "n": "AQAB", "e": "AQAB"}}"#,
+                alg_str
+            );
             let jwk: Key = serde_json::from_str(&json).unwrap();
             assert_eq!(jwk.alg, Some(alg_enum));
-            assert!(jwk.validate().is_ok(), "RSA key with {} should validate", alg_str);
+            assert!(
+                jwk.validate().is_ok(),
+                "RSA key with {} should validate",
+                alg_str
+            );
         }
     }
 
@@ -190,7 +210,10 @@ mod alg_parameter {
         let json = r#"{"kty": "oct", "alg": "RS256", "k": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "RS256 with symmetric key should be rejected");
+        assert!(
+            result.is_err(),
+            "RS256 with symmetric key should be rejected"
+        );
     }
 }
 
@@ -235,17 +258,23 @@ mod x5u_parameter {
         // RFC 7517 Section 4.6: "The protocol used to acquire the resource MUST
         // provide integrity protection; an HTTP GET request to retrieve the
         // certificate MUST use TLS"
-        let json = r#"{"kty": "RSA", "x5u": "http://example.com/cert.pem", "n": "AQAB", "e": "AQAB"}"#;
+        let json =
+            r#"{"kty": "RSA", "x5u": "http://example.com/cert.pem", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
         assert!(result.is_err(), "HTTP x5u URL should be rejected");
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("HTTPS") || err.contains("https"), "Error should mention HTTPS: {}", err);
+        assert!(
+            err.contains("HTTPS") || err.contains("https"),
+            "Error should mention HTTPS: {}",
+            err
+        );
     }
 
     #[test]
     fn test_x5u_https_allowed() {
-        let json = r#"{"kty": "RSA", "x5u": "https://example.com/cert.pem", "n": "AQAB", "e": "AQAB"}"#;
+        let json =
+            r#"{"kty": "RSA", "x5u": "https://example.com/cert.pem", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         assert!(jwk.validate().is_ok());
     }
@@ -276,9 +305,16 @@ mod x5c_parameter {
         let json = r#"{"kty": "RSA", "x5c": ["SGVs-G8="], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "base64url-encoded x5c (with hyphen) should be rejected");
+        assert!(
+            result.is_err(),
+            "base64url-encoded x5c (with hyphen) should be rejected"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("base64"), "Error should mention base64: {}", err);
+        assert!(
+            err.contains("base64"),
+            "Error should mention base64: {}",
+            err
+        );
     }
 
     #[test]
@@ -287,9 +323,16 @@ mod x5c_parameter {
         let json = r#"{"kty": "RSA", "x5c": ["SGVs_G8="], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "base64url-encoded x5c (with underscore) should be rejected");
+        assert!(
+            result.is_err(),
+            "base64url-encoded x5c (with underscore) should be rejected"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("base64"), "Error should mention base64: {}", err);
+        assert!(
+            err.contains("base64"),
+            "Error should mention base64: {}",
+            err
+        );
     }
 
     // A minimal self-signed X.509 certificate (DER-encoded, base64)
@@ -305,7 +348,10 @@ mod x5c_parameter {
             TEST_CERT
         );
         let jwk: Key = serde_json::from_str(&json).unwrap();
-        assert!(jwk.validate().is_ok(), "Valid DER certificate should pass validation");
+        assert!(
+            jwk.validate().is_ok(),
+            "Valid DER certificate should pass validation"
+        );
     }
 
     #[test]
@@ -317,7 +363,11 @@ mod x5c_parameter {
         let result = jwk.validate();
         assert!(result.is_err(), "Non-DER data should be rejected");
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("DER") || err.contains("certificate"), "Error should mention DER certificate: {}", err);
+        assert!(
+            err.contains("DER") || err.contains("certificate"),
+            "Error should mention DER certificate: {}",
+            err
+        );
     }
 
     #[test]
@@ -329,7 +379,10 @@ mod x5c_parameter {
             TEST_CERT
         );
         let jwk: Key = serde_json::from_str(&json).unwrap();
-        assert!(jwk.validate().is_ok(), "Standard base64 with + and / should be valid");
+        assert!(
+            jwk.validate().is_ok(),
+            "Standard base64 with + and / should be valid"
+        );
     }
 
     #[test]
@@ -338,7 +391,10 @@ mod x5c_parameter {
         let json = r#"{"kty": "RSA", "x5c": ["Invalid!@#$%"], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "Invalid base64 characters should be rejected");
+        assert!(
+            result.is_err(),
+            "Invalid base64 characters should be rejected"
+        );
     }
 
     #[test]
@@ -448,7 +504,10 @@ mod jwk_set {
         }"#;
         let jwks = serde_json::from_str::<KeySet>(json).unwrap();
         let result = jwks.validate();
-        assert!(result.is_err(), "JWKS with invalid key should fail validation");
+        assert!(
+            result.is_err(),
+            "JWKS with invalid key should fail validation"
+        );
     }
 }
 
@@ -549,7 +608,10 @@ mod key_type_validation {
         // Has d and p, but missing q, dp, dq, qi
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "Partial RSA CRT parameters should be rejected");
+        assert!(
+            result.is_err(),
+            "Partial RSA CRT parameters should be rejected"
+        );
     }
 }
 
@@ -797,7 +859,10 @@ mod permissive_parsing {
         // Unknown algorithm should be parsed successfully
         let json = r#"{"kty": "RSA", "alg": "CUSTOM-ALG-256", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.alg, Some(Algorithm::Unknown("CUSTOM-ALG-256".to_string())));
+        assert_eq!(
+            jwk.alg,
+            Some(Algorithm::Unknown("CUSTOM-ALG-256".to_string()))
+        );
     }
 
     #[test]
@@ -805,7 +870,10 @@ mod permissive_parsing {
         // JWK with unknown algorithm should still validate (we can't check key type match)
         let json = r#"{"kty": "RSA", "alg": "FUTURE-ALG", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert!(jwk.validate().is_ok(), "Unknown algorithm should not cause validation failure");
+        assert!(
+            jwk.validate().is_ok(),
+            "Unknown algorithm should not cause validation failure"
+        );
     }
 
     #[test]
@@ -814,7 +882,10 @@ mod permissive_parsing {
         let json = r#"{"kty":"RSA","alg":"MY-PRIVATE-ALG","n":"AQAB","e":"AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let serialized = serde_json::to_string(&jwk).unwrap();
-        assert!(serialized.contains("MY-PRIVATE-ALG"), "Unknown algorithm should be preserved in serialization");
+        assert!(
+            serialized.contains("MY-PRIVATE-ALG"),
+            "Unknown algorithm should be preserved in serialization"
+        );
     }
 
     #[test]
@@ -829,7 +900,8 @@ mod permissive_parsing {
     #[test]
     fn test_unknown_key_ops_accepted() {
         // Unknown key operation should be parsed successfully
-        let json = r#"{"kty": "RSA", "key_ops": ["sign", "custom-operation"], "n": "AQAB", "e": "AQAB"}"#;
+        let json =
+            r#"{"kty": "RSA", "key_ops": ["sign", "custom-operation"], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let key_ops = jwk.key_ops.as_ref().unwrap();
         assert_eq!(key_ops.len(), 2);
@@ -843,7 +915,10 @@ mod permissive_parsing {
         let json = r#"{"kty":"RSA","key_ops":["sign","my-custom-op"],"n":"AQAB","e":"AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let serialized = serde_json::to_string(&jwk).unwrap();
-        assert!(serialized.contains("my-custom-op"), "Unknown key_ops should be preserved");
+        assert!(
+            serialized.contains("my-custom-op"),
+            "Unknown key_ops should be preserved"
+        );
     }
 
     #[test]
@@ -915,7 +990,10 @@ mod permissive_parsing {
         // Unknown use value should be parsed successfully
         let json = r#"{"kty": "RSA", "use": "custom-purpose", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.key_use, Some(KeyUse::Unknown("custom-purpose".to_string())));
+        assert_eq!(
+            jwk.key_use,
+            Some(KeyUse::Unknown("custom-purpose".to_string()))
+        );
     }
 
     #[test]
@@ -923,7 +1001,10 @@ mod permissive_parsing {
         // JWK with unknown use should still validate
         let json = r#"{"kty": "RSA", "use": "future-purpose", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert!(jwk.validate().is_ok(), "Unknown use should not cause validation failure");
+        assert!(
+            jwk.validate().is_ok(),
+            "Unknown use should not cause validation failure"
+        );
     }
 
     #[test]
@@ -932,7 +1013,10 @@ mod permissive_parsing {
         let json = r#"{"kty":"RSA","use":"my-private-use","n":"AQAB","e":"AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let serialized = serde_json::to_string(&jwk).unwrap();
-        assert!(serialized.contains("my-private-use"), "Unknown use should be preserved in serialization");
+        assert!(
+            serialized.contains("my-private-use"),
+            "Unknown use should be preserved in serialization"
+        );
     }
 
     #[test]
@@ -955,9 +1039,13 @@ mod x5t_validation {
     fn test_x5t_valid_sha1_thumbprint() {
         // SHA-1 = 20 bytes = 27 base64url characters (unpadded)
         // 20 bytes of zeros encoded: AAAAAAAAAAAAAAAAAAAAAAAAAAA (27 A's)
-        let json = r#"{"kty": "RSA", "x5t": "AAAAAAAAAAAAAAAAAAAAAAAAAAA", "n": "AQAB", "e": "AQAB"}"#;
+        let json =
+            r#"{"kty": "RSA", "x5t": "AAAAAAAAAAAAAAAAAAAAAAAAAAA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert!(jwk.validate().is_ok(), "Valid x5t (27 chars, 20 bytes) should pass");
+        assert!(
+            jwk.validate().is_ok(),
+            "Valid x5t (27 chars, 20 bytes) should pass"
+        );
     }
 
     #[test]
@@ -968,18 +1056,30 @@ mod x5t_validation {
         let result = jwk.validate();
         assert!(result.is_err(), "x5t with wrong length should be rejected");
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("20 bytes"), "Error should mention expected 20 bytes: {}", err);
+        assert!(
+            err.contains("20 bytes"),
+            "Error should mention expected 20 bytes: {}",
+            err
+        );
     }
 
     #[test]
     fn test_x5t_invalid_base64url_rejected() {
         // Contains '+' which is base64 but not base64url (27 chars for SHA-1)
-        let json = r#"{"kty": "RSA", "x5t": "AAAAAAAAAAAAAAAAAAAAAAAA+AA", "n": "AQAB", "e": "AQAB"}"#;
+        let json =
+            r#"{"kty": "RSA", "x5t": "AAAAAAAAAAAAAAAAAAAAAAAA+AA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "x5t with base64 (not base64url) characters should be rejected");
+        assert!(
+            result.is_err(),
+            "x5t with base64 (not base64url) characters should be rejected"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("base64url"), "Error should mention base64url: {}", err);
+        assert!(
+            err.contains("base64url"),
+            "Error should mention base64url: {}",
+            err
+        );
     }
 
     #[test]
@@ -987,7 +1087,10 @@ mod x5t_validation {
         // SHA-256 = 32 bytes = 43 base64url characters (unpadded)
         let json = r#"{"kty": "RSA", "x5t#S256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert!(jwk.validate().is_ok(), "Valid x5t#S256 (43 chars, 32 bytes) should pass");
+        assert!(
+            jwk.validate().is_ok(),
+            "Valid x5t#S256 (43 chars, 32 bytes) should pass"
+        );
     }
 
     #[test]
@@ -996,9 +1099,16 @@ mod x5t_validation {
         let json = r#"{"kty": "RSA", "x5t#S256": "AAAAAAAAAAAAAAAAAAAAAAAAAAA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "x5t#S256 with wrong length should be rejected");
+        assert!(
+            result.is_err(),
+            "x5t#S256 with wrong length should be rejected"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("32 bytes"), "Error should mention expected 32 bytes: {}", err);
+        assert!(
+            err.contains("32 bytes"),
+            "Error should mention expected 32 bytes: {}",
+            err
+        );
     }
 
     #[test]
@@ -1007,7 +1117,10 @@ mod x5t_validation {
         let json = r#"{"kty": "RSA", "x5t#S256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/AAA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "x5t#S256 with base64 (not base64url) characters should be rejected");
+        assert!(
+            result.is_err(),
+            "x5t#S256 with base64 (not base64url) characters should be rejected"
+        );
     }
 
     #[test]
@@ -1030,6 +1143,9 @@ mod x5t_validation {
             "e": "AQAB"
         }"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert!(jwk.validate().is_ok(), "Both x5t and x5t#S256 should be allowed");
+        assert!(
+            jwk.validate().is_ok(),
+            "Both x5t and x5t#S256 should be allowed"
+        );
     }
 }
