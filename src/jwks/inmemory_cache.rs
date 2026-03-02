@@ -1,30 +1,29 @@
 //! In-memory key cache implementation using Tokio.
 //!
 //! This module provides [`InMemoryKeyCache`], a thread-safe in-memory cache
-//! with TTL-based expiration, and [`InMemoryCachedKeySet`], a convenience type
-//! for caching any key source with in-memory storage.
+//! with TTL-based expiration, and [`InMemoryCachedKeyStore`], a convenience type
+//! for caching any key store with in-memory storage.
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use tokio::sync::RwLock;
 
-use crate::jwk::Key;
+use crate::jwks::KeySet;
 
-use super::cache::{CachedKeySet, KeyCache};
+use super::cache::{CachedKeyStore, KeyCache};
 
 /// Default cache TTL (5 minutes).
 pub const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(300);
 
 /// Internal cache entry with timestamp.
 struct CacheEntry {
-    key: Key,
+    keyset: KeySet,
     inserted_at: std::time::Instant,
 }
 
 /// An in-memory key cache with TTL-based expiration.
 ///
-/// Keys are stored in memory and automatically expire after the configured TTL.
+/// Key sets are stored in memory and automatically expire after the configured TTL.
 /// This implementation is thread-safe and can be shared across tasks.
 ///
 /// # Examples
@@ -40,7 +39,7 @@ struct CacheEntry {
 /// let cache = InMemoryKeyCache::default();
 /// ```
 pub struct InMemoryKeyCache {
-    entries: RwLock<HashMap<String, CacheEntry>>,
+    entry: RwLock<Option<CacheEntry>>,
     ttl: Duration,
 }
 
@@ -48,7 +47,7 @@ impl InMemoryKeyCache {
     /// Creates a new in-memory cache with the specified TTL.
     pub fn new(ttl: Duration) -> Self {
         Self {
-            entries: RwLock::new(HashMap::new()),
+            entry: RwLock::new(None),
             ttl,
         }
     }
@@ -61,18 +60,6 @@ impl InMemoryKeyCache {
     /// Returns the configured TTL.
     pub fn ttl(&self) -> Duration {
         self.ttl
-    }
-
-    /// Returns the number of entries currently in the cache.
-    ///
-    /// Note: This count may include expired entries that haven't been cleaned up yet.
-    pub async fn len(&self) -> usize {
-        self.entries.read().await.len()
-    }
-
-    /// Returns `true` if the cache is empty.
-    pub async fn is_empty(&self) -> bool {
-        self.entries.read().await.is_empty()
     }
 }
 
@@ -93,49 +80,41 @@ impl std::fmt::Debug for InMemoryKeyCache {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl KeyCache for InMemoryKeyCache {
-    async fn get(&self, kid: &str) -> Option<Key> {
-        let entries = self.entries.read().await;
-        entries.get(kid).and_then(|entry| {
-            if entry.inserted_at.elapsed() < self.ttl {
-                Some(entry.key.clone())
+    async fn get(&self) -> Option<KeySet> {
+        let entry = self.entry.read().await;
+        entry.as_ref().and_then(|e| {
+            if e.inserted_at.elapsed() < self.ttl {
+                Some(e.keyset.clone())
             } else {
                 None
             }
         })
     }
 
-    async fn set(&self, kid: &str, key: Key) {
-        let mut entries = self.entries.write().await;
-        entries.insert(
-            kid.to_string(),
-            CacheEntry {
-                key,
-                inserted_at: std::time::Instant::now(),
-            },
-        );
-    }
-
-    async fn remove(&self, kid: &str) {
-        let mut entries = self.entries.write().await;
-        entries.remove(kid);
+    async fn set(&self, keyset: KeySet) {
+        let mut entry = self.entry.write().await;
+        *entry = Some(CacheEntry {
+            keyset,
+            inserted_at: std::time::Instant::now(),
+        });
     }
 
     async fn clear(&self) {
-        let mut entries = self.entries.write().await;
-        entries.clear();
+        let mut entry = self.entry.write().await;
+        *entry = None;
     }
 }
 
-/// Convenience type alias for a cached key set using in-memory caching.
-pub type InMemoryCachedKeySet<S> = CachedKeySet<InMemoryKeyCache, S>;
+/// Convenience type alias for a cached key store using in-memory caching.
+pub type InMemoryCachedKeyStore<S> = CachedKeyStore<InMemoryKeyCache, S>;
 
-impl<S> InMemoryCachedKeySet<S> {
-    /// Creates a new cached key source with in-memory caching and the specified TTL.
+impl<S> InMemoryCachedKeyStore<S> {
+    /// Creates a new cached key store with in-memory caching and the specified TTL.
     pub fn with_ttl(source: S, ttl: Duration) -> Self {
         Self::new(InMemoryKeyCache::new(ttl), source)
     }
 
-    /// Creates a new cached key source with in-memory caching and the default TTL.
+    /// Creates a new cached key store with in-memory caching and the default TTL.
     pub fn with_default_ttl(source: S) -> Self {
         Self::new(InMemoryKeyCache::with_default_ttl(), source)
     }
@@ -144,89 +123,65 @@ impl<S> InMemoryCachedKeySet<S> {
     pub async fn invalidate(&self) {
         self.cache().clear().await;
     }
-
-    /// Removes a specific key from the cache.
-    pub async fn invalidate_key(&self, kid: &str) {
-        self.cache().remove(kid).await;
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jwks::KeySource;
+    use crate::jwks::KeyStore;
 
     #[tokio::test]
     async fn test_in_memory_cache_basic() {
-        let json = r#"{"kty": "oct", "kid": "test-key", "k": "AQAB"}"#;
-        let key: Key = serde_json::from_str(json).unwrap();
+        let json = r#"{"keys": [{"kty": "oct", "kid": "test-key", "k": "AQAB"}]}"#;
+        let keyset: KeySet = serde_json::from_str(json).unwrap();
 
         let cache = InMemoryKeyCache::new(Duration::from_secs(300));
 
         // Initially empty
-        assert!(cache.get("test-key").await.is_none());
+        assert!(cache.get().await.is_none());
 
         // Set and get
-        cache.set("test-key", key.clone()).await;
-        let cached = cache.get("test-key").await;
+        cache.set(keyset.clone()).await;
+        let cached = cache.get().await;
         assert!(cached.is_some());
-        assert_eq!(cached.unwrap().kid, Some("test-key".to_string()));
+        assert_eq!(cached.unwrap().len(), 1);
 
-        // Remove
-        cache.remove("test-key").await;
-        assert!(cache.get("test-key").await.is_none());
+        // Clear
+        cache.clear().await;
+        assert!(cache.get().await.is_none());
     }
 
     #[tokio::test]
     async fn test_in_memory_cache_expiration() {
-        let json = r#"{"kty": "oct", "kid": "test-key", "k": "AQAB"}"#;
-        let key: Key = serde_json::from_str(json).unwrap();
+        let json = r#"{"keys": [{"kty": "oct", "kid": "test-key", "k": "AQAB"}]}"#;
+        let keyset: KeySet = serde_json::from_str(json).unwrap();
 
         // Very short TTL
         let cache = InMemoryKeyCache::new(Duration::from_millis(50));
 
-        cache.set("test-key", key).await;
-        assert!(cache.get("test-key").await.is_some());
+        cache.set(keyset).await;
+        assert!(cache.get().await.is_some());
 
         // Wait for expiration
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert!(cache.get("test-key").await.is_none());
+        assert!(cache.get().await.is_none());
     }
 
     #[tokio::test]
-    async fn test_in_memory_cache_clear() {
-        let json = r#"{"kty": "oct", "kid": "test-key", "k": "AQAB"}"#;
-        let key: Key = serde_json::from_str(json).unwrap();
-
-        let cache = InMemoryKeyCache::new(Duration::from_secs(300));
-
-        cache.set("key1", key.clone()).await;
-        cache.set("key2", key).await;
-
-        assert_eq!(cache.len().await, 2);
-
-        cache.clear().await;
-
-        assert!(cache.is_empty().await);
-    }
-
-    #[tokio::test]
-    async fn test_cached_key_set() {
-        use crate::jwks::KeySet;
-
+    async fn test_cached_key_store() {
         let json = r#"{"keys": [{"kty": "oct", "kid": "test-key", "k": "AQAB"}]}"#;
         let static_source = serde_json::from_str::<KeySet>(json).unwrap();
 
-        let cached = InMemoryCachedKeySet::with_default_ttl(static_source);
+        let cached = InMemoryCachedKeyStore::with_default_ttl(static_source);
 
         // First call should fetch from source and cache
         let key = cached.get_key("test-key").await.unwrap();
         assert!(key.is_some());
 
         // Verify it's cached
-        let cached_key = cached.cache().get("test-key").await;
-        assert!(cached_key.is_some());
+        let cached_keyset = cached.cache().get().await;
+        assert!(cached_keyset.is_some());
 
         // Second call should use cache
         let key2 = cached.get_key("test-key").await.unwrap();
@@ -234,13 +189,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cached_key_set_miss() {
-        use crate::jwks::KeySet;
-
+    async fn test_cached_key_store_miss() {
         let json = r#"{"keys": [{"kty": "oct", "kid": "test-key", "k": "AQAB"}]}"#;
         let static_source = serde_json::from_str::<KeySet>(json).unwrap();
 
-        let cached = InMemoryCachedKeySet::with_default_ttl(static_source);
+        let cached = InMemoryCachedKeyStore::with_default_ttl(static_source);
 
         // Request a non-existent key
         let key = cached.get_key("nonexistent").await.unwrap();
@@ -248,63 +201,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cached_key_set_get_keyset() {
-        use crate::jwks::KeySet;
-
+    async fn test_cached_key_store_get_keyset() {
         let json = r#"{"keys": [
             {"kty": "oct", "kid": "key1", "k": "AQAB"},
             {"kty": "oct", "kid": "key2", "k": "AQAB"}
         ]}"#;
         let static_source = serde_json::from_str::<KeySet>(json).unwrap();
 
-        let cached = InMemoryCachedKeySet::with_default_ttl(static_source);
+        let cached = InMemoryCachedKeyStore::with_default_ttl(static_source);
 
-        // Fetch keyset should cache all keys
+        // Fetch keyset should cache it
         let keyset = cached.get_keyset().await.unwrap();
         assert_eq!(keyset.len(), 2);
 
-        // Both keys should be cached
-        assert!(cached.cache().get("key1").await.is_some());
-        assert!(cached.cache().get("key2").await.is_some());
+        // Should be cached now
+        let cached_keyset = cached.cache().get().await;
+        assert!(cached_keyset.is_some());
+        assert_eq!(cached_keyset.unwrap().len(), 2);
     }
 
     #[tokio::test]
-    async fn test_cached_key_set_invalidate() {
-        use crate::jwks::KeySet;
-
+    async fn test_cached_key_store_invalidate() {
         let json = r#"{"keys": [{"kty": "oct", "kid": "test-key", "k": "AQAB"}]}"#;
         let static_source = serde_json::from_str::<KeySet>(json).unwrap();
 
-        let cached = InMemoryCachedKeySet::with_default_ttl(static_source);
+        let cached = InMemoryCachedKeyStore::with_default_ttl(static_source);
 
         // Populate cache
         let _ = cached.get_key("test-key").await.unwrap();
-        assert!(cached.cache().get("test-key").await.is_some());
+        assert!(cached.cache().get().await.is_some());
 
         // Invalidate
         cached.invalidate().await;
-        assert!(cached.cache().get("test-key").await.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_cached_key_set_invalidate_key() {
-        use crate::jwks::KeySet;
-
-        let json = r#"{"keys": [
-            {"kty": "oct", "kid": "key1", "k": "AQAB"},
-            {"kty": "oct", "kid": "key2", "k": "AQAB"}
-        ]}"#;
-        let static_source = serde_json::from_str::<KeySet>(json).unwrap();
-
-        let cached = InMemoryCachedKeySet::with_default_ttl(static_source);
-
-        // Populate cache
-        let _ = cached.get_keyset().await.unwrap();
-
-        // Invalidate only one key
-        cached.invalidate_key("key1").await;
-
-        assert!(cached.cache().get("key1").await.is_none());
-        assert!(cached.cache().get("key2").await.is_some());
+        assert!(cached.cache().get().await.is_none());
     }
 }

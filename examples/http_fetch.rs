@@ -6,7 +6,7 @@
 //! Run with: `cargo run --example http_fetch --features http`
 
 #[cfg(feature = "http")]
-use jwk_simple::{KeySource, RemoteKeySet};
+use jwk_simple::{KeyStore, RemoteKeyStore};
 #[cfg(feature = "http")]
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
-    let remote = RemoteKeySet::new_with_client(google_jwks_url, client);
+    let remote = RemoteKeyStore::new_with_client(google_jwks_url, client);
 
     // Fetch the JWKS
     let jwks = remote.get_keyset().await?;
@@ -46,12 +46,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // For production use, wrap with InMemoryCachedKeySet for TTL-based caching
-    println!("\n--- Using InMemoryCachedKeySet for production ---");
-    use jwk_simple::InMemoryCachedKeySet;
+    // For production use, wrap with InMemoryCachedKeyStore for TTL-based caching
+    println!("\n--- Using InMemoryCachedKeyStore for production ---");
+    use jwk_simple::InMemoryCachedKeyStore;
 
-    let cached = InMemoryCachedKeySet::with_ttl(
-        RemoteKeySet::new(google_jwks_url),
+    let cached = InMemoryCachedKeyStore::with_ttl(
+        RemoteKeyStore::new(google_jwks_url),
         Duration::from_secs(300), // 5 minute TTL
     );
 

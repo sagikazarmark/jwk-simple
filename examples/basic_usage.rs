@@ -50,7 +50,7 @@ fn main() {
     }
 
     // Find all signing keys
-    let signing_keys = jwks.signing_keys();
+    let signing_keys: Vec<_> = jwks.signing_keys().collect();
     println!("\nFound {} signing keys:", signing_keys.len());
     for key in signing_keys {
         println!(
@@ -61,8 +61,10 @@ fn main() {
     }
 
     // Find keys by type
-    let rsa_keys = jwks.find_by_kty(KeyType::Rsa);
-    println!("\nFound {} RSA keys", rsa_keys.len());
+    println!(
+        "\nFound {} RSA keys",
+        jwks.find_by_kty(KeyType::Rsa).count()
+    );
 
     // Get the first signing key (common pattern)
     if let Some(first_signing) = jwks.first_signing_key() {

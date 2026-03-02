@@ -166,14 +166,8 @@ pub enum ParseError {
     Json(String),
     /// Unknown key type.
     UnknownKeyType(String),
-    /// Unknown algorithm.
-    UnknownAlgorithm(String),
     /// Unknown curve.
     UnknownCurve(String),
-    /// Unknown key use.
-    UnknownKeyUse(String),
-    /// Unknown key operation.
-    UnknownKeyOperation(String),
 }
 
 impl fmt::Display for ParseError {
@@ -181,10 +175,7 @@ impl fmt::Display for ParseError {
         match self {
             ParseError::Json(msg) => write!(f, "invalid JSON: {}", msg),
             ParseError::UnknownKeyType(kty) => write!(f, "unknown key type: {}", kty),
-            ParseError::UnknownAlgorithm(alg) => write!(f, "unknown algorithm: {}", alg),
             ParseError::UnknownCurve(crv) => write!(f, "unknown curve: {}", crv),
-            ParseError::UnknownKeyUse(use_) => write!(f, "unknown key use: {}", use_),
-            ParseError::UnknownKeyOperation(op) => write!(f, "unknown key operation: {}", op),
         }
     }
 }

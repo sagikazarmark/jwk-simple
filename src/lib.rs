@@ -43,7 +43,7 @@
 //! |---------|-------------|
 //! | `jwt-simple` | Integration with the jwt-simple crate |
 //! | `web-crypto` | WebCrypto integration for browser/WASM environments |
-//! | `http` | Async HTTP fetching with `RemoteKeySet` |
+//! | `http` | Async HTTP fetching with `RemoteKeyStore` |
 //! | `cache-inmemory` | In-memory `KeyCache` implementation using Tokio |
 //! | `cloudflare` | Cloudflare Workers support (Fetch API + KV cache) |
 //!
@@ -55,8 +55,8 @@
 //! use jwk_simple::KeySet;
 //! use jwt_simple::prelude::*;
 //!
-//! let jwks = serde_json::from_str::<KeySet>(json)?;
-//! let jwk = jwks.find_by_kid("my-key-id").unwrap();
+//! let keyset = serde_json::from_str::<KeySet>(json)?;
+//! let jwk = keyset.find_by_kid("my-key-id").unwrap();
 //!
 //! // Convert to jwt-simple key
 //! let key: RS256PublicKey = jwk.try_into()?;
@@ -74,8 +74,8 @@
 //! use jwk_simple::{KeySet, integrations::web_crypto};
 //!
 //! // Parse a JWKS
-//! let jwks: KeySet = serde_json::from_str(json)?;
-//! let key = jwks.find_by_kid("my-key-id").unwrap();
+//! let keyset: KeySet = serde_json::from_str(json)?;
+//! let key = keyset.find_by_kid("my-key-id").unwrap();
 //!
 //! // Check if the key is WebCrypto compatible
 //! if key.is_web_crypto_compatible() {
@@ -117,15 +117,15 @@ pub use error::{Error, Result};
 pub use jwk::{
     Algorithm, EcCurve, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve, RsaOtherPrime,
 };
-pub use jwks::{CachedKeySet, KeyCache, KeySet, KeySource};
+pub use jwks::{CachedKeyStore, KeyCache, KeySet, KeyStore};
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
-pub use jwks::RemoteKeySet;
+pub use jwks::RemoteKeyStore;
 
 #[cfg(feature = "cache-inmemory")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cache-inmemory")))]
-pub use jwks::{DEFAULT_CACHE_TTL, InMemoryCachedKeySet, InMemoryKeyCache};
+pub use jwks::{DEFAULT_CACHE_TTL, InMemoryCachedKeyStore, InMemoryKeyCache};
 
 #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "cloudflare")))]

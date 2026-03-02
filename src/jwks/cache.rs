@@ -1,20 +1,24 @@
-//! Caching traits and wrappers for JWKS key sources.
+//! Caching traits and wrappers for key stores.
 //!
-//! This module provides a [`KeyCache`] trait for caching keys by their ID,
-//! and a [`CachedKeySet`] wrapper that combines any cache with any key source.
+//! This module provides a [`KeyCache`] trait for caching key sets,
+//! and a [`CachedKeyStore`] wrapper that combines any cache with any key store.
 //!
-//! For a ready-to-use in-memory implementation, enable the `inmemory-cache` feature
+//! For a ready-to-use in-memory implementation, enable the `cache-inmemory` feature
 //! and use [`InMemoryKeyCache`](super::InMemoryKeyCache).
 
 use crate::error::Result;
 use crate::jwk::Key;
 
-use super::{KeySet, KeySource};
+use super::{KeySet, KeyStore};
 
-/// A trait for caching keys by their ID.
+/// A trait for caching key sets.
 ///
-/// Implementations can provide different caching strategies (in-memory, Redis, etc.)
-/// while the [`CachedKeySet`] handles the cache-aside pattern.
+/// Implementations can provide different caching strategies (in-memory, KV store, etc.)
+/// while the [`CachedKeyStore`] handles the cache-aside pattern.
+///
+/// The cache stores the entire [`KeySet`] as a single unit, which matches how JWKS
+/// endpoints work (they always return the full set). This avoids the N+1 fetch problem
+/// that per-key caching would cause.
 ///
 /// # Examples
 ///
@@ -24,75 +28,73 @@ use super::{KeySet, KeySource};
 ///
 /// let cache = InMemoryKeyCache::new(Duration::from_secs(300));
 ///
-/// // Store a key
-/// cache.set("my-kid", key).await;
+/// // Store a key set
+/// cache.set(keyset).await;
 ///
-/// // Retrieve a key
-/// if let Some(key) = cache.get("my-kid").await {
-///     // Use the cached key
+/// // Retrieve the cached key set
+/// if let Some(keyset) = cache.get().await {
+///     // Use the cached key set
 /// }
 /// ```
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait KeyCache {
-    /// Gets a key from the cache by its ID.
+    /// Gets the cached key set.
     ///
-    /// Returns `None` if the key is not in the cache or has expired.
-    async fn get(&self, kid: &str) -> Option<Key>;
+    /// Returns `None` if the cache is empty or has expired.
+    async fn get(&self) -> Option<KeySet>;
 
-    /// Stores a key in the cache.
-    ///
-    /// The key ID is extracted from the key's `kid` field if not provided explicitly.
-    async fn set(&self, kid: &str, key: Key);
+    /// Stores a key set in the cache.
+    async fn set(&self, keyset: KeySet);
 
-    /// Removes a key from the cache.
-    async fn remove(&self, kid: &str);
-
-    /// Clears all keys from the cache.
+    /// Clears the cache.
     async fn clear(&self);
 }
 
-/// A caching wrapper for any [`KeySource`] implementation.
+/// A caching wrapper for any [`KeyStore`] implementation.
 ///
-/// This wrapper uses the cache-aside pattern: it first checks the cache for a key,
-/// and only fetches from the underlying source on a cache miss. Retrieved keys
+/// This wrapper uses the cache-aside pattern: it first checks the cache for the key set,
+/// and only fetches from the underlying store on a cache miss. Retrieved key sets
 /// are then stored in the cache for future requests.
+///
+/// When looking up a key by ID, if the cached key set doesn't contain the requested key,
+/// the store refetches from the underlying source. This handles key rotation gracefully:
+/// newly added keys are discovered automatically without waiting for cache expiration.
 ///
 /// # Type Parameters
 ///
 /// * `C` - The cache implementation (must implement [`KeyCache`])
-/// * `S` - The underlying key source (must implement [`KeySource`])
+/// * `S` - The underlying key store (must implement [`KeyStore`])
 ///
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{CachedKeySet, InMemoryKeyCache, RemoteKeySet, KeySource};
+/// use jwk_simple::{CachedKeyStore, InMemoryKeyCache, RemoteKeyStore, KeyStore};
 /// use std::time::Duration;
-/// use std::sync::Arc;
 ///
-/// // Create a cached remote JWKS
+/// // Create a cached remote key store
 /// let cache = InMemoryKeyCache::new(Duration::from_secs(300));
-/// let remote = RemoteKeySet::new("https://example.com/.well-known/jwks.json");
-/// let cached = CachedKeySet::new(cache, remote);
+/// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
+/// let cached = CachedKeyStore::new(cache, remote);
 ///
-/// // First call fetches from remote, caches the key
+/// // First call fetches from remote, caches the key set
 /// let key = cached.get_key("kid").await?;
 ///
 /// // Subsequent calls use the cache
 /// let key = cached.get_key("kid").await?;
 /// ```
-pub struct CachedKeySet<C, S> {
+pub struct CachedKeyStore<C, S> {
     cache: C,
     source: S,
 }
 
-impl<C, S> CachedKeySet<C, S> {
-    /// Creates a new cached key source.
+impl<C, S> CachedKeyStore<C, S> {
+    /// Creates a new cached key store.
     ///
     /// # Arguments
     ///
     /// * `cache` - The cache implementation to use.
-    /// * `source` - The underlying key source to fetch from on cache misses.
+    /// * `source` - The underlying key store to fetch from on cache misses.
     pub fn new(cache: C, source: S) -> Self {
         Self { cache, source }
     }
@@ -102,15 +104,15 @@ impl<C, S> CachedKeySet<C, S> {
         &self.cache
     }
 
-    /// Returns a reference to the underlying source.
+    /// Returns a reference to the underlying store.
     pub fn source(&self) -> &S {
         &self.source
     }
 }
 
-impl<C: std::fmt::Debug, S: std::fmt::Debug> std::fmt::Debug for CachedKeySet<C, S> {
+impl<C: std::fmt::Debug, S: std::fmt::Debug> std::fmt::Debug for CachedKeyStore<C, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CachedKeySet")
+        f.debug_struct("CachedKeyStore")
             .field("cache", &self.cache)
             .field("source", &self.source)
             .finish()
@@ -119,37 +121,36 @@ impl<C: std::fmt::Debug, S: std::fmt::Debug> std::fmt::Debug for CachedKeySet<C,
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl<C, S> KeySource for CachedKeySet<C, S>
+impl<C, S> KeyStore for CachedKeyStore<C, S>
 where
     C: KeyCache + Send + Sync,
-    S: KeySource + Send + Sync,
+    S: KeyStore + Send + Sync,
 {
-    async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
-        // Try cache first
-        if let Some(key) = self.cache.get(kid).await {
-            return Ok(Some(key));
+    async fn get_keyset(&self) -> Result<KeySet> {
+        // Check cache first
+        if let Some(keyset) = self.cache.get().await {
+            return Ok(keyset);
         }
 
-        // Cache miss: fetch from underlying source
-        if let Some(key) = self.source.get_key(kid).await? {
-            self.cache.set(kid, key.clone()).await;
-            return Ok(Some(key));
-        }
-
-        Ok(None)
+        // Cache miss: fetch from underlying store
+        let keyset = self.source.get_keyset().await?;
+        self.cache.set(keyset.clone()).await;
+        Ok(keyset)
     }
 
-    async fn get_keyset(&self) -> Result<KeySet> {
-        // Fetch from source
-        let keyset = self.source.get_keyset().await?;
-
-        // Cache all keys that have a kid
-        for key in &keyset.keys {
-            if let Some(kid) = &key.kid {
-                self.cache.set(kid, key.clone()).await;
+    async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
+        // Try cache first
+        if let Some(keyset) = self.cache.get().await {
+            if let Some(key) = keyset.find_by_kid(kid) {
+                return Ok(Some(key.clone()));
             }
+            // Key not in cached set — could be a newly added key, refetch
         }
 
-        Ok(keyset)
+        // Cache miss or key not found: fetch from underlying store
+        let keyset = self.source.get_keyset().await?;
+        let result = keyset.find_by_kid(kid).cloned();
+        self.cache.set(keyset).await;
+        Ok(result)
     }
 }

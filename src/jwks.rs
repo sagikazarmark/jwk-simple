@@ -1,7 +1,7 @@
 //! JSON Web Key Set (JWKS) as defined in RFC 7517 Section 5.
 //!
 //! A JWKS is a collection of JWK objects, typically used for key distribution
-//! and discovery. This module also defines the [`KeySource`] trait, which abstracts
+//! and discovery. This module also defines the [`KeyStore`] trait, which abstracts
 //! over different sources of JWK keys.
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -17,22 +17,20 @@ mod inmemory_cache;
 #[cfg(feature = "http")]
 mod remote;
 
-pub use cache::{CachedKeySet, KeyCache};
+pub use cache::{CachedKeyStore, KeyCache};
 #[cfg(feature = "cache-inmemory")]
-pub use inmemory_cache::{DEFAULT_CACHE_TTL, InMemoryCachedKeySet, InMemoryKeyCache};
+pub use inmemory_cache::{DEFAULT_CACHE_TTL, InMemoryCachedKeyStore, InMemoryKeyCache};
 #[cfg(feature = "http")]
-pub use remote::{DEFAULT_TIMEOUT, RemoteKeySet};
+pub use remote::{DEFAULT_TIMEOUT, RemoteKeyStore};
 
 /// A trait for types that can provide JWK keys.
 ///
 /// This trait abstracts over different sources of keys, whether from
 /// a static set, a remote HTTP endpoint, or a cached source.
 ///
-/// # Naming
-///
-/// This trait is called `KeySource` (not `Jwks`) to distinguish it from:
-/// - [`KeySet`] - The data structure holding keys
-/// - A potential `Jwks` type for serving keys via HTTP endpoints
+/// The only required method is [`get_keyset`](KeyStore::get_keyset), which returns
+/// the full key set. A default implementation of [`get_key`](KeyStore::get_key) is
+/// provided that fetches the full set and looks up by key ID.
 ///
 /// # Async and Send Bounds
 ///
@@ -44,53 +42,58 @@ pub use remote::{DEFAULT_TIMEOUT, RemoteKeySet};
 /// Using a static key set:
 ///
 /// ```
-/// use jwk_simple::{KeySource, KeySet};
+/// use jwk_simple::{KeyStore, KeySet};
 ///
 /// # async fn example() -> jwk_simple::Result<()> {
-/// let source: KeySet = serde_json::from_str(r#"{"keys": []}"#)?;
-/// let key = source.get_key("some-kid").await?;
+/// let store: KeySet = serde_json::from_str(r#"{"keys": []}"#)?;
+/// let key = store.get_key("some-kid").await?;
 /// # Ok(())
 /// # }
 /// ```
 ///
-/// Generic code that works with any source:
+/// Generic code that works with any store:
 ///
 /// ```ignore
-/// async fn verify_token<S: KeySource>(source: &S, kid: &str) -> Result<()> {
-///     let key = source.get_key(kid).await?.ok_or(Error::KeyNotFound)?;
+/// async fn verify_token<S: KeyStore>(store: &S, kid: &str) -> Result<()> {
+///     let key = store.get_key(kid).await?.ok_or(Error::KeyNotFound)?;
 ///     // ... verify with key
 ///     Ok(())
 /// }
 /// ```
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait KeySource {
+pub trait KeyStore {
+    /// Gets all available keys as a [`KeySet`].
+    ///
+    /// For remote sources, this may trigger a fetch if the cache is empty or expired.
+    async fn get_keyset(&self) -> Result<KeySet>;
+
     /// Gets a key by its key ID (`kid`).
     ///
     /// Returns `Ok(None)` if no key with the given ID exists.
     /// Returns `Err` if the lookup failed (e.g., network error for remote sources).
     ///
+    /// The default implementation fetches the full key set and looks up by key ID.
+    /// Implementations may override this for more efficient lookups (e.g., caching).
+    ///
     /// # Arguments
     ///
     /// * `kid` - The key ID to look up.
-    async fn get_key(&self, kid: &str) -> Result<Option<Key>>;
-
-    /// Gets all available keys as a [`KeySet`].
-    ///
-    /// For remote sources, this may trigger a fetch if the cache is empty or expired.
-    async fn get_keyset(&self) -> Result<KeySet>;
+    async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
+        Ok(self.get_keyset().await?.find_by_kid(kid).cloned())
+    }
 }
 
-// Implement KeySource for KeySet (static, immediate)
+// Implement KeyStore for KeySet (static, immediate)
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl KeySource for KeySet {
-    async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
-        Ok(self.find_by_kid(kid).cloned())
-    }
-
+impl KeyStore for KeySet {
     async fn get_keyset(&self) -> Result<KeySet> {
         Ok(self.clone())
+    }
+
+    async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
+        Ok(self.find_by_kid(kid).cloned())
     }
 }
 
@@ -149,7 +152,7 @@ impl KeySource for KeySet {
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct KeySet {
     /// The collection of keys.
-    pub keys: Vec<Key>,
+    keys: Vec<Key>,
 }
 
 impl<'de> Deserialize<'de> for KeySet {
@@ -208,6 +211,12 @@ impl KeySet {
     pub fn from_keys(keys: Vec<Key>) -> Self {
         Self { keys }
     }
+
+    /// Returns a slice of all keys in the set.
+    pub fn keys(&self) -> &[Key] {
+        &self.keys
+    }
+
     /// Returns the number of keys in the set.
     pub fn len(&self) -> usize {
         self.keys.len()
@@ -285,7 +294,7 @@ impl KeySet {
     ///
     /// # Returns
     ///
-    /// A vector of references to matching keys.
+    /// An iterator over references to matching keys.
     ///
     /// # Examples
     ///
@@ -295,14 +304,11 @@ impl KeySet {
     /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
     /// let jwks: KeySet = serde_json::from_str(json).unwrap();
     ///
-    /// let rs256_keys = jwks.find_by_alg(&Algorithm::Rs256);
+    /// let rs256_keys: Vec<_> = jwks.find_by_alg(&Algorithm::Rs256).collect();
     /// assert_eq!(rs256_keys.len(), 1);
     /// ```
-    pub fn find_by_alg(&self, alg: &Algorithm) -> Vec<&Key> {
-        self.keys
-            .iter()
-            .filter(|k| k.alg.as_ref() == Some(alg))
-            .collect()
+    pub fn find_by_alg<'a>(&'a self, alg: &'a Algorithm) -> impl Iterator<Item = &'a Key> {
+        self.keys.iter().filter(move |k| k.alg.as_ref() == Some(alg))
     }
 
     /// Finds all keys with the specified key type.
@@ -313,9 +319,9 @@ impl KeySet {
     ///
     /// # Returns
     ///
-    /// A vector of references to matching keys.
-    pub fn find_by_kty(&self, kty: KeyType) -> Vec<&Key> {
-        self.keys.iter().filter(|k| k.kty == kty).collect()
+    /// An iterator over references to matching keys.
+    pub fn find_by_kty(&self, kty: KeyType) -> impl Iterator<Item = &Key> {
+        self.keys.iter().filter(move |k| k.kty == kty)
     }
 
     /// Finds all keys with the specified use.
@@ -326,7 +332,7 @@ impl KeySet {
     ///
     /// # Returns
     ///
-    /// A vector of references to matching keys.
+    /// An iterator over references to matching keys.
     ///
     /// # Examples
     ///
@@ -336,14 +342,13 @@ impl KeySet {
     /// let json = r#"{"keys": [{"kty": "RSA", "use": "sig", "n": "AQAB", "e": "AQAB"}]}"#;
     /// let jwks: KeySet = serde_json::from_str(json).unwrap();
     ///
-    /// let signing_keys = jwks.find_by_use(KeyUse::Signature);
+    /// let signing_keys: Vec<_> = jwks.find_by_use(KeyUse::Signature).collect();
     /// assert_eq!(signing_keys.len(), 1);
     /// ```
-    pub fn find_by_use(&self, key_use: KeyUse) -> Vec<&Key> {
+    pub fn find_by_use(&self, key_use: KeyUse) -> impl Iterator<Item = &Key> {
         self.keys
             .iter()
-            .filter(|k| k.key_use.as_ref() == Some(&key_use))
-            .collect()
+            .filter(move |k| k.key_use.as_ref() == Some(&key_use))
     }
 
     /// Finds all signing keys.
@@ -354,24 +359,22 @@ impl KeySet {
     ///
     /// # Returns
     ///
-    /// A vector of references to signing keys.
-    pub fn signing_keys(&self) -> Vec<&Key> {
+    /// An iterator over references to signing keys.
+    pub fn signing_keys(&self) -> impl Iterator<Item = &Key> {
         self.keys
             .iter()
             .filter(|k| k.key_use.is_none() || k.key_use.as_ref() == Some(&KeyUse::Signature))
-            .collect()
     }
 
     /// Finds all encryption keys.
     ///
     /// # Returns
     ///
-    /// A vector of references to encryption keys.
-    pub fn encryption_keys(&self) -> Vec<&Key> {
+    /// An iterator over references to encryption keys.
+    pub fn encryption_keys(&self) -> impl Iterator<Item = &Key> {
         self.keys
             .iter()
             .filter(|k| k.key_use.as_ref() == Some(&KeyUse::Encryption))
-            .collect()
     }
 
     /// Returns the first signing key, if any.
@@ -389,7 +392,7 @@ impl KeySet {
     /// let key = jwks.first_signing_key().expect("expected a signing key");
     /// ```
     pub fn first_signing_key(&self) -> Option<&Key> {
-        self.signing_keys().into_iter().next()
+        self.signing_keys().next()
     }
 
     /// Returns the first key matching the specified algorithm, if any.
@@ -581,38 +584,30 @@ mod tests {
     fn test_find_by_alg() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        let rs256_keys = jwks.find_by_alg(&Algorithm::Rs256);
-        assert_eq!(rs256_keys.len(), 1);
-
-        let es256_keys = jwks.find_by_alg(&Algorithm::Es256);
-        assert_eq!(es256_keys.len(), 1);
+        assert_eq!(jwks.find_by_alg(&Algorithm::Rs256).count(), 1);
+        assert_eq!(jwks.find_by_alg(&Algorithm::Es256).count(), 1);
     }
 
     #[test]
     fn test_find_by_use() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        let sig_keys = jwks.find_by_use(KeyUse::Signature);
-        assert_eq!(sig_keys.len(), 2);
-
-        let enc_keys = jwks.find_by_use(KeyUse::Encryption);
-        assert_eq!(enc_keys.len(), 1);
+        assert_eq!(jwks.find_by_use(KeyUse::Signature).count(), 2);
+        assert_eq!(jwks.find_by_use(KeyUse::Encryption).count(), 1);
     }
 
     #[test]
     fn test_signing_keys() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        let signing = jwks.signing_keys();
-        assert_eq!(signing.len(), 2);
+        assert_eq!(jwks.signing_keys().count(), 2);
     }
 
     #[test]
     fn test_encryption_keys() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        let encryption = jwks.encryption_keys();
-        assert_eq!(encryption.len(), 1);
+        assert_eq!(jwks.encryption_keys().count(), 1);
     }
 
     #[test]
@@ -729,21 +724,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_jwkset_implements_source() {
+    async fn test_jwkset_implements_store() {
         let json = r#"{"keys": [{"kty": "oct", "kid": "test-key", "k": "AQAB"}]}"#;
-        let source: KeySet = serde_json::from_str(json).unwrap();
+        let store: KeySet = serde_json::from_str(json).unwrap();
 
         // Test get_key
-        let key = source.get_key("test-key").await.unwrap();
+        let key = store.get_key("test-key").await.unwrap();
         assert!(key.is_some());
         assert_eq!(key.unwrap().kid, Some("test-key".to_string()));
 
         // Test missing key
-        let missing = source.get_key("nonexistent").await.unwrap();
+        let missing = store.get_key("nonexistent").await.unwrap();
         assert!(missing.is_none());
 
         // Test get_keyset
-        let keyset = source.get_keyset().await.unwrap();
+        let keyset = store.get_keyset().await.unwrap();
         assert_eq!(keyset.len(), 1);
     }
 }

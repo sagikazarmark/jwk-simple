@@ -102,17 +102,17 @@ let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 With the `http` feature enabled:
 
 ```rust
-use jwk_simple::{KeySource, RemoteKeySet, InMemoryCachedKeySet};
+use jwk_simple::{KeyStore, RemoteKeyStore, InMemoryCachedKeyStore};
 use std::time::Duration;
 
-// Create remote key set (uses default 30s timeout)
-let remote = RemoteKeySet::new("https://example.com/.well-known/jwks.json");
+// Create remote key store (uses default 30s timeout)
+let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
 
 // For custom timeout, use a custom client
 let client = reqwest::Client::builder()
     .timeout(Duration::from_secs(10))
     .build()?;
-let remote = RemoteKeySet::new_with_client(
+let remote = RemoteKeyStore::new_with_client(
     "https://example.com/.well-known/jwks.json",
     client,
 );
@@ -121,8 +121,8 @@ let remote = RemoteKeySet::new_with_client(
 let jwks = remote.get_keyset().await?;
 
 // For production, wrap with caching (5 minute TTL)
-let cached = InMemoryCachedKeySet::with_ttl(
-    RemoteKeySet::new("https://example.com/.well-known/jwks.json"),
+let cached = InMemoryCachedKeyStore::with_ttl(
+    RemoteKeyStore::new("https://example.com/.well-known/jwks.json"),
     Duration::from_secs(300),
 );
 let key = cached.get_key("my-key-id").await?;
@@ -133,12 +133,12 @@ let key = cached.get_key("my-key-id").await?;
 With the `http` feature enabled:
 
 ```rust
-use jwk_simple::{InMemoryKeyCache, InMemoryCachedKeySet, KeyCache, KeySource, RemoteKeySet};
+use jwk_simple::{InMemoryKeyCache, InMemoryCachedKeyStore, KeyCache, KeyStore, RemoteKeyStore};
 use std::time::Duration;
 
-// Create a cached remote key source
-let cached = InMemoryCachedKeySet::with_ttl(
-    RemoteKeySet::new("https://example.com/.well-known/jwks.json"),
+// Create a cached remote key store
+let cached = InMemoryCachedKeyStore::with_ttl(
+    RemoteKeyStore::new("https://example.com/.well-known/jwks.json"),
     Duration::from_secs(300), // 5 minute TTL
 );
 
@@ -147,9 +147,6 @@ let key = cached.get_key("key-id").await?;
 
 // Invalidate the entire cache when needed
 cached.invalidate().await;
-
-// Or invalidate a specific key
-cached.invalidate_key("key-id").await;
 ```
 
 ### JWK Thumbprints (RFC 7638)

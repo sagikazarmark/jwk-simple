@@ -1,40 +1,39 @@
 //! Remote JWKS fetching without caching.
 //!
-//! This module provides [`RemoteKeySet`], which fetches keys from an HTTP endpoint
-//! on every request. For production use, consider wrapping with [`CachedKeySet`](super::CachedKeySet).
+//! This module provides [`RemoteKeyStore`], which fetches keys from an HTTP endpoint
+//! on every request. For production use, consider wrapping with [`CachedKeyStore`](super::CachedKeyStore).
 
 use std::time::Duration;
 
 use crate::error::Result;
-use crate::jwk::Key;
 
-use super::{KeySet, KeySource};
+use super::{KeySet, KeyStore};
 
 /// Default timeout for HTTP requests (30 seconds).
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// A JWKS source that fetches from an HTTP endpoint on every request.
+/// A key store that fetches from an HTTP endpoint on every request.
 ///
-/// This implementation does **not** cache keys. Every call to [`get_key`](KeySource::get_key)
-/// or [`get_keyset`](KeySource::get_keyset) will make an HTTP request.
+/// This implementation does **not** cache keys. Every call to [`get_key`](KeyStore::get_key)
+/// or [`get_keyset`](KeyStore::get_keyset) will make an HTTP request.
 ///
-/// For production use with high request volumes, wrap this in [`CachedKeySet`](super::CachedKeySet):
+/// For production use with high request volumes, wrap this in [`CachedKeyStore`](super::CachedKeyStore):
 ///
 /// ```ignore
-/// use jwk_simple::{RemoteKeySet, CachedKeySet};
+/// use jwk_simple::{RemoteKeyStore, CachedKeyStore};
 /// use std::time::Duration;
 ///
-/// let remote = RemoteKeySet::new("https://example.com/.well-known/jwks.json");
-/// let cached = CachedKeySet::new(remote, Duration::from_secs(300));
+/// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
+/// let cached = CachedKeyStore::new(remote, Duration::from_secs(300));
 /// ```
 ///
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{KeySource, RemoteKeySet};
+/// use jwk_simple::{KeyStore, RemoteKeyStore};
 ///
-/// let jwks = RemoteKeySet::new("https://example.com/.well-known/jwks.json");
-/// let key = jwks.get_key("my-key-id").await?;
+/// let store = RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
+/// let key = store.get_key("my-key-id").await?;
 /// ```
 ///
 /// # Custom HTTP Client
@@ -42,7 +41,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// You can provide a custom [`reqwest::Client`] for full control over HTTP behavior:
 ///
 /// ```ignore
-/// use jwk_simple::RemoteKeySet;
+/// use jwk_simple::RemoteKeyStore;
 /// use std::time::Duration;
 ///
 /// let client = reqwest::Client::builder()
@@ -51,19 +50,19 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 ///     .build()
 ///     .unwrap();
 ///
-/// let jwks = RemoteKeySet::new_with_client(
+/// let store = RemoteKeyStore::new_with_client(
 ///     "https://example.com/.well-known/jwks.json",
 ///     client,
 /// );
 /// ```
 #[derive(Debug, Clone)]
-pub struct RemoteKeySet {
+pub struct RemoteKeyStore {
     url: String,
     client: reqwest::Client,
 }
 
-impl RemoteKeySet {
-    /// Creates a new `RemoteKeySet` from a URL.
+impl RemoteKeyStore {
+    /// Creates a new `RemoteKeyStore` from a URL.
     ///
     /// Uses a default HTTP client with a 30-second timeout. To customize the client,
     /// use [`new_with_client`](Self::new_with_client).
@@ -83,7 +82,7 @@ impl RemoteKeySet {
         }
     }
 
-    /// Creates a new `RemoteKeySet` with a custom HTTP client.
+    /// Creates a new `RemoteKeyStore` with a custom HTTP client.
     ///
     /// Use this to configure custom timeouts, headers, proxies, TLS settings, etc.
     ///
@@ -95,7 +94,7 @@ impl RemoteKeySet {
     /// # Examples
     ///
     /// ```ignore
-    /// use jwk_simple::RemoteKeySet;
+    /// use jwk_simple::RemoteKeyStore;
     /// use std::time::Duration;
     ///
     /// let client = reqwest::Client::builder()
@@ -103,7 +102,7 @@ impl RemoteKeySet {
     ///     .build()
     ///     .unwrap();
     ///
-    /// let jwks = RemoteKeySet::new_with_client(
+    /// let store = RemoteKeyStore::new_with_client(
     ///     "https://example.com/.well-known/jwks.json",
     ///     client,
     /// );
@@ -117,7 +116,12 @@ impl RemoteKeySet {
 
     /// Fetches the JWKS from the remote endpoint.
     async fn fetch(&self) -> Result<KeySet> {
-        let response = self.client.get(&self.url).send().await?;
+        let response = self
+            .client
+            .get(&self.url)
+            .send()
+            .await?
+            .error_for_status()?;
         let json = response.text().await?;
 
         Ok(serde_json::from_str::<KeySet>(&json)?)
@@ -126,13 +130,7 @@ impl RemoteKeySet {
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl KeySource for RemoteKeySet {
-    async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
-        let keyset = self.fetch().await?;
-
-        Ok(keyset.find_by_kid(kid).cloned())
-    }
-
+impl KeyStore for RemoteKeyStore {
     async fn get_keyset(&self) -> Result<KeySet> {
         self.fetch().await
     }
@@ -143,17 +141,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_remote_jwks_new() {
-        let _jwks = RemoteKeySet::new("https://example.com/jwks");
+    fn test_remote_key_store_new() {
+        let _store = RemoteKeyStore::new("https://example.com/jwks");
     }
 
     #[test]
-    fn test_remote_jwks_new_with_client() {
+    fn test_remote_key_store_new_with_client() {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
             .unwrap();
 
-        let _jwks = RemoteKeySet::new_with_client("https://example.com/jwks", client);
+        let _store = RemoteKeyStore::new_with_client("https://example.com/jwks", client);
     }
 }
