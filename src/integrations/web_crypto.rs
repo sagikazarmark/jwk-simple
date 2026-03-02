@@ -484,7 +484,7 @@ fn build_symmetric_algorithm(
 /// # Errors
 ///
 /// Returns [`Error::UnsupportedForWebCrypto`] if the algorithm is not supported
-/// by WebCrypto (e.g., EdDSA, ES256K).
+/// by WebCrypto (e.g., EdDSA, Ed25519, Ed448, ES256K).
 ///
 /// # Examples
 ///
@@ -1281,6 +1281,14 @@ mod tests {
     #[test]
     fn test_build_verify_algorithm_unsupported() {
         let alg = Algorithm::EdDsa;
+        let result = build_verify_algorithm(&alg);
+        assert!(result.is_err());
+
+        let alg = Algorithm::Ed25519;
+        let result = build_verify_algorithm(&alg);
+        assert!(result.is_err());
+
+        let alg = Algorithm::Ed448;
         let result = build_verify_algorithm(&alg);
         assert!(result.is_err());
     }

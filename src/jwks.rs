@@ -905,6 +905,38 @@ mod tests {
     }
 
     #[test]
+    fn test_rfc9864_alg_lookup_behavior() {
+        let json = r#"{"keys": [
+            {"kty": "OKP", "kid": "ed25519-key", "use": "sig", "alg": "Ed25519", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"},
+            {"kty": "OKP", "kid": "legacy-eddsa", "use": "sig", "alg": "EdDSA", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        // Strict alg matching only finds exact matches.
+        assert_eq!(jwks.find_by_alg(&Algorithm::Ed25519).count(), 1);
+        assert_eq!(jwks.find_by_alg(&Algorithm::EdDsa).count(), 1);
+
+        // Compatibility matching also requires exact alg when `alg` is set.
+        assert_eq!(jwks.find_compatible(&Algorithm::Ed25519).count(), 1);
+        assert_eq!(jwks.find_compatible(&Algorithm::EdDsa).count(), 1);
+
+        assert_eq!(
+            jwks.find_signing_key_by_alg(&Algorithm::Ed25519)
+                .unwrap()
+                .kid
+                .as_deref(),
+            Some("ed25519-key")
+        );
+        assert_eq!(
+            jwks.find_signing_key_by_alg(&Algorithm::EdDsa)
+                .unwrap()
+                .kid
+                .as_deref(),
+            Some("legacy-eddsa")
+        );
+    }
+
+    #[test]
     fn test_empty_jwks() {
         let jwks = KeySet::new();
         assert!(jwks.is_empty());

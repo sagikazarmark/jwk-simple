@@ -282,6 +282,53 @@ mod alg_parameter {
             "HS256 should reject keys smaller than 256 bits"
         );
     }
+
+    #[test]
+    fn test_alg_ed25519_okp_ed25519_accepted() {
+        let json = r#"{"kty": "OKP", "alg": "Ed25519", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        assert_eq!(jwk.alg, Some(Algorithm::Ed25519));
+        assert!(jwk.validate().is_ok());
+    }
+
+    #[test]
+    fn test_alg_ed448_okp_ed448_accepted() {
+        let json = r#"{"kty": "OKP", "alg": "Ed448", "crv": "Ed448", "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        assert_eq!(jwk.alg, Some(Algorithm::Ed448));
+        assert!(jwk.validate().is_ok());
+    }
+
+    #[test]
+    fn test_alg_ed25519_with_ed448_curve_mismatch_rejected() {
+        let json = r#"{"kty": "OKP", "alg": "Ed25519", "crv": "Ed448", "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result = jwk.validate();
+        assert!(
+            result.is_err(),
+            "Ed25519 algorithm with Ed448 key should fail"
+        );
+    }
+
+    #[test]
+    fn test_alg_ed448_with_ed25519_curve_mismatch_rejected() {
+        let json = r#"{"kty": "OKP", "alg": "Ed448", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result = jwk.validate();
+        assert!(
+            result.is_err(),
+            "Ed448 algorithm with Ed25519 key should fail"
+        );
+    }
+
+    #[test]
+    fn test_alg_eddsa_is_deprecated_but_still_valid() {
+        let json = r#"{"kty": "OKP", "alg": "EdDSA", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        assert_eq!(jwk.alg, Some(Algorithm::EdDsa));
+        assert!(jwk.alg.as_ref().unwrap().is_deprecated());
+        assert!(jwk.validate().is_ok());
+    }
 }
 
 // ============================================================================

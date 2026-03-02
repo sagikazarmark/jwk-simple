@@ -321,8 +321,15 @@ pub enum Algorithm {
     Es256k,
 
     // EdDSA
-    /// Edwards-curve Digital Signature Algorithm (Ed25519/Ed448).
+    /// Edwards-curve Digital Signature Algorithm (legacy JOSE identifier).
+    ///
+    /// RFC 9864 deprecates this generic identifier in favor of the fully
+    /// specified [`Algorithm::Ed25519`] and [`Algorithm::Ed448`] values.
     EdDsa,
+    /// Ed25519 signature algorithm (RFC 9864 JOSE algorithm identifier).
+    Ed25519,
+    /// Ed448 signature algorithm (RFC 9864 JOSE algorithm identifier).
+    Ed448,
 
     // RSA Encryption
     /// RSAES-OAEP using default parameters.
@@ -415,6 +422,8 @@ impl Algorithm {
             Algorithm::Es512 => "ES512",
             Algorithm::Es256k => "ES256K",
             Algorithm::EdDsa => "EdDSA",
+            Algorithm::Ed25519 => "Ed25519",
+            Algorithm::Ed448 => "Ed448",
             Algorithm::RsaOaep => "RSA-OAEP",
             Algorithm::RsaOaep256 => "RSA-OAEP-256",
             Algorithm::RsaOaep384 => "RSA-OAEP-384",
@@ -448,6 +457,14 @@ impl Algorithm {
     pub fn is_unknown(&self) -> bool {
         matches!(self, Algorithm::Unknown(_))
     }
+
+    /// Returns `true` if this algorithm identifier is deprecated.
+    ///
+    /// Per RFC 9864, `EdDSA` is deprecated in JOSE in favor of the fully
+    /// specified `Ed25519` and `Ed448` identifiers.
+    pub fn is_deprecated(&self) -> bool {
+        matches!(self, Algorithm::EdDsa)
+    }
 }
 
 impl std::fmt::Display for Algorithm {
@@ -479,6 +496,8 @@ impl std::str::FromStr for Algorithm {
             "ES512" => Algorithm::Es512,
             "ES256K" => Algorithm::Es256k,
             "EdDSA" => Algorithm::EdDsa,
+            "Ed25519" => Algorithm::Ed25519,
+            "Ed448" => Algorithm::Ed448,
             "RSA-OAEP" => Algorithm::RsaOaep,
             "RSA-OAEP-256" => Algorithm::RsaOaep256,
             "RSA-OAEP-384" => Algorithm::RsaOaep384,
@@ -1032,10 +1051,14 @@ impl Key {
             | (KeyParams::Ec(_), Algorithm::EcdhEsA192kw)
             | (KeyParams::Ec(_), Algorithm::EcdhEsA256kw) => true,
 
-            // EdDSA requires OKP keys with Ed25519 or Ed448 curves
+            // EdDSA (legacy identifier) requires OKP keys with Ed25519 or Ed448 curves
             (KeyParams::Okp(okp), Algorithm::EdDsa) => {
                 okp.crv == OkpCurve::Ed25519 || okp.crv == OkpCurve::Ed448
             }
+
+            // RFC 9864 fully specified JOSE identifiers
+            (KeyParams::Okp(okp), Algorithm::Ed25519) => okp.crv == OkpCurve::Ed25519,
+            (KeyParams::Okp(okp), Algorithm::Ed448) => okp.crv == OkpCurve::Ed448,
 
             // ECDH with OKP keys (X25519, X448)
             (KeyParams::Okp(okp), Algorithm::EcdhEs)
@@ -1919,6 +1942,8 @@ mod tests {
         assert!(!key.is_algorithm_compatible(&Algorithm::Es256));
         assert!(!key.is_algorithm_compatible(&Algorithm::Hs256));
         assert!(!key.is_algorithm_compatible(&Algorithm::EdDsa));
+        assert!(!key.is_algorithm_compatible(&Algorithm::Ed25519));
+        assert!(!key.is_algorithm_compatible(&Algorithm::Ed448));
     }
 
     #[test]
@@ -1953,8 +1978,40 @@ mod tests {
         let key: Key = serde_json::from_str(json).unwrap();
 
         assert!(key.is_algorithm_compatible(&Algorithm::EdDsa));
+        assert!(key.is_algorithm_compatible(&Algorithm::Ed25519));
+        assert!(!key.is_algorithm_compatible(&Algorithm::Ed448));
         assert!(!key.is_algorithm_compatible(&Algorithm::Rs256));
         assert!(!key.is_algorithm_compatible(&Algorithm::Es256));
+    }
+
+    #[test]
+    fn test_is_algorithm_compatible_okp_ed448() {
+        let json = r#"{
+            "kty": "OKP",
+            "crv": "Ed448",
+            "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }"#;
+        let key: Key = serde_json::from_str(json).unwrap();
+
+        assert!(key.is_algorithm_compatible(&Algorithm::EdDsa));
+        assert!(!key.is_algorithm_compatible(&Algorithm::Ed25519));
+        assert!(key.is_algorithm_compatible(&Algorithm::Ed448));
+    }
+
+    #[test]
+    fn test_parse_rfc9864_ed_algorithms() {
+        assert_eq!("Ed25519".parse::<Algorithm>().unwrap(), Algorithm::Ed25519);
+        assert_eq!("Ed448".parse::<Algorithm>().unwrap(), Algorithm::Ed448);
+        assert_eq!(Algorithm::Ed25519.as_str(), "Ed25519");
+        assert_eq!(Algorithm::Ed448.as_str(), "Ed448");
+    }
+
+    #[test]
+    fn test_algorithm_deprecation_status() {
+        assert!(Algorithm::EdDsa.is_deprecated());
+        assert!(!Algorithm::Ed25519.is_deprecated());
+        assert!(!Algorithm::Ed448.is_deprecated());
+        assert!(!Algorithm::Rs256.is_deprecated());
     }
 
     #[test]
