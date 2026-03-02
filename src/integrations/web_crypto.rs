@@ -785,6 +785,14 @@ pub async fn import_key_with_usages_for_alg(
     alg: &Algorithm,
 ) -> Result<CryptoKey> {
     let jwk = to_json_web_key(key)?;
+
+    // Override the JWK's `alg` field to match the explicit algorithm.
+    // WebCrypto validates that the JWK `alg` (if present) is consistent with
+    // the algorithm parameter passed to importKey(). Without this override,
+    // importing a key whose `alg` differs from the explicit algorithm would
+    // fail with a DataError.
+    jwk.set_alg(alg.as_str());
+
     let algorithm = build_algorithm_object_for_alg(key, alg, usage)?;
 
     import_crypto_key(jwk, &algorithm, usages).await

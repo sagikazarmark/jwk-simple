@@ -7,7 +7,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::Result;
-use crate::jwk::{Algorithm, Key, KeyType, KeyUse};
+use crate::jwk::{Algorithm, Key, KeyOperation, KeyType, KeyUse};
 
 mod cache;
 #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
@@ -319,12 +319,11 @@ impl KeySet {
     /// Finds all signing keys.
     ///
     /// A key is considered a signing key if:
+    /// - It has `key_ops` containing `sign` or `verify`, OR (when `key_ops` is absent)
     /// - It has `use: "sig"`, OR
-    /// - It has no `use` specified (default behavior for signature keys)
+    /// - It has neither `use` nor `key_ops` specified
     pub fn signing_keys(&self) -> impl Iterator<Item = &Key> {
-        self.keys
-            .iter()
-            .filter(|k| k.key_use.is_none() || k.key_use.as_ref() == Some(&KeyUse::Signature))
+        self.keys.iter().filter(|k| is_signing_key(k))
     }
 
     /// Finds all encryption keys.
@@ -453,8 +452,7 @@ impl KeySet {
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
     pub fn find_compatible_signing_key<'a>(&'a self, alg: &'a Algorithm) -> Option<&'a Key> {
-        self.find_compatible(alg)
-            .find(|k| k.key_use.is_none() || k.key_use.as_ref() == Some(&KeyUse::Signature))
+        self.find_compatible(alg).find(|k| is_signing_key(k))
     }
 
     /// Returns the first signing key matching the specified algorithm, if any.
@@ -481,10 +479,9 @@ impl KeySet {
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
     pub fn find_signing_key_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
-        self.keys.iter().find(|k| {
-            k.alg.as_ref() == Some(alg)
-                && (k.key_use.is_none() || k.key_use.as_ref() == Some(&KeyUse::Signature))
-        })
+        self.keys
+            .iter()
+            .find(|k| k.alg.as_ref() == Some(alg) && is_signing_key(k))
     }
 
     /// Returns the first key, if any.
@@ -568,6 +565,20 @@ impl std::ops::Index<usize> for KeySet {
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.keys[index]
+    }
+}
+
+/// Checks whether a key is suitable for signing/verification operations.
+///
+/// When `key_ops` is present it is treated as authoritative: the key must
+/// include [`KeyOperation::Sign`] or [`KeyOperation::Verify`].
+/// When `key_ops` is absent, `key_use` is consulted: the key is a signing
+/// key if `use` is `"sig"` or unset.
+fn is_signing_key(key: &Key) -> bool {
+    if let Some(ref ops) = key.key_ops {
+        ops.contains(&KeyOperation::Sign) || ops.contains(&KeyOperation::Verify)
+    } else {
+        key.key_use.is_none() || key.key_use.as_ref() == Some(&KeyUse::Signature)
     }
 }
 
@@ -803,6 +814,67 @@ mod tests {
         let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
         assert!(key.is_some());
         assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-no-use"));
+    }
+
+    #[test]
+    fn test_signing_keys_respects_key_ops_verify() {
+        // A key with key_ops=["verify"] should be considered a signing key
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "verify-key", "key_ops": ["verify"], "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        assert_eq!(jwks.signing_keys().count(), 1);
+    }
+
+    #[test]
+    fn test_signing_keys_respects_key_ops_sign() {
+        // A key with key_ops=["sign"] should be considered a signing key
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "sign-key", "key_ops": ["sign"], "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        assert_eq!(jwks.signing_keys().count(), 1);
+    }
+
+    #[test]
+    fn test_signing_keys_excludes_encrypt_key_ops() {
+        // A key with key_ops=["encrypt"] should NOT be considered a signing key
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "enc-key", "key_ops": ["encrypt"], "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        assert_eq!(jwks.signing_keys().count(), 0);
+    }
+
+    #[test]
+    fn test_find_signing_key_by_alg_respects_key_ops() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "enc-key", "alg": "RS256", "key_ops": ["encrypt"], "n": "AQAB", "e": "AQAB"},
+            {"kty": "RSA", "kid": "verify-key", "alg": "RS256", "key_ops": ["verify"], "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        // Should skip the encrypt-only key and find the verify key
+        let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
+        assert!(key.is_some());
+        assert_eq!(key.unwrap().kid.as_deref(), Some("verify-key"));
+    }
+
+    #[test]
+    fn test_find_compatible_signing_key_respects_key_ops() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "enc-key", "key_ops": ["encrypt"], "n": "AQAB", "e": "AQAB"},
+            {"kty": "RSA", "kid": "verify-key", "key_ops": ["verify"], "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        // Should skip the encrypt-only key and find the verify key
+        let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
+        assert!(key.is_some());
+        assert_eq!(key.unwrap().kid.as_deref(), Some("verify-key"));
     }
 
     #[test]

@@ -37,6 +37,23 @@ jobs:
       - name: Run tests
         run: cargo test --all-features
 
+  test-wasm:
+    name: Test (WASM)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up Rust
+        uses: ./.github/actions/rust/
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Run WASM tests
+        run: wasm-pack test --headless --chrome --features web-crypto
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

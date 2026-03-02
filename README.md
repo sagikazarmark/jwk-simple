@@ -52,8 +52,10 @@ assert!(key.is_public_key_only());
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `jwt-simple` | ❌ | Integration with the jwt-simple crate |
-| `http` | ❌ | Async HTTP fetching with caching support (reqwest) |
+| `http` | ❌ | Async HTTP fetching (reqwest) |
+| `cache-inmemory` | ❌ | In-memory TTL-based key caching (tokio) |
 | `cloudflare` | ❌ | Cloudflare Workers KV cache support |
+| `web-crypto` | ❌ | WebCrypto API integration for WASM |
 
 ## Usage Examples
 
@@ -102,7 +104,7 @@ let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 With the `http` feature enabled:
 
 ```rust
-use jwk_simple::{KeyStore, RemoteKeyStore, InMemoryCachedKeyStore};
+use jwk_simple::{KeyStore, RemoteKeyStore};
 use std::time::Duration;
 
 // Create remote key store (uses default 30s timeout)
@@ -119,24 +121,17 @@ let remote = RemoteKeyStore::new_with_client(
 
 // Fetch the JWKS
 let jwks = remote.get_keyset().await?;
-
-// For production, wrap with caching (5 minute TTL)
-let cached = InMemoryCachedKeyStore::with_ttl(
-    RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?,
-    Duration::from_secs(300),
-);
-let key = cached.get_key("my-key-id").await?;
 ```
 
 ### Caching Keys
 
-With the `http` feature enabled:
+With the `http` and `cache-inmemory` features enabled:
 
 ```rust
 use jwk_simple::{InMemoryKeyCache, InMemoryCachedKeyStore, KeyCache, KeyStore, RemoteKeyStore};
 use std::time::Duration;
 
-// Create a cached remote key store
+// For production, wrap a remote store with caching (5 minute TTL)
 let cached = InMemoryCachedKeyStore::with_ttl(
     RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?,
     Duration::from_secs(300), // 5 minute TTL
@@ -204,7 +199,7 @@ Status below is based on current crates.io releases as of 2026-03.
 | HTTP fetching | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Caching | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Zeroize support | ✅ | ❌ | ✅ | ✅ | ❌ |
-| No-panic guarantee | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Panic-free APIs | ✅ | ✅ | ❌ | ❌ | ❌ |
 | JWK thumbprint (RFC 7638) | ✅ | ❌ | ⚠️ | ❌ | ✅ |
 | TryFrom/TryInto traits | ✅ | ❌ | ❌ | ❌ | ⚠️ |
 | Private key support | ✅ | ❌ | ✅ | ✅ | ✅ |
@@ -238,7 +233,7 @@ This crate prioritizes security:
 - **Zeroize**: Private key parameters are zeroed from memory on drop via the `zeroize` crate
 - **Constant-time base64**: Base64 encoding uses constant-time operations via `base64ct`
 - **Debug redaction**: Debug output redacts sensitive key material
-- **No panics**: All public functions return `Result` types
+- **Panic-free APIs**: All fallible operations return `Result` types — standard trait implementations like `Index` follow normal Rust semantics and may panic on invalid input (e.g., out-of-bounds indexing)
 - **Input validation**: Key parameters are validated for correct sizes
 
 ## WASM Usage
