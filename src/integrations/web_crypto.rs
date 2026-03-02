@@ -339,7 +339,11 @@ fn build_ec_algorithm(curve: EcCurve, usage: KeyUsage) -> Result<Object> {
 
     let alg_name = match usage {
         KeyUsage::Sign | KeyUsage::Verify => "ECDSA",
-        KeyUsage::Encrypt | KeyUsage::Decrypt | KeyUsage::WrapKey | KeyUsage::UnwrapKey => "ECDH",
+        KeyUsage::Encrypt | KeyUsage::Decrypt | KeyUsage::WrapKey | KeyUsage::UnwrapKey => {
+            return Err(Error::UnsupportedForWebCrypto {
+                reason: "EC keys do not support encrypt/decrypt/wrap/unwrap operations in WebCrypto",
+            });
+        }
     };
 
     Reflect::set(&obj, &"name".into(), &alg_name.into())
@@ -393,7 +397,13 @@ fn build_symmetric_algorithm(
         Some(Algorithm::A256gcm) => ("AES-GCM", Some(("length", "256"))),
         Some(Algorithm::A128cbcHs256)
         | Some(Algorithm::A192cbcHs384)
-        | Some(Algorithm::A256cbcHs512) => ("AES-CBC", None),
+        | Some(Algorithm::A256cbcHs512) => {
+            return Err(Error::UnsupportedForWebCrypto {
+                reason: "AES-CBC-HS algorithms (A128CBC-HS256, A192CBC-HS384, A256CBC-HS512) \
+                         are composite authenticated encryption algorithms requiring split-key \
+                         handling (AES-CBC + HMAC) which WebCrypto does not natively support",
+            });
+        }
         _ => {
             return Err(Error::WebCrypto(
                 "symmetric key import requires an algorithm to determine the operation; \
@@ -598,6 +608,12 @@ pub async fn import_sign_key(key: &Key) -> Result<CryptoKey> {
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
 /// - [`Error::WebCrypto`] if the import operation fails
 pub async fn import_encrypt_key(key: &Key) -> Result<CryptoKey> {
+    if matches!(&key.params, KeyParams::Ec(_)) {
+        return Err(Error::UnsupportedForWebCrypto {
+            reason: "EC keys do not support direct encryption; \
+                     use ECDH key agreement (deriveKey/deriveBits) instead",
+        });
+    }
     import_key_with_usages(key, &["encrypt"], KeyUsage::Encrypt).await
 }
 
@@ -610,6 +626,12 @@ pub async fn import_encrypt_key(key: &Key) -> Result<CryptoKey> {
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
 /// - [`Error::WebCrypto`] if the import operation fails
 pub async fn import_decrypt_key(key: &Key) -> Result<CryptoKey> {
+    if matches!(&key.params, KeyParams::Ec(_)) {
+        return Err(Error::UnsupportedForWebCrypto {
+            reason: "EC keys do not support direct decryption; \
+                     use ECDH key agreement (deriveKey/deriveBits) instead",
+        });
+    }
     import_key_with_usages(key, &["decrypt"], KeyUsage::Decrypt).await
 }
 
@@ -620,6 +642,12 @@ pub async fn import_decrypt_key(key: &Key) -> Result<CryptoKey> {
 /// - RSA public keys (RSA-OAEP)
 /// - Symmetric keys (AES-KW)
 pub async fn import_wrap_key(key: &Key) -> Result<CryptoKey> {
+    if matches!(&key.params, KeyParams::Ec(_)) {
+        return Err(Error::UnsupportedForWebCrypto {
+            reason: "EC keys do not support direct key wrapping; \
+                     use ECDH key agreement (deriveKey/deriveBits) instead",
+        });
+    }
     import_key_with_usages(key, &["wrapKey"], KeyUsage::WrapKey).await
 }
 
@@ -630,6 +658,12 @@ pub async fn import_wrap_key(key: &Key) -> Result<CryptoKey> {
 /// - RSA private keys (RSA-OAEP)
 /// - Symmetric keys (AES-KW)
 pub async fn import_unwrap_key(key: &Key) -> Result<CryptoKey> {
+    if matches!(&key.params, KeyParams::Ec(_)) {
+        return Err(Error::UnsupportedForWebCrypto {
+            reason: "EC keys do not support direct key unwrapping; \
+                     use ECDH key agreement (deriveKey/deriveBits) instead",
+        });
+    }
     import_key_with_usages(key, &["unwrapKey"], KeyUsage::UnwrapKey).await
 }
 

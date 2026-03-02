@@ -846,8 +846,12 @@ impl Key {
         }
 
         // RFC 7517 Section 4.6: x5u MUST use TLS (HTTPS)
+        // URI schemes are case-insensitive per RFC 3986 Section 3.1
         if let Some(ref url) = self.x5u
-            && !url.starts_with("https://")
+            && !url
+                .as_bytes()
+                .get(..8)
+                .is_some_and(|s| s.eq_ignore_ascii_case(b"https://"))
         {
             return Err(Error::Validation(ValidationError::InvalidParameter {
                 name: "x5u",
@@ -1444,9 +1448,9 @@ fn is_valid_der_certificate(der: &[u8]) -> bool {
         None => return false,
     };
 
-    // Total length should match: header + content
+    // Total length must match exactly: header + content, no trailing bytes
     let expected_len = header_len + content_len;
-    if der.len() < expected_len {
+    if der.len() != expected_len {
         return false;
     }
 
