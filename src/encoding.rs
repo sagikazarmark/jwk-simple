@@ -6,7 +6,7 @@
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::error::Result;
 
@@ -135,8 +135,8 @@ impl Base64UrlBytes {
 
     /// Consumes the wrapper and returns the underlying bytes.
     ///
-    /// **The returned `Vec<u8>` is not zeroized on drop.**
-    /// The caller is responsible for zeroizing the returned bytes if needed.
+    /// The returned bytes are wrapped in [`Zeroizing`] to ensure they are
+    /// zeroized on drop, preserving the security guarantees of this type.
     ///
     /// # Examples
     ///
@@ -145,12 +145,12 @@ impl Base64UrlBytes {
     ///
     /// let bytes = Base64UrlBytes::new(vec![1, 2, 3]);
     /// let raw = bytes.into_bytes();
-    /// assert_eq!(raw, vec![1, 2, 3]);
+    /// assert_eq!(&*raw, &vec![1, 2, 3]);
     /// ```
     #[inline]
-    pub fn into_bytes(self) -> Vec<u8> {
+    pub fn into_bytes(self) -> Zeroizing<Vec<u8>> {
         let mut s = self;
-        std::mem::take(&mut s.0)
+        Zeroizing::new(std::mem::take(&mut s.0))
     }
 }
 
