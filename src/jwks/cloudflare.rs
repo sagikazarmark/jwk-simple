@@ -85,6 +85,14 @@ impl RemoteKeyStore {
         .await
         .map_err(|e| crate::error::Error::Other(format!("fetch failed: {}", e)))?;
 
+        let status = response.status_code();
+        if !(200..300).contains(&status) {
+            return Err(crate::error::Error::Other(format!(
+                "JWKS endpoint returned HTTP {}",
+                status
+            )));
+        }
+
         let text = response.text().await.map_err(|e| {
             crate::error::Error::Other(format!("failed to read response body: {}", e))
         })?;

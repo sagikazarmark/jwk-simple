@@ -257,13 +257,24 @@ fn build_algorithm_object_with_alg(
 }
 
 /// Key usage category for determining the appropriate algorithm.
+///
+/// This is used by the low-level [`import_key_with_usages`] and
+/// [`import_key_with_usages_for_alg`] functions to select the correct
+/// WebCrypto algorithm parameters at import time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KeyUsage {
+#[non_exhaustive]
+pub enum KeyUsage {
+    /// The key will be used for signing.
     Sign,
+    /// The key will be used for signature verification.
     Verify,
+    /// The key will be used for encryption.
     Encrypt,
+    /// The key will be used for decryption.
     Decrypt,
+    /// The key will be used for wrapping other keys.
     WrapKey,
+    /// The key will be used for unwrapping other keys.
     UnwrapKey,
 }
 
