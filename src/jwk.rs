@@ -859,8 +859,16 @@ impl Key {
             }));
         }
 
-        // RFC 7517 Section 4.7: x5c values are base64 encoded (NOT base64url)
+        // RFC 7517 Section 4.7: x5c contains "a chain of one or more PKIX certificates"
         if let Some(ref certs) = self.x5c {
+            if certs.is_empty() {
+                return Err(Error::Validation(ValidationError::InvalidParameter {
+                    name: "x5c",
+                    reason: "RFC 7517: x5c must contain one or more certificates".to_string(),
+                }));
+            }
+
+            // RFC 7517 Section 4.7: x5c values are base64 encoded (NOT base64url)
             for (i, cert) in certs.iter().enumerate() {
                 // Standard base64 uses '+' and '/' which are NOT valid in base64url
                 // base64url uses '-' and '_' instead

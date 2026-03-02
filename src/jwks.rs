@@ -103,10 +103,12 @@ impl KeyStore for KeySet {
 ///
 /// Per RFC 7517 Section 5:
 /// > "Implementations SHOULD ignore JWKs within a JWK Set that use 'kty'
-/// > (key type) values that are not understood by them"
+/// > (key type) values that are not understood by them, that are missing
+/// > required members, or for which values are out of the supported ranges."
 ///
 /// This implementation follows this guidance by silently skipping keys with
-/// unknown `kty` values during deserialization rather than failing.
+/// unknown `kty` values, missing required members, or invalid parameter
+/// values during deserialization rather than failing.
 ///
 /// # Examples
 ///
@@ -131,7 +133,7 @@ impl KeyStore for KeySet {
 /// assert_eq!(jwks.len(), 1);
 /// ```
 ///
-/// Keys with unknown `kty` values are silently skipped:
+/// Keys that cannot be parsed are silently skipped:
 ///
 /// ```
 /// use jwk_simple::KeySet;
@@ -165,31 +167,19 @@ impl<'de> Deserialize<'de> for KeySet {
 
         let raw = RawJwkSet::deserialize(deserializer)?;
 
-        // Parse each key, silently skipping those with unknown or missing kty values
+        // Parse each key, silently skipping those that cannot be understood
         // per RFC 7517 Section 5: "Implementations SHOULD ignore JWKs within
-        // a JWK Set that use 'kty' (key type) values that are not understood"
-        // Keys with a missing kty are also skipped since they cannot be
-        // identified as any known key type.
-        //
-        // Keys with known kty values that fail to parse for other reasons
-        // (e.g., missing required fields, invalid base64url) are treated as
-        // deserialization errors.
+        // a JWK Set that use 'kty' (key type) values that are not understood
+        // by them, that are missing required members, or for which values are
+        // out of the supported ranges."
         let mut keys = Vec::with_capacity(raw.keys.len());
         for value in raw.keys {
-            // Check if the kty value is one we understand before attempting full parse
-            let has_known_kty = value
-                .get("kty")
-                .and_then(|v| v.as_str())
-                .is_some_and(|kty| matches!(kty, "RSA" | "EC" | "oct" | "OKP"));
-
-            if !has_known_kty {
-                // Skip keys with unknown or missing kty values per RFC 7517
-                continue;
+            // Attempt to parse each key; skip any that fail.
+            // This covers unknown/missing kty values, missing required fields,
+            // invalid base64url, and other parse errors per RFC 7517 Section 5.
+            if let Ok(key) = serde_json::from_value::<Key>(value) {
+                keys.push(key);
             }
-
-            // For keys with known kty, parse errors are real errors
-            let key: Key = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-            keys.push(key);
         }
 
         Ok(KeySet { keys })

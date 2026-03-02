@@ -9,6 +9,26 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::encoding::Base64UrlBytes;
 use crate::error::{Error, Result, ValidationError};
 
+/// Validates that a Base64urlUInt value uses canonical encoding.
+///
+/// RFC 7518 Section 2 defines Base64urlUInt as the base64url encoding of an
+/// unsigned big-endian integer, which "MUST utilize the minimum number of
+/// octets needed to represent the value." This means no leading zero bytes,
+/// except for the value zero itself which is represented as a single zero byte.
+fn validate_base64url_uint(value: &Base64UrlBytes, name: &str) -> Result<()> {
+    let bytes = value.as_bytes();
+    if bytes.len() > 1 && bytes[0] == 0 {
+        return Err(Error::Validation(ValidationError::InvalidParameter {
+            name: "Base64urlUInt",
+            reason: format!(
+                "RFC 7518: '{}' has non-canonical Base64urlUInt encoding (leading zero bytes)",
+                name
+            ),
+        }));
+    }
+    Ok(())
+}
+
 /// Other primes info for multi-prime RSA keys (RFC 7518 Section 6.3.2.7).
 ///
 /// When more than two prime factors are used, this structure holds the
@@ -48,6 +68,9 @@ impl RsaOtherPrime {
                 "oth.t",
             )));
         }
+        validate_base64url_uint(&self.r, "oth.r")?;
+        validate_base64url_uint(&self.d, "oth.d")?;
+        validate_base64url_uint(&self.t, "oth.t")?;
         Ok(())
     }
 }
@@ -256,6 +279,7 @@ impl RsaParams {
     /// Returns an error if:
     /// - The modulus `n` is empty
     /// - The exponent `e` is empty
+    /// - Any integer field uses non-canonical Base64urlUInt encoding (leading zero bytes)
     /// - Private key parameters are partially present
     /// - Multi-prime `oth` parameter present without CRT parameters
     pub fn validate(&self) -> Result<()> {
@@ -267,6 +291,30 @@ impl RsaParams {
         // Exponent must not be empty
         if self.e.is_empty() {
             return Err(Error::Validation(ValidationError::MissingParameter("e")));
+        }
+
+        // RFC 7518 Section 2: Base64urlUInt values MUST use the minimum number
+        // of octets to represent the value. Reject non-canonical encodings
+        // (leading zero bytes) which could cause thumbprint mismatches.
+        validate_base64url_uint(&self.n, "n")?;
+        validate_base64url_uint(&self.e, "e")?;
+        if let Some(ref d) = self.d {
+            validate_base64url_uint(d, "d")?;
+        }
+        if let Some(ref p) = self.p {
+            validate_base64url_uint(p, "p")?;
+        }
+        if let Some(ref q) = self.q {
+            validate_base64url_uint(q, "q")?;
+        }
+        if let Some(ref dp) = self.dp {
+            validate_base64url_uint(dp, "dp")?;
+        }
+        if let Some(ref dq) = self.dq {
+            validate_base64url_uint(dq, "dq")?;
+        }
+        if let Some(ref qi) = self.qi {
+            validate_base64url_uint(qi, "qi")?;
         }
 
         // If d is present, validate consistency
@@ -595,6 +643,54 @@ mod tests {
             oth: None,
         };
         assert!(params.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_canonical_base64url_uint() {
+        // RFC 7518 Section 2: Base64urlUInt values MUST use minimum octets.
+        // A modulus with a leading zero byte is non-canonical.
+        let params = RsaParams::new_public(
+            Base64UrlBytes::new(vec![0, 1, 2, 3]), // leading zero = non-canonical
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        );
+        let result = params.validate();
+        assert!(result.is_err(), "Leading zero byte in n should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Base64urlUInt") || err.contains("canonical"),
+            "Error should mention canonical encoding: {}",
+            err
+        );
+
+        // An exponent with a leading zero byte is also non-canonical
+        let params = RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![0, 1, 0, 1]), // leading zero = non-canonical
+        );
+        assert!(
+            params.validate().is_err(),
+            "Leading zero byte in e should be rejected"
+        );
+
+        // Single zero byte representing the value 0 IS canonical (per RFC 7518: "AA")
+        let params = RsaParams::new_public(
+            Base64UrlBytes::new(vec![0]), // single zero = canonical representation of 0
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        );
+        assert!(
+            params.validate().is_ok(),
+            "Single zero byte should be accepted as canonical representation of 0"
+        );
+
+        // Canonical values should pass
+        let params = RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        );
+        assert!(
+            params.validate().is_ok(),
+            "Canonical values should pass validation"
+        );
     }
 
     #[test]

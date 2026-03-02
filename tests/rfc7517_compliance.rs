@@ -415,6 +415,22 @@ mod x5c_parameter {
         let jwk: Key = serde_json::from_str(json).unwrap();
         assert_eq!(jwk.x5c, None);
     }
+
+    #[test]
+    fn test_x5c_empty_array_rejected() {
+        // RFC 7517 Section 4.7: x5c contains "a chain of one or more PKIX certificates"
+        // An empty array violates this requirement.
+        let json = r#"{"kty": "RSA", "x5c": [], "n": "AQAB", "e": "AQAB"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result = jwk.validate();
+        assert!(result.is_err(), "Empty x5c array should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("one or more"),
+            "Error should mention 'one or more': {}",
+            err
+        );
+    }
 }
 
 // ============================================================================
@@ -958,35 +974,38 @@ mod permissive_parsing {
     }
 
     #[test]
-    fn test_jwks_malformed_known_kty_is_error() {
-        // JWKS containing a key with a known kty but missing required fields
-        // should fail to parse (not silently skip).
-        // Only unknown kty values are silently skipped per RFC 7517 Section 5.
+    fn test_jwks_malformed_known_kty_is_skipped() {
+        // RFC 7517 Section 5: Implementations SHOULD ignore JWKs that are
+        // "missing required members, or for which values are out of the
+        // supported ranges." Malformed keys with known kty are silently
+        // skipped, preserving the valid keys.
 
-        // RSA key missing required "n" and "e" parameters
+        // RSA key missing required "n" and "e" parameters — should be skipped
         let json = r#"{
             "keys": [
                 {"kty": "RSA", "kid": "valid", "n": "AQAB", "e": "AQAB"},
                 {"kty": "RSA", "kid": "missing-params"}
             ]
         }"#;
-        let result = serde_json::from_str::<KeySet>(json);
+        let jwks = serde_json::from_str::<KeySet>(json).unwrap();
+        assert_eq!(jwks.len(), 1, "Only the valid RSA key should be included");
         assert!(
-            result.is_err(),
-            "Malformed key with known kty should cause a parse error"
+            jwks.find_by_kid("valid").is_some(),
+            "Valid key should be present"
+        );
+        assert!(
+            jwks.find_by_kid("missing-params").is_none(),
+            "Malformed key should be skipped"
         );
 
-        // EC key missing required "crv" parameter
+        // EC key missing required "crv" parameter — should result in empty set
         let json = r#"{
             "keys": [
                 {"kty": "EC", "kid": "missing-curve", "x": "AQAB", "y": "AQAB"}
             ]
         }"#;
-        let result = serde_json::from_str::<KeySet>(json);
-        assert!(
-            result.is_err(),
-            "Malformed key with known kty should cause a parse error"
-        );
+        let jwks = serde_json::from_str::<KeySet>(json).unwrap();
+        assert!(jwks.is_empty(), "Malformed EC key should be skipped");
     }
 
     // RFC 7517 Section 4.2: "use" parameter can have other values
