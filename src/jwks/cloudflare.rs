@@ -64,10 +64,6 @@ pub struct RemoteKeyStore {
 
 impl RemoteKeyStore {
     /// Creates a new `RemoteKeyStore` from a URL.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The JWKS endpoint URL.
     pub fn new(url: impl Into<String>) -> Self {
         Self { url: url.into() }
     }
@@ -142,10 +138,6 @@ impl KeyCache {
     /// Default settings:
     /// - Key: `"jwks"`
     /// - TTL: 5 minutes (300 seconds)
-    ///
-    /// # Arguments
-    ///
-    /// * `kv` - The KV namespace to use for storage.
     pub fn new(kv: KvStore) -> Self {
         Self {
             kv,
@@ -155,10 +147,6 @@ impl KeyCache {
     }
 
     /// Sets the TTL for the cached key set.
-    ///
-    /// # Arguments
-    ///
-    /// * `ttl` - The duration after which the cached key set expires.
     pub fn with_ttl(mut self, ttl: std::time::Duration) -> Self {
         self.ttl_seconds = Some(ttl.as_secs());
         self
@@ -171,10 +159,6 @@ impl KeyCache {
     }
 
     /// Sets the KV key used to store the key set.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The KV key name.
     pub fn with_key(mut self, key: impl Into<String>) -> Self {
         self.key = key.into();
         self

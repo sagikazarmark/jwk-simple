@@ -28,14 +28,6 @@ use crate::jwk::{EcParams, Key, KeyParams, OkpParams, RsaParams, SymmetricParams
 /// representation of the key's required members.
 ///
 /// Prefer using [`Key::thumbprint()`] instead of calling this function directly.
-///
-/// # Arguments
-///
-/// * `jwk` - The JWK to calculate the thumbprint for.
-///
-/// # Returns
-///
-/// The base64url-encoded SHA-256 thumbprint.
 pub(crate) fn calculate_thumbprint(jwk: &Key) -> String {
     let canonical_json = build_canonical_json(jwk);
     let hash = Sha256::digest(canonical_json.as_bytes());

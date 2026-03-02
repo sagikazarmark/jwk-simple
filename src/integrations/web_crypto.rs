@@ -571,12 +571,6 @@ pub async fn import_unwrap_key(key: &Key) -> Result<CryptoKey> {
 ///
 /// This is the low-level function that allows specifying arbitrary key usages.
 ///
-/// # Arguments
-///
-/// * `key` - The JWK to import
-/// * `usages` - Array of key usage strings (e.g., `["sign", "verify"]`)
-/// * `usage` - The primary usage for determining the algorithm
-///
 /// # Errors
 ///
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported

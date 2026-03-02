@@ -37,10 +37,6 @@ pub struct SymmetricParams {
 impl SymmetricParams {
     /// Creates new symmetric key parameters.
     ///
-    /// # Arguments
-    ///
-    /// * `k` - The raw symmetric key bytes.
-    ///
     /// # Examples
     ///
     /// ```
@@ -74,11 +70,6 @@ impl SymmetricParams {
         self.k.len() * 8
     }
 
-    /// Returns a reference to the raw key bytes.
-    pub fn key_bytes(&self) -> &[u8] {
-        self.k.as_bytes()
-    }
-
     /// Validates the symmetric key parameters.
     ///
     /// # Errors
@@ -105,10 +96,6 @@ impl SymmetricParams {
     }
 
     /// Validates that the key size is appropriate for the given algorithm.
-    ///
-    /// # Arguments
-    ///
-    /// * `min_bits` - Minimum required key size in bits.
     ///
     /// # Errors
     ///

@@ -141,11 +141,6 @@ impl KeyUse {
             KeyUse::Unknown(s) => s.as_str(),
         }
     }
-
-    /// Returns `true` if this is an unknown/unrecognized key use.
-    pub fn is_unknown(&self) -> bool {
-        matches!(self, KeyUse::Unknown(_))
-    }
 }
 
 impl std::fmt::Display for KeyUse {
@@ -185,11 +180,8 @@ impl<'de> Deserialize<'de> for KeyUse {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(match s.as_str() {
-            "sig" => KeyUse::Signature,
-            "enc" => KeyUse::Encryption,
-            _ => KeyUse::Unknown(s),
-        })
+        // Infallible, so unwrap is safe
+        Ok(s.parse().unwrap())
     }
 }
 
@@ -237,11 +229,6 @@ impl KeyOperation {
             KeyOperation::Unknown(s) => s.as_str(),
         }
     }
-
-    /// Returns `true` if this is an unknown/unrecognized key operation.
-    pub fn is_unknown(&self) -> bool {
-        matches!(self, KeyOperation::Unknown(_))
-    }
 }
 
 impl std::fmt::Display for KeyOperation {
@@ -287,17 +274,8 @@ impl<'de> Deserialize<'de> for KeyOperation {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(match s.as_str() {
-            "sign" => KeyOperation::Sign,
-            "verify" => KeyOperation::Verify,
-            "encrypt" => KeyOperation::Encrypt,
-            "decrypt" => KeyOperation::Decrypt,
-            "wrapKey" => KeyOperation::WrapKey,
-            "unwrapKey" => KeyOperation::UnwrapKey,
-            "deriveKey" => KeyOperation::DeriveKey,
-            "deriveBits" => KeyOperation::DeriveBits,
-            _ => KeyOperation::Unknown(s),
-        })
+        // Infallible, so unwrap is safe
+        Ok(s.parse().unwrap())
     }
 }
 
@@ -468,234 +446,6 @@ impl Algorithm {
     /// Returns `true` if this is an unknown/unrecognized algorithm.
     pub fn is_unknown(&self) -> bool {
         matches!(self, Algorithm::Unknown(_))
-    }
-
-    /// Returns `true` if this is a signing algorithm.
-    ///
-    /// Unknown algorithms return `false` since their purpose cannot be determined.
-    pub fn is_signing(&self) -> bool {
-        matches!(
-            self,
-            Algorithm::Hs256
-                | Algorithm::Hs384
-                | Algorithm::Hs512
-                | Algorithm::Rs256
-                | Algorithm::Rs384
-                | Algorithm::Rs512
-                | Algorithm::Ps256
-                | Algorithm::Ps384
-                | Algorithm::Ps512
-                | Algorithm::Es256
-                | Algorithm::Es384
-                | Algorithm::Es512
-                | Algorithm::Es256k
-                | Algorithm::EdDsa
-        )
-    }
-
-    /// Returns `true` if this is a key encryption (key management) algorithm.
-    ///
-    /// These are algorithms used in the JWE "alg" header parameter for
-    /// key encryption or key agreement (RFC 7518 Section 4).
-    ///
-    /// Unknown algorithms return `false` since their purpose cannot be determined.
-    pub fn is_key_encryption(&self) -> bool {
-        matches!(
-            self,
-            Algorithm::RsaOaep
-                | Algorithm::RsaOaep256
-                | Algorithm::RsaOaep384
-                | Algorithm::RsaOaep512
-                | Algorithm::Rsa1_5
-                | Algorithm::A128kw
-                | Algorithm::A192kw
-                | Algorithm::A256kw
-                | Algorithm::Dir
-                | Algorithm::EcdhEs
-                | Algorithm::EcdhEsA128kw
-                | Algorithm::EcdhEsA192kw
-                | Algorithm::EcdhEsA256kw
-                | Algorithm::A128gcmkw
-                | Algorithm::A192gcmkw
-                | Algorithm::A256gcmkw
-                | Algorithm::Pbes2Hs256A128kw
-                | Algorithm::Pbes2Hs384A192kw
-                | Algorithm::Pbes2Hs512A256kw
-        )
-    }
-
-    /// Returns the key types compatible with this algorithm.
-    ///
-    /// This reflects the key type requirements defined in RFC 7518.
-    /// For example, `RS256` requires an RSA key, `ES256` requires an EC key, etc.
-    ///
-    /// Some algorithms are compatible with multiple key types. For example,
-    /// `ECDH-ES` can be used with both EC and OKP keys.
-    ///
-    /// Unknown algorithms return an empty slice since their requirements
-    /// cannot be determined.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use jwk_simple::{Algorithm, KeyType};
-    ///
-    /// assert_eq!(Algorithm::Rs256.compatible_key_types(), &[KeyType::Rsa]);
-    /// assert_eq!(Algorithm::Es256.compatible_key_types(), &[KeyType::Ec]);
-    /// assert_eq!(Algorithm::Hs256.compatible_key_types(), &[KeyType::Symmetric]);
-    /// assert!(Algorithm::EcdhEs.compatible_key_types().contains(&KeyType::Ec));
-    /// assert!(Algorithm::EcdhEs.compatible_key_types().contains(&KeyType::Okp));
-    /// ```
-    pub fn compatible_key_types(&self) -> &'static [KeyType] {
-        match self {
-            // RSA signing and encryption algorithms
-            Algorithm::Rs256
-            | Algorithm::Rs384
-            | Algorithm::Rs512
-            | Algorithm::Ps256
-            | Algorithm::Ps384
-            | Algorithm::Ps512
-            | Algorithm::RsaOaep
-            | Algorithm::RsaOaep256
-            | Algorithm::RsaOaep384
-            | Algorithm::RsaOaep512
-            | Algorithm::Rsa1_5 => &[KeyType::Rsa],
-
-            // ECDSA algorithms
-            Algorithm::Es256 | Algorithm::Es384 | Algorithm::Es512 | Algorithm::Es256k => {
-                &[KeyType::Ec]
-            }
-
-            // EdDSA
-            Algorithm::EdDsa => &[KeyType::Okp],
-
-            // ECDH-ES algorithms work with both EC and OKP keys
-            Algorithm::EcdhEs
-            | Algorithm::EcdhEsA128kw
-            | Algorithm::EcdhEsA192kw
-            | Algorithm::EcdhEsA256kw => &[KeyType::Ec, KeyType::Okp],
-
-            // Symmetric algorithms (HMAC, AES KW, AES-GCM KW, Direct, PBES2, Content Encryption)
-            Algorithm::Hs256
-            | Algorithm::Hs384
-            | Algorithm::Hs512
-            | Algorithm::A128kw
-            | Algorithm::A192kw
-            | Algorithm::A256kw
-            | Algorithm::A128gcmkw
-            | Algorithm::A192gcmkw
-            | Algorithm::A256gcmkw
-            | Algorithm::Dir
-            | Algorithm::Pbes2Hs256A128kw
-            | Algorithm::Pbes2Hs384A192kw
-            | Algorithm::Pbes2Hs512A256kw
-            | Algorithm::A128cbcHs256
-            | Algorithm::A192cbcHs384
-            | Algorithm::A256cbcHs512
-            | Algorithm::A128gcm
-            | Algorithm::A192gcm
-            | Algorithm::A256gcm => &[KeyType::Symmetric],
-
-            // Unknown algorithms cannot be mapped
-            Algorithm::Unknown(_) => &[],
-        }
-    }
-
-    /// Returns the minimum key size in bits required by this algorithm per RFC 7518.
-    ///
-    /// For RSA algorithms, this returns 2048 (the RFC 7518 recommendation).
-    /// For symmetric algorithms, this returns the exact key size required.
-    /// For EC and OKP algorithms, key sizes are determined by the curve, so
-    /// this returns `None` (use [`EcCurve::coordinate_size`] or
-    /// [`OkpCurve::public_key_size`] instead).
-    ///
-    /// Unknown algorithms return `None` since their requirements cannot be determined.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use jwk_simple::Algorithm;
-    ///
-    /// assert_eq!(Algorithm::Rs256.min_key_size_bits(), Some(2048));
-    /// assert_eq!(Algorithm::Hs256.min_key_size_bits(), Some(256));
-    /// assert_eq!(Algorithm::A128kw.min_key_size_bits(), Some(128));
-    /// assert_eq!(Algorithm::Es256.min_key_size_bits(), None); // determined by curve
-    /// ```
-    pub fn min_key_size_bits(&self) -> Option<usize> {
-        match self {
-            // RSA: RFC 7518 recommends at least 2048 bits
-            Algorithm::Rs256
-            | Algorithm::Rs384
-            | Algorithm::Rs512
-            | Algorithm::Ps256
-            | Algorithm::Ps384
-            | Algorithm::Ps512
-            | Algorithm::RsaOaep
-            | Algorithm::RsaOaep256
-            | Algorithm::RsaOaep384
-            | Algorithm::RsaOaep512
-            | Algorithm::Rsa1_5 => Some(2048),
-
-            // HMAC: RFC 7518 Section 3.2 - key size must be >= hash output size
-            Algorithm::Hs256 => Some(256),
-            Algorithm::Hs384 => Some(384),
-            Algorithm::Hs512 => Some(512),
-
-            // AES Key Wrap: exact key sizes
-            Algorithm::A128kw | Algorithm::A128gcmkw => Some(128),
-            Algorithm::A192kw | Algorithm::A192gcmkw => Some(192),
-            Algorithm::A256kw | Algorithm::A256gcmkw => Some(256),
-
-            // AES-CBC + HMAC content encryption: key = enc_key + mac_key
-            Algorithm::A128cbcHs256 => Some(256),
-            Algorithm::A192cbcHs384 => Some(384),
-            Algorithm::A256cbcHs512 => Some(512),
-
-            // AES-GCM content encryption
-            Algorithm::A128gcm => Some(128),
-            Algorithm::A192gcm => Some(192),
-            Algorithm::A256gcm => Some(256),
-
-            // PBES2: password-based, minimum key size is algorithm-dependent
-            Algorithm::Pbes2Hs256A128kw => Some(128),
-            Algorithm::Pbes2Hs384A192kw => Some(192),
-            Algorithm::Pbes2Hs512A256kw => Some(256),
-
-            // Direct key agreement: no specific size requirement
-            Algorithm::Dir => None,
-
-            // EC, OKP, ECDH: key size determined by curve, not algorithm
-            Algorithm::Es256
-            | Algorithm::Es384
-            | Algorithm::Es512
-            | Algorithm::Es256k
-            | Algorithm::EdDsa
-            | Algorithm::EcdhEs
-            | Algorithm::EcdhEsA128kw
-            | Algorithm::EcdhEsA192kw
-            | Algorithm::EcdhEsA256kw => None,
-
-            // Unknown algorithms
-            Algorithm::Unknown(_) => None,
-        }
-    }
-
-    /// Returns `true` if this is a content encryption algorithm.
-    ///
-    /// These are algorithms used in the JWE "enc" header parameter for
-    /// content encryption (RFC 7518 Section 5).
-    ///
-    /// Unknown algorithms return `false` since their purpose cannot be determined.
-    pub fn is_content_encryption(&self) -> bool {
-        matches!(
-            self,
-            Algorithm::A128cbcHs256
-                | Algorithm::A192cbcHs384
-                | Algorithm::A256cbcHs512
-                | Algorithm::A128gcm
-                | Algorithm::A192gcm
-                | Algorithm::A256gcm
-        )
     }
 }
 
@@ -1351,10 +1101,6 @@ impl Key {
     /// For symmetric keys, this returns `None` since symmetric keys don't have
     /// a separate public component.
     ///
-    /// # Returns
-    ///
-    /// A new `Key` containing only the public key parameters, or `None` for symmetric keys.
-    ///
     /// # Examples
     ///
     /// ```
@@ -2002,5 +1748,91 @@ mod tests {
         let key: Key = serde_json::from_str(json).unwrap();
 
         assert!(!key.is_algorithm_compatible(&Algorithm::Unknown("CUSTOM".to_string())));
+    }
+
+    #[test]
+    fn test_to_public_rsa() {
+        let json = r#"{
+            "kty": "RSA",
+            "kid": "rsa-key",
+            "use": "sig",
+            "alg": "RS256",
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB",
+            "d": "X4cTteJY_gn4FYPsXB8rdXix5vwsg1FLN5E3EaG6RJoVH-HLLKD9M7dx5oo7GURknchnrRweUkC7hT5fJLM0WbFAKNLWY2vv7B6NqXSzUvxT0_YSfqijwp3RTzlBaCxWp4doFk5N2o8Gy_nHNKroADIkJ46pRUohsXywbReAdYaMwFs9tv8d_cPVY3i07a3t8MN6TNwm0dSawm9v47UiCl3Sk5ZiG7xojPLu4sbg1U2jx4IBTNBznbJSzFHK66jT8bgkuqsk0GjskDJk19Z4qwjwbsnn4j2WBii3RL-Us2lGVkY8fkFzme1z0HbIkfz0Y6mqnOYtqc0X4jfcKoAC8Q"
+        }"#;
+        let private_key: Key = serde_json::from_str(json).unwrap();
+        assert!(private_key.has_private_key());
+
+        let public_key = private_key.to_public().unwrap();
+        assert!(public_key.is_public_key_only());
+        assert_eq!(public_key.kty, KeyType::Rsa);
+        assert_eq!(public_key.kid, Some("rsa-key".to_string()));
+        assert_eq!(public_key.key_use, Some(KeyUse::Signature));
+        assert_eq!(public_key.alg, Some(Algorithm::Rs256));
+
+        let rsa = public_key.as_rsa().unwrap();
+        assert!(rsa.d.is_none());
+        // Modulus should be preserved
+        assert_eq!(rsa.n, private_key.as_rsa().unwrap().n);
+    }
+
+    #[test]
+    fn test_to_public_ec() {
+        let json = r#"{
+            "kty": "EC",
+            "crv": "P-256",
+            "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4",
+            "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM",
+            "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"
+        }"#;
+        let private_key: Key = serde_json::from_str(json).unwrap();
+        assert!(private_key.has_private_key());
+
+        let public_key = private_key.to_public().unwrap();
+        assert!(public_key.is_public_key_only());
+        assert_eq!(public_key.kty, KeyType::Ec);
+
+        let ec = public_key.as_ec().unwrap();
+        assert!(ec.d.is_none());
+        assert_eq!(ec.crv, EcCurve::P256);
+    }
+
+    #[test]
+    fn test_to_public_okp() {
+        let json = r#"{
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+            "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A"
+        }"#;
+        let private_key: Key = serde_json::from_str(json).unwrap();
+        assert!(private_key.has_private_key());
+
+        let public_key = private_key.to_public().unwrap();
+        assert!(public_key.is_public_key_only());
+        assert_eq!(public_key.kty, KeyType::Okp);
+
+        let okp = public_key.as_okp().unwrap();
+        assert!(okp.d.is_none());
+        assert_eq!(okp.crv, OkpCurve::Ed25519);
+    }
+
+    #[test]
+    fn test_to_public_symmetric_returns_none() {
+        let json = r#"{"kty":"oct","k":"GawgguFyGrWKav7AX4VKUg"}"#;
+        let key: Key = serde_json::from_str(json).unwrap();
+        assert!(key.to_public().is_none());
+    }
+
+    #[test]
+    fn test_to_public_already_public() {
+        let json = r#"{"kty":"RSA","n":"AQAB","e":"AQAB"}"#;
+        let key: Key = serde_json::from_str(json).unwrap();
+        assert!(key.is_public_key_only());
+
+        let public = key.to_public().unwrap();
+        assert!(public.is_public_key_only());
+        assert_eq!(key, public);
     }
 }

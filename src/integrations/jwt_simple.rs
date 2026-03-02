@@ -3,7 +3,7 @@
 use jwt_simple::prelude::*;
 
 use crate::error::{Error, Result};
-use crate::jwk::{EcCurve, EcParams, Key, KeyParams, OkpCurve, RsaParams};
+use crate::jwk::{EcCurve, Key, KeyParams, OkpCurve, RsaParams};
 
 // ============================================================================
 // RSA Key Conversions
@@ -257,11 +257,6 @@ impl_rsa_key_pair_conversion!(PS512KeyPair);
 // EC Key Conversions
 // ============================================================================
 
-/// Builds an uncompressed EC public key point (0x04 || x || y).
-fn build_ec_public_key_bytes(params: &EcParams) -> Vec<u8> {
-    params.to_uncompressed_point()
-}
-
 // Macro to implement EC public key conversions
 macro_rules! impl_ec_public_key_conversion {
     ($key_type:ty, $curve:expr, $curve_name:expr) => {
@@ -286,7 +281,7 @@ macro_rules! impl_ec_public_key_conversion {
                     });
                 }
 
-                let bytes = build_ec_public_key_bytes(params);
+                let bytes = params.to_uncompressed_point();
                 <$key_type>::from_bytes(&bytes).map_err(|e| Error::Other(e.to_string()))
             }
         }

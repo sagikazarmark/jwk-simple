@@ -66,10 +66,6 @@ impl RemoteKeyStore {
     ///
     /// Uses a default HTTP client with a 30-second timeout. To customize the client,
     /// use [`new_with_client`](Self::new_with_client).
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The JWKS endpoint URL.
     pub fn new(url: impl Into<String>) -> Self {
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_TIMEOUT)
@@ -85,11 +81,6 @@ impl RemoteKeyStore {
     /// Creates a new `RemoteKeyStore` with a custom HTTP client.
     ///
     /// Use this to configure custom timeouts, headers, proxies, TLS settings, etc.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - The JWKS endpoint URL.
-    /// * `client` - A configured [`reqwest::Client`].
     ///
     /// # Examples
     ///
@@ -133,25 +124,5 @@ impl RemoteKeyStore {
 impl KeyStore for RemoteKeyStore {
     async fn get_keyset(&self) -> Result<KeySet> {
         self.fetch().await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_remote_key_store_new() {
-        let _store = RemoteKeyStore::new("https://example.com/jwks");
-    }
-
-    #[test]
-    fn test_remote_key_store_new_with_client() {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap();
-
-        let _store = RemoteKeyStore::new_with_client("https://example.com/jwks", client);
     }
 }

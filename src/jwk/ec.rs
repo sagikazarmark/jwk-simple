@@ -111,24 +111,11 @@ pub struct EcParams {
 
 impl EcParams {
     /// Creates new EC public key parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `crv` - The elliptic curve.
-    /// * `x` - The x coordinate.
-    /// * `y` - The y coordinate.
     pub fn new_public(crv: EcCurve, x: Base64UrlBytes, y: Base64UrlBytes) -> Self {
         Self { crv, x, y, d: None }
     }
 
     /// Creates new EC private key parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `crv` - The elliptic curve.
-    /// * `x` - The x coordinate.
-    /// * `y` - The y coordinate.
-    /// * `d` - The private key scalar.
     pub fn new_private(
         crv: EcCurve,
         x: Base64UrlBytes,

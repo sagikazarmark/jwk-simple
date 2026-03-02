@@ -686,7 +686,6 @@ mod rsa_multi_prime {
         assert!(rsa.oth.is_some());
         assert_eq!(rsa.oth.as_ref().unwrap().len(), 1);
         assert!(rsa.is_multi_prime());
-        assert_eq!(rsa.prime_count(), 3);
     }
 
     #[test]
@@ -784,7 +783,6 @@ mod okp_extended_format {
             jwk_simple::encoding::Base64UrlBytes::new(vec![1; 114]),
         );
         assert!(params.validate().is_ok());
-        assert!(params.has_extended_private_key());
     }
 
     #[test]
@@ -921,13 +919,6 @@ mod permissive_parsing {
         );
     }
 
-    #[test]
-    fn test_key_operation_is_unknown_method() {
-        // Test the is_unknown() helper method
-        assert!(KeyOperation::Unknown("test".to_string()).is_unknown());
-        assert!(!KeyOperation::Sign.is_unknown());
-    }
-
     // RFC 7517 Section 5: KeySet should ignore JWKs with unknown kty values
 
     #[test]
@@ -1032,14 +1023,6 @@ mod permissive_parsing {
             serialized.contains("my-private-use"),
             "Unknown use should be preserved in serialization"
         );
-    }
-
-    #[test]
-    fn test_use_is_unknown_method() {
-        // Test the is_unknown() helper method
-        assert!(KeyUse::Unknown("test".to_string()).is_unknown());
-        assert!(!KeyUse::Signature.is_unknown());
-        assert!(!KeyUse::Encryption.is_unknown());
     }
 }
 

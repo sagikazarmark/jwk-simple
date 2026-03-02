@@ -998,7 +998,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "subtle",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",

@@ -39,10 +39,6 @@ pub struct Base64UrlBytes(Vec<u8>);
 impl Base64UrlBytes {
     /// Creates a new `Base64UrlBytes` from raw bytes.
     ///
-    /// # Arguments
-    ///
-    /// * `bytes` - The raw bytes to wrap.
-    ///
     /// # Examples
     ///
     /// ```
@@ -57,10 +53,6 @@ impl Base64UrlBytes {
     }
 
     /// Creates a `Base64UrlBytes` by decoding a base64url string.
-    ///
-    /// # Arguments
-    ///
-    /// * `encoded` - A base64url-encoded string (without padding).
     ///
     /// # Errors
     ///
@@ -143,11 +135,8 @@ impl Base64UrlBytes {
 
     /// Consumes the wrapper and returns the underlying bytes.
     ///
-    /// # Security Note
-    ///
-    /// The returned `Vec<u8>` will NOT be automatically zeroed on drop.
-    /// If the data is sensitive, ensure you zeroize it manually or use
-    /// this method only when necessary.
+    /// **The returned `Vec<u8>` is not zeroized on drop.**
+    /// The caller is responsible for zeroizing the returned bytes if needed.
     ///
     /// # Examples
     ///
@@ -160,8 +149,6 @@ impl Base64UrlBytes {
     /// ```
     #[inline]
     pub fn into_bytes(self) -> Vec<u8> {
-        // Note: We can't prevent the inner vec from being copied,
-        // but at least `self` will be zeroed on drop after this.
         let mut s = self;
         std::mem::take(&mut s.0)
     }
@@ -178,9 +165,7 @@ impl std::fmt::Debug for Base64UrlBytes {
 
 impl PartialEq for Base64UrlBytes {
     fn eq(&self, other: &Self) -> bool {
-        // Use constant-time comparison for security
-        use subtle::ConstantTimeEq;
-        self.0.ct_eq(&other.0).into()
+        self.0 == other.0
     }
 }
 
@@ -264,5 +249,13 @@ mod tests {
         // Actually [1, 0, 1] = 65537 = 0x010001
         let bytes = Base64UrlBytes::from_base64url("AQAB").unwrap();
         assert_eq!(bytes.as_bytes(), &[0x01, 0x00, 0x01]);
+    }
+
+    #[test]
+    fn test_from_base64url_invalid() {
+        // Standard base64 padding is not valid base64url-unpadded
+        assert!(Base64UrlBytes::from_base64url("AQAB==").is_err());
+        // Invalid characters
+        assert!(Base64UrlBytes::from_base64url("!!!").is_err());
     }
 }

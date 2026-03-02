@@ -23,39 +23,28 @@ pub enum Error {
 
     /// Key type mismatch during conversion.
     KeyTypeMismatch {
-        /// The expected key type.
+        /// Expected.
         expected: &'static str,
-        /// The actual key type found.
+        /// Actual.
         actual: String,
-    },
-
-    /// Algorithm mismatch during conversion.
-    AlgorithmMismatch {
-        /// The expected algorithm.
-        expected: &'static str,
-        /// The actual algorithm found.
-        actual: Option<String>,
     },
 
     /// Curve mismatch during conversion.
     CurveMismatch {
-        /// The expected curve.
+        /// Expected.
         expected: &'static str,
-        /// The actual curve found.
+        /// Actual.
         actual: String,
     },
 
     /// Missing required field.
     MissingField {
-        /// The name of the missing field.
+        /// Field name.
         field: &'static str,
     },
 
     /// Private key parameters missing when required.
     MissingPrivateKey,
-
-    /// I/O error (file operations).
-    Io(std::io::Error),
 
     /// HTTP request error.
     #[cfg(feature = "http")]
@@ -68,7 +57,7 @@ pub enum Error {
     #[cfg(feature = "web-crypto")]
     #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
     UnsupportedForWebCrypto {
-        /// Description of what is unsupported.
+        /// Why it's unsupported.
         reason: &'static str,
     },
 
@@ -91,13 +80,6 @@ impl fmt::Display for Error {
                     expected, actual
                 )
             }
-            Error::AlgorithmMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "algorithm mismatch: expected {}, got {:?}",
-                    expected, actual
-                )
-            }
             Error::CurveMismatch { expected, actual } => {
                 write!(f, "curve mismatch: expected {}, got {}", expected, actual)
             }
@@ -107,7 +89,6 @@ impl fmt::Display for Error {
             Error::MissingPrivateKey => {
                 write!(f, "private key parameters required but not present")
             }
-            Error::Io(e) => write!(f, "I/O error: {}", e),
             #[cfg(feature = "http")]
             Error::Http(e) => write!(f, "HTTP error: {}", e),
             Error::Other(msg) => write!(f, "{}", msg),
@@ -126,7 +107,6 @@ impl std::error::Error for Error {
         match self {
             Error::Parse(e) => Some(e),
             Error::Validation(e) => Some(e),
-            Error::Io(e) => Some(e),
             #[cfg(feature = "http")]
             Error::Http(e) => Some(e),
             _ => None,
@@ -143,12 +123,6 @@ impl From<base64ct::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
         Error::Parse(ParseError::Json(e.to_string()))
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Error::Io(e)
     }
 }
 
@@ -191,7 +165,7 @@ pub enum ValidationError {
         expected: usize,
         /// Actual size in bytes.
         actual: usize,
-        /// Description of what was being validated.
+        /// What was being validated.
         context: &'static str,
     },
     /// Missing required parameter for key type.
@@ -202,7 +176,7 @@ pub enum ValidationError {
     InvalidParameter {
         /// Parameter name.
         name: &'static str,
-        /// Description of why it's invalid.
+        /// Why it's invalid.
         reason: String,
     },
 }

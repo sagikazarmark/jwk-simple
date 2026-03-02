@@ -90,11 +90,6 @@ pub struct CachedKeyStore<C, S> {
 
 impl<C, S> CachedKeyStore<C, S> {
     /// Creates a new cached key store.
-    ///
-    /// # Arguments
-    ///
-    /// * `cache` - The cache implementation to use.
-    /// * `source` - The underlying key store to fetch from on cache misses.
     pub fn new(cache: C, source: S) -> Self {
         Self { cache, source }
     }

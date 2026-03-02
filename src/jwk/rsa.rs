@@ -138,11 +138,6 @@ pub struct RsaParams {
 
 impl RsaParams {
     /// Creates new RSA public key parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `n` - The modulus.
-    /// * `e` - The public exponent.
     #[must_use]
     pub fn new_public(n: Base64UrlBytes, e: Base64UrlBytes) -> Self {
         Self {
@@ -159,12 +154,6 @@ impl RsaParams {
     }
 
     /// Returns a builder for constructing RSA private key parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `n` - The modulus.
-    /// * `e` - The public exponent.
-    /// * `d` - The private exponent.
     ///
     /// # Examples
     ///
@@ -342,10 +331,6 @@ impl RsaParams {
     ///
     /// RFC 7518 recommends RSA keys be at least 2048 bits.
     ///
-    /// # Arguments
-    ///
-    /// * `min_bits` - Minimum required key size in bits.
-    ///
     /// # Errors
     ///
     /// Returns an error if the key size is below the minimum.
@@ -381,19 +366,6 @@ impl RsaParams {
     /// by the presence of the `oth` parameter.
     pub fn is_multi_prime(&self) -> bool {
         self.oth.is_some()
-    }
-
-    /// Returns the number of prime factors.
-    ///
-    /// - Returns 0 for public keys (no prime factors present)
-    /// - Returns 2 for standard private keys
-    /// - Returns 2 + len(oth) for multi-prime keys
-    pub fn prime_count(&self) -> usize {
-        if self.p.is_none() || self.q.is_none() {
-            0
-        } else {
-            2 + self.oth.as_ref().map_or(0, |o| o.len())
-        }
     }
 
     /// Extracts only the public key parameters.
@@ -648,7 +620,6 @@ mod tests {
         let public_key =
             RsaParams::new_public(Base64UrlBytes::new(vec![1]), Base64UrlBytes::new(vec![1]));
         assert!(!public_key.is_multi_prime());
-        assert_eq!(public_key.prime_count(), 0);
 
         let standard_private = RsaParams::new_private(
             Base64UrlBytes::new(vec![1]),
@@ -661,7 +632,6 @@ mod tests {
             Some(Base64UrlBytes::new(vec![1])),
         );
         assert!(!standard_private.is_multi_prime());
-        assert_eq!(standard_private.prime_count(), 2);
 
         let multi_prime = RsaParams::new_multi_prime(
             Base64UrlBytes::new(vec![1]),
@@ -679,6 +649,5 @@ mod tests {
             )],
         );
         assert!(multi_prime.is_multi_prime());
-        assert_eq!(multi_prime.prime_count(), 3);
     }
 }

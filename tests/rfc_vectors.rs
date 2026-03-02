@@ -244,8 +244,6 @@ mod okp_keys {
 
         let params = key.as_okp().unwrap();
         assert_eq!(params.crv, OkpCurve::X25519);
-        assert!(params.crv.is_key_agreement_curve());
-        assert!(!params.crv.is_signature_curve());
     }
 }
 

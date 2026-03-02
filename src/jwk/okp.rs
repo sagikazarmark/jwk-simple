@@ -66,16 +66,6 @@ impl OkpCurve {
             OkpCurve::X448 => "X448",
         }
     }
-
-    /// Returns `true` if this curve is for signatures (EdDSA).
-    pub fn is_signature_curve(&self) -> bool {
-        matches!(self, OkpCurve::Ed25519 | OkpCurve::Ed448)
-    }
-
-    /// Returns `true` if this curve is for key agreement.
-    pub fn is_key_agreement_curve(&self) -> bool {
-        matches!(self, OkpCurve::X25519 | OkpCurve::X448)
-    }
 }
 
 impl std::str::FromStr for OkpCurve {
@@ -133,22 +123,11 @@ pub struct OkpParams {
 
 impl OkpParams {
     /// Creates new OKP public key parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `crv` - The OKP curve.
-    /// * `x` - The public key.
     pub fn new_public(crv: OkpCurve, x: Base64UrlBytes) -> Self {
         Self { crv, x, d: None }
     }
 
     /// Creates new OKP private key parameters.
-    ///
-    /// # Arguments
-    ///
-    /// * `crv` - The OKP curve.
-    /// * `x` - The public key.
-    /// * `d` - The private key.
     pub fn new_private(crv: OkpCurve, x: Base64UrlBytes, d: Base64UrlBytes) -> Self {
         Self { crv, x, d: Some(d) }
     }
@@ -219,14 +198,6 @@ impl OkpParams {
         })
     }
 
-    /// Returns `true` if the private key is in extended format (seed + public).
-    pub fn has_extended_private_key(&self) -> bool {
-        self.d
-            .as_ref()
-            .map(|d| d.len() == self.crv.extended_private_key_size())
-            .unwrap_or(false)
-    }
-
     /// Extracts only the public key parameters.
     #[must_use]
     pub fn to_public(&self) -> Self {
@@ -275,14 +246,6 @@ mod tests {
         assert_eq!(OkpCurve::Ed448.public_key_size(), 57);
         assert_eq!(OkpCurve::X25519.public_key_size(), 32);
         assert_eq!(OkpCurve::X448.public_key_size(), 57);
-    }
-
-    #[test]
-    fn test_curve_types() {
-        assert!(OkpCurve::Ed25519.is_signature_curve());
-        assert!(!OkpCurve::Ed25519.is_key_agreement_curve());
-        assert!(!OkpCurve::X25519.is_signature_curve());
-        assert!(OkpCurve::X25519.is_key_agreement_curve());
     }
 
     #[test]
@@ -338,7 +301,6 @@ mod tests {
             Base64UrlBytes::new(vec![1; 57]),
         );
         assert!(params.validate().is_ok());
-        assert!(!params.has_extended_private_key());
     }
 
     #[test]
@@ -350,7 +312,6 @@ mod tests {
             Base64UrlBytes::new(vec![1; 114]),
         );
         assert!(params.validate().is_ok());
-        assert!(params.has_extended_private_key());
     }
 
     #[test]

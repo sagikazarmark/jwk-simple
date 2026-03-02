@@ -75,10 +75,6 @@ pub trait KeyStore {
     ///
     /// The default implementation fetches the full key set and looks up by key ID.
     /// Implementations may override this for more efficient lookups (e.g., caching).
-    ///
-    /// # Arguments
-    ///
-    /// * `kid` - The key ID to look up.
     async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
         Ok(self.get_keyset().await?.find_by_kid(kid).cloned())
     }
@@ -256,14 +252,6 @@ impl KeySet {
     }
 
     /// Removes and returns a key by its ID.
-    ///
-    /// # Arguments
-    ///
-    /// * `kid` - The key ID to look for.
-    ///
-    /// # Returns
-    ///
-    /// The removed key, or `None` if not found.
     pub fn remove_by_kid(&mut self, kid: &str) -> Option<Key> {
         if let Some(pos) = self.keys.iter().position(|k| k.kid.as_deref() == Some(kid)) {
             Some(self.keys.remove(pos))
@@ -273,14 +261,6 @@ impl KeySet {
     }
 
     /// Finds a key by its ID (`kid`).
-    ///
-    /// # Arguments
-    ///
-    /// * `kid` - The key ID to look for.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the key, or `None` if not found.
     ///
     /// # Examples
     ///
@@ -302,14 +282,6 @@ impl KeySet {
 
     /// Finds all keys with the specified algorithm.
     ///
-    /// # Arguments
-    ///
-    /// * `alg` - The algorithm to filter by.
-    ///
-    /// # Returns
-    ///
-    /// An iterator over references to matching keys.
-    ///
     /// # Examples
     ///
     /// ```
@@ -328,27 +300,11 @@ impl KeySet {
     }
 
     /// Finds all keys with the specified key type.
-    ///
-    /// # Arguments
-    ///
-    /// * `kty` - The key type to filter by.
-    ///
-    /// # Returns
-    ///
-    /// An iterator over references to matching keys.
     pub fn find_by_kty(&self, kty: KeyType) -> impl Iterator<Item = &Key> {
         self.keys.iter().filter(move |k| k.kty == kty)
     }
 
     /// Finds all keys with the specified use.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_use` - The key use to filter by.
-    ///
-    /// # Returns
-    ///
-    /// An iterator over references to matching keys.
     ///
     /// # Examples
     ///
@@ -372,10 +328,6 @@ impl KeySet {
     /// A key is considered a signing key if:
     /// - It has `use: "sig"`, OR
     /// - It has no `use` specified (default behavior for signature keys)
-    ///
-    /// # Returns
-    ///
-    /// An iterator over references to signing keys.
     pub fn signing_keys(&self) -> impl Iterator<Item = &Key> {
         self.keys
             .iter()
@@ -383,10 +335,6 @@ impl KeySet {
     }
 
     /// Finds all encryption keys.
-    ///
-    /// # Returns
-    ///
-    /// An iterator over references to encryption keys.
     pub fn encryption_keys(&self) -> impl Iterator<Item = &Key> {
         self.keys
             .iter()
@@ -415,10 +363,6 @@ impl KeySet {
     ///
     /// This is a convenience method that returns a single key instead of the
     /// vector returned by [`find_by_alg`].
-    ///
-    /// # Arguments
-    ///
-    /// * `alg` - The algorithm to search for.
     ///
     /// # Examples
     ///
@@ -450,14 +394,6 @@ impl KeySet {
     /// Keys whose `alg` field is set to a *different* algorithm are excluded,
     /// even if the key type would otherwise be compatible.
     ///
-    /// # Arguments
-    ///
-    /// * `alg` - The algorithm to check compatibility with.
-    ///
-    /// # Returns
-    ///
-    /// An iterator over references to compatible keys.
-    ///
     /// # Examples
     ///
     /// ```
@@ -481,10 +417,6 @@ impl KeySet {
     ///
     /// This is a convenience method that returns a single key from
     /// [`find_compatible`](KeySet::find_compatible).
-    ///
-    /// # Arguments
-    ///
-    /// * `alg` - The algorithm to check compatibility with.
     ///
     /// # Examples
     ///
@@ -513,10 +445,6 @@ impl KeySet {
     /// verify JWT signatures, as it handles keys both with and without an explicit
     /// `alg` field.
     ///
-    /// # Arguments
-    ///
-    /// * `alg` - The algorithm to check compatibility with.
-    ///
     /// # Examples
     ///
     /// ```
@@ -544,10 +472,6 @@ impl KeySet {
     ///
     /// This is the most common lookup pattern for JWKS consumers that need to
     /// verify JWT signatures.
-    ///
-    /// # Arguments
-    ///
-    /// * `alg` - The algorithm to search for.
     ///
     /// # Examples
     ///
@@ -602,14 +526,6 @@ impl KeySet {
     }
 
     /// Finds a key by its JWK thumbprint (RFC 7638).
-    ///
-    /// # Arguments
-    ///
-    /// * `thumbprint` - The base64url-encoded SHA-256 thumbprint.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the key, or `None` if not found.
     ///
     /// # Performance
     ///
@@ -925,17 +841,47 @@ mod tests {
     }
 
     #[test]
-    fn test_from_iterator() {
-        let keys = vec![];
-        let jwks: KeySet = keys.into_iter().collect();
-        assert!(jwks.is_empty());
-    }
-
-    #[test]
     fn test_index() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
         let first = &jwks[0];
         assert_eq!(first.kid, Some("rsa-key-1".to_string()));
+    }
+
+    #[test]
+    fn test_add_key() {
+        let mut jwks = KeySet::new();
+        assert!(jwks.is_empty());
+
+        let key: Key = serde_json::from_str(r#"{"kty":"oct","kid":"k1","k":"AQAB"}"#).unwrap();
+        jwks.add_key(key);
+        assert_eq!(jwks.len(), 1);
+        assert!(jwks.find_by_kid("k1").is_some());
+    }
+
+    #[test]
+    fn test_remove_by_kid() {
+        let mut jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        assert_eq!(jwks.len(), 3);
+
+        let removed = jwks.remove_by_kid("ec-key-1");
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().kid.as_deref(), Some("ec-key-1"));
+        assert_eq!(jwks.len(), 2);
+        assert!(jwks.find_by_kid("ec-key-1").is_none());
+
+        // Removing non-existent kid returns None
+        assert!(jwks.remove_by_kid("nonexistent").is_none());
+        assert_eq!(jwks.len(), 2);
+    }
+
+    #[test]
+    fn test_find_by_kty() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+
+        assert_eq!(jwks.find_by_kty(KeyType::Rsa).count(), 2);
+        assert_eq!(jwks.find_by_kty(KeyType::Ec).count(), 1);
+        assert_eq!(jwks.find_by_kty(KeyType::Okp).count(), 0);
+        assert_eq!(jwks.find_by_kty(KeyType::Symmetric).count(), 0);
     }
 
     #[tokio::test]
