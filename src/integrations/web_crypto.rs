@@ -373,7 +373,9 @@ fn build_ec_algorithm(curve: EcCurve, usage: KeyUsage) -> Result<Object> {
         KeyUsage::Sign | KeyUsage::Verify => "ECDSA",
         KeyUsage::Encrypt | KeyUsage::Decrypt | KeyUsage::WrapKey | KeyUsage::UnwrapKey => {
             return Err(Error::UnsupportedForWebCrypto {
-                reason: "EC keys do not support encrypt/decrypt/wrap/unwrap operations in WebCrypto",
+                reason: "EC key derivation (ECDH) and direct encrypt/decrypt/wrap/unwrap \
+                         are not yet supported by this library; \
+                         only ECDSA sign/verify is currently implemented for EC keys",
             });
         }
     };

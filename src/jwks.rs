@@ -327,10 +327,13 @@ impl KeySet {
     }
 
     /// Finds all encryption keys.
+    ///
+    /// A key is considered an encryption key if:
+    /// - It has `key_ops` containing `encrypt`, `decrypt`, `wrapKey`, or `unwrapKey`,
+    ///   OR (when `key_ops` is absent)
+    /// - It has `use: "enc"`
     pub fn encryption_keys(&self) -> impl Iterator<Item = &Key> {
-        self.keys
-            .iter()
-            .filter(|k| k.key_use.as_ref() == Some(&KeyUse::Encryption))
+        self.keys.iter().filter(|k| is_encryption_key(k))
     }
 
     /// Returns the first signing key, if any.
@@ -579,6 +582,24 @@ fn is_signing_key(key: &Key) -> bool {
         ops.contains(&KeyOperation::Sign) || ops.contains(&KeyOperation::Verify)
     } else {
         key.key_use.is_none() || key.key_use.as_ref() == Some(&KeyUse::Signature)
+    }
+}
+
+/// Checks whether a key is suitable for encryption operations.
+///
+/// When `key_ops` is present it is treated as authoritative: the key must
+/// include [`KeyOperation::Encrypt`], [`KeyOperation::Decrypt`],
+/// [`KeyOperation::WrapKey`], or [`KeyOperation::UnwrapKey`].
+/// When `key_ops` is absent, `key_use` is consulted: the key is an
+/// encryption key if `use` is `"enc"`.
+fn is_encryption_key(key: &Key) -> bool {
+    if let Some(ref ops) = key.key_ops {
+        ops.contains(&KeyOperation::Encrypt)
+            || ops.contains(&KeyOperation::Decrypt)
+            || ops.contains(&KeyOperation::WrapKey)
+            || ops.contains(&KeyOperation::UnwrapKey)
+    } else {
+        key.key_use.as_ref() == Some(&KeyUse::Encryption)
     }
 }
 
