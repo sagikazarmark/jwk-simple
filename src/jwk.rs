@@ -821,13 +821,18 @@ impl Key {
     /// Returns an error if:
     /// - The key parameters are invalid
     /// - The algorithm doesn't match the key type
-    /// - Both `use` and `key_ops` are specified (RFC 7517 Section 4.3 SHOULD NOT)
+    /// - Both `use` and `key_ops` are specified with inconsistent values
+    ///   (RFC 7517 Section 4.3)
     pub fn validate(&self) -> Result<()> {
-        // RFC 7517 Section 4.3: "use" and "key_ops" SHOULD NOT be used together
-        if self.key_use.is_some() && self.key_ops.is_some() {
-            return Err(Error::Validation(ValidationError::InconsistentParameters(
-                "RFC 7517: 'use' and 'key_ops' SHOULD NOT be used together".to_string(),
-            )));
+        // RFC 7517 Section 4.3: "The 'use' and 'key_ops' JWK members SHOULD NOT
+        // be used together; however, if both are used, the information they convey
+        // MUST be consistent."
+        if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops) {
+            if !is_use_consistent_with_ops(key_use, key_ops) {
+                return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    "RFC 7517: 'use' and 'key_ops' are both present but inconsistent".to_string(),
+                )));
+            }
         }
 
         // RFC 7517 Section 4.3: key_ops values MUST be unique (no duplicates)
@@ -1427,6 +1432,45 @@ impl<'de> Deserialize<'de> for Key {
             x5t_s256: raw.x5t_s256,
             x5u: raw.x5u,
         })
+    }
+}
+
+/// Checks whether a `use` value is consistent with a set of `key_ops` values.
+///
+/// Per RFC 7517 Section 4.3, if both `use` and `key_ops` are present, the information
+/// they convey MUST be consistent. The natural mapping is:
+/// - `sig` is consistent with `sign` and `verify`
+/// - `enc` is consistent with `encrypt`, `decrypt`, `wrapKey`, `unwrapKey`,
+///   `deriveKey`, and `deriveBits`
+///
+/// For unknown `use` values, consistency cannot be determined, so we accept them.
+fn is_use_consistent_with_ops(key_use: &KeyUse, key_ops: &[KeyOperation]) -> bool {
+    // Empty key_ops is trivially consistent (no operations claimed).
+    if key_ops.is_empty() {
+        return true;
+    }
+
+    match key_use {
+        KeyUse::Signature => key_ops.iter().all(|op| {
+            matches!(
+                op,
+                KeyOperation::Sign | KeyOperation::Verify | KeyOperation::Unknown(_)
+            )
+        }),
+        KeyUse::Encryption => key_ops.iter().all(|op| {
+            matches!(
+                op,
+                KeyOperation::Encrypt
+                    | KeyOperation::Decrypt
+                    | KeyOperation::WrapKey
+                    | KeyOperation::UnwrapKey
+                    | KeyOperation::DeriveKey
+                    | KeyOperation::DeriveBits
+                    | KeyOperation::Unknown(_)
+            )
+        }),
+        // Unknown use values: we can't determine consistency, so accept.
+        KeyUse::Unknown(_) => true,
     }
 }
 

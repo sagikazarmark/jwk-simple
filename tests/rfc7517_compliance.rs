@@ -118,8 +118,7 @@ mod key_ops_parameter {
 
     #[test]
     fn test_key_ops_duplicates_rejected() {
-        // RFC 7517 Section 4.3: "The "key_ops" array SHOULD NOT contain duplicate values"
-        // We treat this as MUST NOT for strict compliance
+        // RFC 7517 Section 4.3: "Duplicate key operation values MUST NOT be present in the array"
         let json = r#"{"kty": "RSA", "key_ops": ["sign", "sign"], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
@@ -136,14 +135,58 @@ mod key_ops_parameter {
     }
 
     #[test]
-    fn test_key_ops_and_use_together_rejected() {
-        // RFC 7517 Section 4.3: "use" and "key_ops" SHOULD NOT be used together
-        let json = r#"{"kty": "RSA", "use": "sig", "key_ops": ["sign"], "n": "AQAB", "e": "AQAB"}"#;
+    fn test_key_ops_and_use_consistent_accepted() {
+        // RFC 7517 Section 4.3: "The 'use' and 'key_ops' JWK members SHOULD NOT
+        // be used together; however, if both are used, the information they convey
+        // MUST be consistent."
+        // Consistent: use=sig with key_ops containing only sign/verify
+        let json = r#"{"kty": "RSA", "use": "sig", "key_ops": ["sign", "verify"], "n": "AQAB", "e": "AQAB"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        assert!(
+            jwk.validate().is_ok(),
+            "Consistent 'use' and 'key_ops' should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_key_ops_and_use_inconsistent_rejected() {
+        // RFC 7517 Section 4.3: if both are used, they MUST be consistent.
+        // Inconsistent: use=sig with key_ops containing encrypt
+        let json =
+            r#"{"kty": "RSA", "use": "sig", "key_ops": ["encrypt"], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
         assert!(
             result.is_err(),
-            "'use' and 'key_ops' together should be rejected"
+            "Inconsistent 'use' and 'key_ops' should be rejected"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("inconsistent"),
+            "Error should mention 'inconsistent': {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_key_ops_and_use_enc_consistent_accepted() {
+        // use=enc with key_ops containing only encryption-related operations
+        let json = r#"{"kty": "RSA", "use": "enc", "key_ops": ["encrypt", "decrypt", "wrapKey", "unwrapKey"], "n": "AQAB", "e": "AQAB"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        assert!(
+            jwk.validate().is_ok(),
+            "Consistent 'use':'enc' and encryption key_ops should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_key_ops_and_use_enc_inconsistent_rejected() {
+        // use=enc with key_ops containing sign (a signature operation)
+        let json = r#"{"kty": "RSA", "use": "enc", "key_ops": ["sign"], "n": "AQAB", "e": "AQAB"}"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        assert!(
+            jwk.validate().is_err(),
+            "Inconsistent 'use':'enc' with 'key_ops':['sign'] should be rejected"
         );
     }
 
@@ -511,18 +554,32 @@ mod jwk_set {
     }
 
     #[test]
-    fn test_jwks_validate_all_keys() {
-        // KeySet::validate() should validate all contained keys
+    fn test_jwks_validate_all_keys_consistent() {
+        // KeySet::validate() should accept keys where use and key_ops are consistent
         let json = r#"{
             "keys": [
                 {"kty": "RSA", "use": "sig", "key_ops": ["sign"], "n": "AQAB", "e": "AQAB"}
             ]
         }"#;
         let jwks = serde_json::from_str::<KeySet>(json).unwrap();
-        let result = jwks.validate();
         assert!(
-            result.is_err(),
-            "JWKS with invalid key should fail validation"
+            jwks.validate().is_ok(),
+            "JWKS with consistent use and key_ops should pass validation"
+        );
+    }
+
+    #[test]
+    fn test_jwks_validate_all_keys_inconsistent() {
+        // KeySet::validate() should reject keys where use and key_ops are inconsistent
+        let json = r#"{
+            "keys": [
+                {"kty": "RSA", "use": "sig", "key_ops": ["encrypt"], "n": "AQAB", "e": "AQAB"}
+            ]
+        }"#;
+        let jwks = serde_json::from_str::<KeySet>(json).unwrap();
+        assert!(
+            jwks.validate().is_err(),
+            "JWKS with inconsistent use and key_ops should fail validation"
         );
     }
 }
