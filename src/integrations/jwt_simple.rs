@@ -123,6 +123,11 @@ fn build_rsa_private_key_der(params: &RsaParams) -> Result<Vec<u8>> {
 
 /// Encodes a byte slice as a DER INTEGER.
 fn encode_der_integer(bytes: &[u8]) -> Vec<u8> {
+    if bytes.is_empty() {
+        // Encode zero: INTEGER tag, length 1, value 0x00
+        return vec![0x02, 0x01, 0x00];
+    }
+
     // Skip leading zeros (but keep at least one byte)
     let bytes = {
         let mut start = 0;
@@ -720,6 +725,22 @@ mod tests {
         let jwk: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
         let result: Result<RS256KeyPair> = (&jwk).try_into();
         assert!(matches!(result, Err(Error::MissingPrivateKey)));
+    }
+
+    #[test]
+    fn test_encode_der_integer_empty_bytes() {
+        // Encoding an empty byte slice should produce DER INTEGER 0, not panic
+        let result = encode_der_integer(&[]);
+        assert_eq!(result, vec![0x02, 0x01, 0x00]);
+    }
+
+    #[test]
+    fn test_rsa_public_key_empty_params_no_panic() {
+        // A JWK with empty base64url strings should produce an error, not a panic
+        let json = r#"{"kty":"RSA","n":"","e":"AQAB"}"#;
+        let key: Key = serde_json::from_str(json).unwrap();
+        let result: Result<RS256PublicKey> = (&key).try_into();
+        assert!(result.is_err());
     }
 
     #[test]
