@@ -39,21 +39,32 @@
 //!                     └──────────────────────────────────┘
 //! ```
 
-#![cfg(target_arch = "wasm32")]
+// This example only works on wasm32 targets.
+// On native targets, we provide an empty main so the crate still compiles.
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    eprintln!("This example only runs on wasm32 targets.");
+}
 
+#[cfg(target_arch = "wasm32")]
 use base64ct::{Base64UrlUnpadded, Encoding};
+#[cfg(target_arch = "wasm32")]
 use js_sys::Uint8Array;
-use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture;
-
+#[cfg(target_arch = "wasm32")]
 use jwk_simple::{Algorithm, Key, KeySet, web_crypto};
+#[cfg(target_arch = "wasm32")]
+use serde::{Deserialize, Serialize};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures::JsFuture;
 
 // ============================================================================
 // JWT Types (hand-crafted, minimal)
 // ============================================================================
 
 /// JWT Header (minimal fields for verification)
+#[cfg(target_arch = "wasm32")]
 #[derive(Debug, Deserialize)]
 pub struct JwtHeader {
     /// Algorithm used for signing
@@ -66,6 +77,7 @@ pub struct JwtHeader {
 }
 
 /// Standard JWT claims (minimal set)
+#[cfg(target_arch = "wasm32")]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JwtClaims {
     /// Issuer
@@ -92,6 +104,7 @@ pub struct JwtClaims {
 }
 
 /// Audience can be a string or array of strings
+#[cfg(target_arch = "wasm32")]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum StringOrArray {
@@ -99,6 +112,7 @@ pub enum StringOrArray {
     Array(Vec<String>),
 }
 
+#[cfg(target_arch = "wasm32")]
 impl StringOrArray {
     pub fn contains(&self, value: &str) -> bool {
         match self {
@@ -109,6 +123,7 @@ impl StringOrArray {
 }
 
 /// Parsed JWT with all three parts
+#[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 pub struct ParsedJwt {
     pub header: JwtHeader,
@@ -120,6 +135,7 @@ pub struct ParsedJwt {
 }
 
 /// JWT verification error
+#[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 pub enum JwtError {
     /// Invalid JWT format (not 3 parts)
@@ -146,6 +162,7 @@ pub enum JwtError {
     InvalidAudience,
 }
 
+#[cfg(target_arch = "wasm32")]
 impl std::fmt::Display for JwtError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -169,11 +186,13 @@ impl std::fmt::Display for JwtError {
 // ============================================================================
 
 /// Decodes a base64url string (no padding)
+#[cfg(target_arch = "wasm32")]
 fn base64url_decode(input: &str) -> Result<Vec<u8>, JwtError> {
     Base64UrlUnpadded::decode_vec(input).map_err(|e| JwtError::Base64Error(format!("{:?}", e)))
 }
 
 /// Parses a JWT string into its components
+#[cfg(target_arch = "wasm32")]
 pub fn parse_jwt(token: &str) -> Result<ParsedJwt, JwtError> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
@@ -206,6 +225,7 @@ pub fn parse_jwt(token: &str) -> Result<ParsedJwt, JwtError> {
 // ============================================================================
 
 /// Verifies a JWT signature using WebCrypto
+#[cfg(target_arch = "wasm32")]
 pub async fn verify_signature(
     jwt: &ParsedJwt,
     crypto_key: &web_sys::CryptoKey,
@@ -252,6 +272,7 @@ pub async fn verify_signature(
 // ============================================================================
 
 /// Options for JWT verification
+#[cfg(target_arch = "wasm32")]
 #[derive(Default)]
 pub struct VerifyOptions<'a> {
     /// Expected issuer (if set, must match)
@@ -266,6 +287,7 @@ pub struct VerifyOptions<'a> {
     pub clock_skew: u64,
 }
 
+#[cfg(target_arch = "wasm32")]
 impl<'a> VerifyOptions<'a> {
     pub fn new() -> Self {
         Self {
@@ -289,11 +311,13 @@ impl<'a> VerifyOptions<'a> {
 }
 
 /// Gets the current Unix timestamp (seconds since epoch)
+#[cfg(target_arch = "wasm32")]
 fn current_timestamp() -> u64 {
     (js_sys::Date::now() / 1000.0) as u64
 }
 
 /// Validates the JWT claims (expiration, issuer, audience, etc.)
+#[cfg(target_arch = "wasm32")]
 fn validate_claims(claims: &JwtClaims, options: &VerifyOptions) -> Result<(), JwtError> {
     let now = current_timestamp();
 
@@ -335,6 +359,7 @@ fn validate_claims(claims: &JwtClaims, options: &VerifyOptions) -> Result<(), Jw
 }
 
 /// Finds the appropriate key from a JWKS for verifying a JWT
+#[cfg(target_arch = "wasm32")]
 fn find_key_for_jwt<'a>(jwks: &'a KeySet, jwt: &ParsedJwt) -> Result<&'a Key, JwtError> {
     // Try to find by kid first
     if let Some(kid) = &jwt.header.kid {
@@ -384,6 +409,7 @@ fn find_key_for_jwt<'a>(jwks: &'a KeySet, jwt: &ParsedJwt) -> Result<&'a Key, Jw
 /// let claims = verify_jwt(token, &jwks, &options).await?;
 /// println!("Subject: {:?}", claims.sub);
 /// ```
+#[cfg(target_arch = "wasm32")]
 pub async fn verify_jwt(
     token: &str,
     jwks: &KeySet,
@@ -403,7 +429,14 @@ pub async fn verify_jwt(
     }
 
     // 4. Import the key for verification using jwk-simple
-    let crypto_key = web_crypto::import_verify_key(key)
+    //    Use the algorithm from the JWT header to ensure the correct hash is used
+    //    at import time, even if the key's `alg` field is absent.
+    let alg: Algorithm = jwt
+        .header
+        .alg
+        .parse()
+        .unwrap_or(Algorithm::Unknown(jwt.header.alg.clone()));
+    let crypto_key = web_crypto::import_verify_key_for_alg(key, &alg)
         .await
         .map_err(|e| JwtError::CryptoError(e.to_string()))?;
 
@@ -424,6 +457,7 @@ pub async fn verify_jwt(
 // ============================================================================
 
 /// Example: Verify a JWT from an OIDC provider
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn example_verify_oidc_token(token: &str, jwks_json: &str) -> Result<String, JsValue> {
     // Parse the JWKS using jwk-simple
@@ -449,6 +483,7 @@ pub async fn example_verify_oidc_token(token: &str, jwks_json: &str) -> Result<S
 // ============================================================================
 
 #[cfg(test)]
+#[cfg(target_arch = "wasm32")]
 mod tests {
     use super::*;
 

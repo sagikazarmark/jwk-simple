@@ -109,7 +109,8 @@ fn test_to_json_web_key_rsa() {
     let jwk = web_crypto::to_json_web_key(&key).unwrap();
 
     assert_eq!(jwk.kty(), "RSA");
-    assert_eq!(jwk.kid(), Some("rsa-test-key".to_string()));
+    // Note: `kid` is not part of the WebCrypto JsonWebKey dictionary,
+    // so it is not set on the web_sys::JsonWebKey object.
     assert_eq!(jwk.alg(), Some("RS256".to_string()));
     assert!(jwk.n().is_some());
     assert!(jwk.e().is_some());
