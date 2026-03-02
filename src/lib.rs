@@ -125,7 +125,7 @@ pub use jwks::RemoteKeySet;
 
 #[cfg(feature = "cache-inmemory")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cache-inmemory")))]
-pub use jwks::{InMemoryCachedKeySet, InMemoryKeyCache, DEFAULT_CACHE_TTL};
+pub use jwks::{DEFAULT_CACHE_TTL, InMemoryCachedKeySet, InMemoryKeyCache};
 
 #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "cloudflare")))]

@@ -53,7 +53,11 @@ fn main() {
     let signing_keys = jwks.signing_keys();
     println!("\nFound {} signing keys:", signing_keys.len());
     for key in signing_keys {
-        println!("  - {} ({:?})", key.kid.as_deref().unwrap_or("no kid"), key.kty);
+        println!(
+            "  - {} ({:?})",
+            key.kid.as_deref().unwrap_or("no kid"),
+            key.kty
+        );
     }
 
     // Find keys by type
@@ -62,7 +66,10 @@ fn main() {
 
     // Get the first signing key (common pattern)
     if let Some(first_signing) = jwks.first_signing_key() {
-        println!("\nFirst signing key: {}", first_signing.kid.as_deref().unwrap_or("no kid"));
+        println!(
+            "\nFirst signing key: {}",
+            first_signing.kid.as_deref().unwrap_or("no kid")
+        );
 
         // Calculate thumbprint
         let thumbprint = first_signing.thumbprint();

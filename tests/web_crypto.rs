@@ -9,8 +9,8 @@ use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
-use jwk_simple::web_crypto;
 use jwk_simple::Key;
+use jwk_simple::web_crypto;
 
 // Test RSA public key from RFC 7517 Appendix A.1
 const RFC_RSA_PUBLIC_KEY: &str = r#"{

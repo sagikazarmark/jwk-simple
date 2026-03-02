@@ -34,13 +34,19 @@ impl RsaOtherPrime {
     /// Validates the other prime parameters.
     pub fn validate(&self) -> Result<()> {
         if self.r.is_empty() {
-            return Err(Error::Validation(ValidationError::MissingParameter("oth.r")));
+            return Err(Error::Validation(ValidationError::MissingParameter(
+                "oth.r",
+            )));
         }
         if self.d.is_empty() {
-            return Err(Error::Validation(ValidationError::MissingParameter("oth.d")));
+            return Err(Error::Validation(ValidationError::MissingParameter(
+                "oth.d",
+            )));
         }
         if self.t.is_empty() {
-            return Err(Error::Validation(ValidationError::MissingParameter("oth.t")));
+            return Err(Error::Validation(ValidationError::MissingParameter(
+                "oth.t",
+            )));
         }
         Ok(())
     }
@@ -290,7 +296,8 @@ impl RsaParams {
             // RFC 7518 Section 6.3.2.7: oth requires all CRT parameters
             if self.oth.is_some() && !has_all_crt {
                 return Err(Error::Validation(ValidationError::InconsistentParameters(
-                    "RSA 'oth' parameter requires all CRT parameters (p, q, dp, dq, qi)".to_string(),
+                    "RSA 'oth' parameter requires all CRT parameters (p, q, dp, dq, qi)"
+                        .to_string(),
                 )));
             }
 
@@ -575,7 +582,8 @@ mod tests {
 
     #[test]
     fn test_validate_empty_modulus() {
-        let params = RsaParams::new_public(Base64UrlBytes::new(vec![]), Base64UrlBytes::new(vec![1]));
+        let params =
+            RsaParams::new_public(Base64UrlBytes::new(vec![]), Base64UrlBytes::new(vec![1]));
         assert!(params.validate().is_err());
     }
 
@@ -615,10 +623,8 @@ mod tests {
 
     #[test]
     fn test_multi_prime_detection() {
-        let public_key = RsaParams::new_public(
-            Base64UrlBytes::new(vec![1]),
-            Base64UrlBytes::new(vec![1]),
-        );
+        let public_key =
+            RsaParams::new_public(Base64UrlBytes::new(vec![1]), Base64UrlBytes::new(vec![1]));
         assert!(!public_key.is_multi_prime());
         assert_eq!(public_key.prime_count(), 0);
 

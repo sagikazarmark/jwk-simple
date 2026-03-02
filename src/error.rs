@@ -85,7 +85,11 @@ impl fmt::Display for Error {
             Error::Validation(e) => write!(f, "validation error: {}", e),
             Error::Base64(e) => write!(f, "base64 decoding error: {:?}", e),
             Error::KeyTypeMismatch { expected, actual } => {
-                write!(f, "key type mismatch: expected {}, got {}", expected, actual)
+                write!(
+                    f,
+                    "key type mismatch: expected {}, got {}",
+                    expected, actual
+                )
             }
             Error::AlgorithmMismatch { expected, actual } => {
                 write!(

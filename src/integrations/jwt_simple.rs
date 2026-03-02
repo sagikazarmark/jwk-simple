@@ -58,10 +58,7 @@ fn build_rsa_public_key_der(params: &RsaParams) -> Vec<u8> {
 /// }
 /// ```
 fn build_rsa_private_key_der(params: &RsaParams) -> Result<Vec<u8>> {
-    let d = params
-        .d
-        .as_ref()
-        .ok_or(Error::MissingPrivateKey)?;
+    let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
     let p = params
         .p
         .as_ref()
@@ -186,7 +183,7 @@ macro_rules! impl_rsa_public_key_conversion {
                         return Err(Error::KeyTypeMismatch {
                             expected: "RSA",
                             actual: jwk.kty.as_str().to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -218,7 +215,7 @@ macro_rules! impl_rsa_key_pair_conversion {
                         return Err(Error::KeyTypeMismatch {
                             expected: "RSA",
                             actual: jwk.kty.as_str().to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -278,7 +275,7 @@ macro_rules! impl_ec_public_key_conversion {
                         return Err(Error::KeyTypeMismatch {
                             expected: "EC",
                             actual: jwk.kty.as_str().to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -317,7 +314,7 @@ macro_rules! impl_ec_key_pair_conversion {
                         return Err(Error::KeyTypeMismatch {
                             expected: "EC",
                             actual: jwk.kty.as_str().to_string(),
-                        })
+                        });
                     }
                 };
 
@@ -368,7 +365,7 @@ impl TryFrom<&Key> for Ed25519PublicKey {
                 return Err(Error::KeyTypeMismatch {
                     expected: "OKP",
                     actual: jwk.kty.as_str().to_string(),
-                })
+                });
             }
         };
 
@@ -379,8 +376,7 @@ impl TryFrom<&Key> for Ed25519PublicKey {
             });
         }
 
-        Ed25519PublicKey::from_bytes(params.x.as_bytes())
-            .map_err(|e| Error::Other(e.to_string()))
+        Ed25519PublicKey::from_bytes(params.x.as_bytes()).map_err(|e| Error::Other(e.to_string()))
     }
 }
 
@@ -402,7 +398,7 @@ impl TryFrom<&Key> for Ed25519KeyPair {
                 return Err(Error::KeyTypeMismatch {
                     expected: "OKP",
                     actual: jwk.kty.as_str().to_string(),
-                })
+                });
             }
         };
 
@@ -442,7 +438,7 @@ impl TryFrom<&Key> for HS256Key {
                 return Err(Error::KeyTypeMismatch {
                     expected: "oct",
                     actual: jwk.kty.as_str().to_string(),
-                })
+                });
             }
         };
 
@@ -468,7 +464,7 @@ impl TryFrom<&Key> for HS384Key {
                 return Err(Error::KeyTypeMismatch {
                     expected: "oct",
                     actual: jwk.kty.as_str().to_string(),
-                })
+                });
             }
         };
 
@@ -494,7 +490,7 @@ impl TryFrom<&Key> for HS512Key {
                 return Err(Error::KeyTypeMismatch {
                     expected: "oct",
                     actual: jwk.kty.as_str().to_string(),
-                })
+                });
             }
         };
 

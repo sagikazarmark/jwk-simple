@@ -190,13 +190,14 @@ impl OkpParams {
         // Validate private key size if present
         // Accept both standard and extended formats
         if let Some(ref d) = self.d
-            && !self.crv.is_valid_private_key_size(d.len()) {
-                return Err(Error::Validation(ValidationError::InvalidKeySize {
-                    expected: self.crv.private_key_size(),
-                    actual: d.len(),
-                    context: "OKP private key d (accepts seed or seed+public format)",
-                }));
-            }
+            && !self.crv.is_valid_private_key_size(d.len())
+        {
+            return Err(Error::Validation(ValidationError::InvalidKeySize {
+                expected: self.crv.private_key_size(),
+                actual: d.len(),
+                context: "OKP private key d (accepts seed or seed+public format)",
+            }));
+        }
 
         Ok(())
     }
