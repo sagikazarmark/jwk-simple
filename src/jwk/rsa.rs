@@ -307,6 +307,35 @@ impl RsaParams {
         // (leading zero bytes) which could cause thumbprint mismatches.
         validate_base64url_uint(&self.n, "n")?;
         validate_base64url_uint(&self.e, "e")?;
+
+        // Basic RSA public parameter sanity checks.
+        // n must be non-zero; e must be odd and at least 3.
+        if self.n.as_bytes().iter().all(|&b| b == 0) {
+            return Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "n",
+                reason: "RSA modulus must be non-zero".to_string(),
+            }));
+        }
+
+        if self.e.len() > std::mem::size_of::<u64>() {
+            return Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "e",
+                reason: "RSA public exponent is too large to validate".to_string(),
+            }));
+        }
+
+        let mut e_value: u64 = 0;
+        for &b in self.e.as_bytes() {
+            e_value = (e_value << 8) | u64::from(b);
+        }
+
+        if e_value < 3 || e_value.is_multiple_of(2) {
+            return Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "e",
+                reason: "RSA public exponent must be odd and >= 3".to_string(),
+            }));
+        }
+
         if let Some(ref d) = self.d {
             validate_base64url_uint(d, "d")?;
         }
@@ -646,6 +675,39 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_zero_modulus_rejected() {
+        let params = RsaParams::new_public(
+            Base64UrlBytes::new(vec![0]),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        );
+        assert!(params.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_exponent_constraints() {
+        let params = RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![1]),
+        );
+        assert!(params.validate().is_err(), "e=1 should be rejected");
+
+        let params = RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![2]),
+        );
+        assert!(
+            params.validate().is_err(),
+            "even exponent should be rejected"
+        );
+
+        let params = RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![3]),
+        );
+        assert!(params.validate().is_ok(), "e=3 should be accepted");
+    }
+
+    #[test]
     fn test_validate_partial_crt() {
         let params = RsaParams {
             n: Base64UrlBytes::new(vec![1]),
@@ -720,14 +782,15 @@ mod tests {
             "Leading zero byte in e should be rejected"
         );
 
-        // Single zero byte representing the value 0 IS canonical (per RFC 7518: "AA")
+        // Single zero byte is canonical encoding for 0, but RSA modulus 0 is
+        // semantically invalid and should be rejected.
         let params = RsaParams::new_public(
             Base64UrlBytes::new(vec![0]), // single zero = canonical representation of 0
             Base64UrlBytes::new(vec![1, 0, 1]),
         );
         assert!(
-            params.validate().is_ok(),
-            "Single zero byte should be accepted as canonical representation of 0"
+            params.validate().is_err(),
+            "RSA modulus 0 should be rejected as semantically invalid"
         );
 
         // Canonical values should pass

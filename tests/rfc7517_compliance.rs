@@ -3,7 +3,8 @@
 //! These tests verify strict compliance with RFC 7517 (JSON Web Key)
 //! requirements, particularly Section 4 parameter validation.
 
-use jwk_simple::{Algorithm, Key, KeyOperation, KeySet, KeyType, KeyUse};
+use jwk_simple::error::ValidationError;
+use jwk_simple::{Algorithm, Error, Key, KeyOperation, KeySet, KeyType, KeyUse};
 
 // ============================================================================
 // Section 4.1: "kty" (Key Type) Parameter - REQUIRED
@@ -126,12 +127,12 @@ mod key_ops_parameter {
             result.is_err(),
             "Duplicate key_ops values should be rejected"
         );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("duplicate"),
-            "Error should mention 'duplicate': {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InconsistentParameters(
+                _
+            )))
+        ));
     }
 
     #[test]
@@ -160,12 +161,12 @@ mod key_ops_parameter {
             result.is_err(),
             "Inconsistent 'use' and 'key_ops' should be rejected"
         );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("inconsistent"),
-            "Error should mention 'inconsistent': {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InconsistentParameters(
+                _
+            )))
+        ));
     }
 
     #[test]
@@ -377,12 +378,13 @@ mod x5u_parameter {
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
         assert!(result.is_err(), "HTTP x5u URL should be rejected");
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("HTTPS") || err.contains("https"),
-            "Error should mention HTTPS: {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5u",
+                ..
+            }))
+        ));
     }
 
     #[test]
@@ -423,12 +425,13 @@ mod x5c_parameter {
             result.is_err(),
             "base64url-encoded x5c (with hyphen) should be rejected"
         );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("base64"),
-            "Error should mention base64: {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5c",
+                ..
+            }))
+        ));
     }
 
     #[test]
@@ -441,12 +444,13 @@ mod x5c_parameter {
             result.is_err(),
             "base64url-encoded x5c (with underscore) should be rejected"
         );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("base64"),
-            "Error should mention base64: {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5c",
+                ..
+            }))
+        ));
     }
 
     // A minimal self-signed X.509 certificate (DER-encoded, base64)
@@ -496,12 +500,13 @@ mod x5c_parameter {
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
         assert!(result.is_err(), "Non-DER data should be rejected");
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("DER") || err.contains("certificate"),
-            "Error should mention DER certificate: {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5c",
+                ..
+            }))
+        ));
     }
 
     #[test]
@@ -570,12 +575,13 @@ mod x5c_parameter {
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
         assert!(result.is_err(), "Empty x5c array should be rejected");
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("one or more"),
-            "Error should mention 'one or more': {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5c",
+                ..
+            }))
+        ));
     }
 }
 
@@ -1232,12 +1238,13 @@ mod x5t_validation {
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
         assert!(result.is_err(), "x5t with wrong length should be rejected");
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("20 bytes"),
-            "Error should mention expected 20 bytes: {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5t",
+                ..
+            }))
+        ));
     }
 
     #[test]
@@ -1251,12 +1258,13 @@ mod x5t_validation {
             result.is_err(),
             "x5t with base64 (not base64url) characters should be rejected"
         );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("base64url"),
-            "Error should mention base64url: {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5t",
+                ..
+            }))
+        ));
     }
 
     #[test]
@@ -1280,12 +1288,13 @@ mod x5t_validation {
             result.is_err(),
             "x5t#S256 with wrong length should be rejected"
         );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("32 bytes"),
-            "Error should mention expected 32 bytes: {}",
-            err
-        );
+        assert!(matches!(
+            result,
+            Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5t#S256",
+                ..
+            }))
+        ));
     }
 
     #[test]

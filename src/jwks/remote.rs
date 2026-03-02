@@ -126,3 +126,109 @@ impl KeyStore for RemoteKeyStore {
         self.fetch().await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::time::{Duration as TokioDuration, sleep};
+
+    async fn spawn_single_response_server(response: String) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0_u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            stream.write_all(response.as_bytes()).await.unwrap();
+            let _ = stream.shutdown().await;
+        });
+
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn test_remote_keystore_fetch_success() {
+        let body = r#"{"keys":[{"kty":"oct","kid":"k1","k":"AQAB"}]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let url = spawn_single_response_server(response).await;
+
+        let store = RemoteKeyStore::new(url).unwrap();
+        let keyset = store.get_keyset().await.unwrap();
+        assert_eq!(keyset.len(), 1);
+        assert!(keyset.find_by_kid("k1").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_remote_keystore_non_2xx_propagates_error() {
+        let body = "not found";
+        let response = format!(
+            "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let url = spawn_single_response_server(response).await;
+
+        let store = RemoteKeyStore::new(url).unwrap();
+        assert!(store.get_keyset().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_remote_keystore_invalid_json_error() {
+        let body = "not json";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let url = spawn_single_response_server(response).await;
+
+        let store = RemoteKeyStore::new(url).unwrap();
+        assert!(store.get_keyset().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_remote_keystore_network_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let store = RemoteKeyStore::new(format!("http://{}", addr)).unwrap();
+        assert!(store.get_keyset().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_remote_keystore_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0_u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            sleep(TokioDuration::from_millis(200)).await;
+            let body = r#"{"keys":[]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+            let _ = stream.shutdown().await;
+        });
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(50))
+            .build()
+            .unwrap();
+        let store = RemoteKeyStore::new_with_client(format!("http://{}", addr), client);
+        assert!(store.get_keyset().await.is_err());
+    }
+}

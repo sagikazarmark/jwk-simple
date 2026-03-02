@@ -129,7 +129,7 @@ pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
     OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,
 };
-pub use jwks::{CachedKeyStore, KeyCache, KeySet, KeyStore};
+pub use jwks::{CachedKeyStore, KeyCache, KeySet, KeySetParseDiagnostics, KeyStore};
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]

@@ -16,7 +16,7 @@ A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defin
 - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
 - **jwt-simple integration**: Optional feature for converting JWKs to jwt-simple key types
 - **Remote fetching**: Load JWKS from HTTP endpoints with caching support
-- **Caching**: Optional TTL-based caching of decoded keys
+- **Caching**: Optional TTL-based caching of fetched JWKS (`KeySet`) data
 
 ## Quick Start
 
@@ -58,6 +58,8 @@ assert!(key.is_public_key_only());
 | `web-crypto` | ❌ | WebCrypto API integration for WASM |
 
 ## Usage Examples
+
+Note: snippets below are focused examples and may omit surrounding async/runtime scaffolding and input setup.
 
 ### Basic JWKS Parsing
 
@@ -201,7 +203,7 @@ Status below is based on current crates.io releases as of 2026-03.
 | HTTP fetching | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Caching | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Zeroize support | ✅ | ❌ | ✅ | ✅ | ❌ |
-| Panic-free APIs | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Panic-free APIs* | ✅ | ✅ | ❌ | ❌ | ❌ |
 | JWK thumbprint (RFC 7638) | ✅ | ❌ | ⚠️ | ❌ | ✅ |
 | TryFrom/TryInto traits | ✅ | ❌ | ❌ | ❌ | ⚠️ |
 | Private key support | ✅ | ❌ | ✅ | ✅ | ✅ |
@@ -213,6 +215,8 @@ Legend for partial support (`⚠️`):
 - `jsonwebkey` WASM = core parsing works; behavior can depend on enabled optional features
 - `jsonwebtoken` WASM = works on `wasm32` with `rust_crypto` (or a custom `CryptoProvider`)
 - `jsonwebtoken` TryFrom/TryInto = `TryFrom<&Jwk>` is available for `DecodingKey`
+
+*"Panic-free APIs" excludes standard panic-prone trait semantics such as out-of-bounds indexing via `Index`.
 
 ### When to use jwk-simple
 

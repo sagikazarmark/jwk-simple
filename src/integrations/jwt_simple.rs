@@ -710,9 +710,49 @@ mod tests {
     #[test]
     fn test_symmetric_key_conversion() {
         let jwk: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
-        let _key: HS256Key = (&jwk).try_into().unwrap();
-        let _key: HS384Key = (&jwk).try_into().unwrap();
-        let _key: HS512Key = (&jwk).try_into().unwrap();
+
+        let hs256_key: HS256Key = (&jwk).try_into().unwrap();
+        let hs384_key: HS384Key = (&jwk).try_into().unwrap();
+        let hs512_key: HS512Key = (&jwk).try_into().unwrap();
+
+        let claims = Claims::create(Duration::from_hours(1)).with_subject("conversion-test");
+
+        let token_256 = hs256_key.authenticate(claims.clone()).unwrap();
+        assert!(
+            hs256_key
+                .verify_token::<NoCustomClaims>(&token_256, None)
+                .is_ok()
+        );
+
+        let token_384 = hs384_key.authenticate(claims.clone()).unwrap();
+        assert!(
+            hs384_key
+                .verify_token::<NoCustomClaims>(&token_384, None)
+                .is_ok()
+        );
+
+        let token_512 = hs512_key.authenticate(claims).unwrap();
+        assert!(
+            hs512_key
+                .verify_token::<NoCustomClaims>(&token_512, None)
+                .is_ok()
+        );
+
+        assert!(
+            hs256_key
+                .verify_token::<NoCustomClaims>(&token_384, None)
+                .is_err(),
+            "HS384 token should not verify with HS256 key"
+        );
+
+        let mut tampered = token_256.clone();
+        tampered.push('x');
+        assert!(
+            hs256_key
+                .verify_token::<NoCustomClaims>(&tampered, None)
+                .is_err(),
+            "Tampered token must fail verification"
+        );
     }
 
     #[test]

@@ -113,6 +113,26 @@ impl SymmetricParams {
         }
         Ok(())
     }
+
+    /// Validates that the key has exactly the required size.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key size differs from the required size.
+    pub fn validate_exact_size(&self, exact_bits: usize, context: &'static str) -> Result<()> {
+        self.validate()?;
+
+        let actual_bits = self.key_size_bits();
+        if actual_bits != exact_bits {
+            return Err(Error::Validation(ValidationError::InvalidKeySize {
+                expected: exact_bits / 8,
+                actual: self.k.len(),
+                context,
+            }));
+        }
+
+        Ok(())
+    }
 }
 
 impl std::fmt::Debug for SymmetricParams {
@@ -159,6 +179,13 @@ mod tests {
         let small_key = SymmetricParams::new(Base64UrlBytes::new(vec![0; 16]));
         assert!(small_key.validate_min_size(128).is_ok());
         assert!(small_key.validate_min_size(256).is_err());
+    }
+
+    #[test]
+    fn test_validate_exact_size() {
+        let key_128 = SymmetricParams::new(Base64UrlBytes::new(vec![0; 16]));
+        assert!(key_128.validate_exact_size(128, "AES-128").is_ok());
+        assert!(key_128.validate_exact_size(256, "AES-256").is_err());
     }
 
     #[test]

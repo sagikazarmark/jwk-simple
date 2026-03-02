@@ -43,7 +43,11 @@ pub use symmetric::SymmetricParams;
 
 use std::collections::HashSet;
 
+use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha1::{Digest as Sha1Digest, Sha1};
+use sha2::Sha256;
+use url::Url;
 use x509_parser::prelude::parse_x509_certificate;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -871,23 +875,26 @@ impl Key {
         }
 
         // RFC 7517 Section 4.6: x5u MUST use TLS (HTTPS)
-        // URI schemes are case-insensitive per RFC 3986 Section 3.1
-        if let Some(ref url) = self.x5u
-            && !url
-                .as_bytes()
-                .get(..8)
-                .is_some_and(|s| s.eq_ignore_ascii_case(b"https://"))
-        {
-            return Err(Error::Validation(ValidationError::InvalidParameter {
-                name: "x5u",
-                reason: "RFC 7517: x5u URL must use HTTPS for integrity protection".to_string(),
-            }));
+        if let Some(ref x5u) = self.x5u {
+            let parsed = Url::parse(x5u).map_err(|_| {
+                Error::Validation(ValidationError::InvalidParameter {
+                    name: "x5u",
+                    reason: "RFC 7517: x5u must be a valid absolute URL".to_string(),
+                })
+            })?;
+
+            if parsed.scheme() != "https" || parsed.host_str().is_none() {
+                return Err(Error::Validation(ValidationError::InvalidParameter {
+                    name: "x5u",
+                    reason: "RFC 7517: x5u URL must use HTTPS and include a host".to_string(),
+                }));
+            }
         }
+
+        let mut first_cert_der: Option<Vec<u8>> = None;
 
         // RFC 7517 Section 4.7: x5c contains "a chain of one or more PKIX certificates"
         if let Some(ref certs) = self.x5c {
-            let mut first_cert_der: Option<Vec<u8>> = None;
-
             if certs.is_empty() {
                 return Err(Error::Validation(ValidationError::InvalidParameter {
                     name: "x5c",
@@ -927,7 +934,7 @@ impl Key {
                         first_cert_der = Some(der_bytes.clone());
                     }
 
-                    if !is_valid_der_certificate(&der_bytes) {
+                    if parse_x509_certificate(&der_bytes).is_err() {
                         return Err(Error::Validation(ValidationError::InvalidParameter {
                             name: "x5c",
                             reason: format!(
@@ -946,7 +953,7 @@ impl Key {
 
             // RFC 7517 Section 4.7: the key in the first certificate MUST match
             // the public key represented by other JWK members.
-            if let Some(first_der) = first_cert_der {
+            if let Some(ref first_der) = first_cert_der {
                 self.validate_x5c_public_key_match(&first_der)?;
             }
         }
@@ -959,6 +966,35 @@ impl Key {
         // RFC 7517 Section 4.9: x5t#S256 is base64url-encoded SHA-256 thumbprint (32 bytes)
         if let Some(ref x5t_s256) = self.x5t_s256 {
             validate_x509_thumbprint(x5t_s256, "x5t#S256", 32)?;
+        }
+
+        // RFC 7517 Section 4.8/4.9 with 4.7 consistency: if x5c and thumbprints
+        // are both present, thumbprints must match the first certificate.
+        if let Some(ref first_der) = first_cert_der {
+            if let Some(ref x5t) = self.x5t {
+                let mut hasher = Sha1::new();
+                hasher.update(first_der);
+                let expected = Base64UrlUnpadded::encode_string(&hasher.finalize());
+
+                if x5t != &expected {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        "RFC 7517: x5t does not match SHA-1 thumbprint of x5c[0]".to_string(),
+                    )));
+                }
+            }
+
+            if let Some(ref x5t_s256) = self.x5t_s256 {
+                let mut hasher = Sha256::new();
+                hasher.update(first_der);
+                let expected = Base64UrlUnpadded::encode_string(&hasher.finalize());
+
+                if x5t_s256 != &expected {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        "RFC 7517: x5t#S256 does not match SHA-256 thumbprint of x5c[0]"
+                            .to_string(),
+                    )));
+                }
+            }
         }
 
         // Validate algorithm matches key type if specified
@@ -1114,6 +1150,21 @@ impl Key {
             (KeyParams::Symmetric(sym), Algorithm::Hs256) => sym.validate_min_size(256),
             (KeyParams::Symmetric(sym), Algorithm::Hs384) => sym.validate_min_size(384),
             (KeyParams::Symmetric(sym), Algorithm::Hs512) => sym.validate_min_size(512),
+            (KeyParams::Symmetric(sym), Algorithm::A128kw)
+            | (KeyParams::Symmetric(sym), Algorithm::A128gcmkw)
+            | (KeyParams::Symmetric(sym), Algorithm::A128gcm) => {
+                sym.validate_exact_size(128, "AES-128")
+            }
+            (KeyParams::Symmetric(sym), Algorithm::A192kw)
+            | (KeyParams::Symmetric(sym), Algorithm::A192gcmkw)
+            | (KeyParams::Symmetric(sym), Algorithm::A192gcm) => {
+                sym.validate_exact_size(192, "AES-192")
+            }
+            (KeyParams::Symmetric(sym), Algorithm::A256kw)
+            | (KeyParams::Symmetric(sym), Algorithm::A256gcmkw)
+            | (KeyParams::Symmetric(sym), Algorithm::A256gcm) => {
+                sym.validate_exact_size(256, "AES-256")
+            }
             _ => Ok(()),
         }
     }
@@ -1153,6 +1204,26 @@ impl Key {
                     return Err(Error::Validation(ValidationError::InconsistentParameters(
                         "RFC 7517: x5c[0] public key algorithm does not match JWK EC key"
                             .to_string(),
+                    )));
+                }
+
+                let expected_curve_oid = match ec.crv {
+                    EcCurve::P256 => "1.2.840.10045.3.1.7",
+                    EcCurve::P384 => "1.3.132.0.34",
+                    EcCurve::P521 => "1.3.132.0.35",
+                    EcCurve::Secp256k1 => "1.3.132.0.10",
+                };
+
+                let cert_curve_oid = spki
+                    .algorithm
+                    .parameters
+                    .as_ref()
+                    .and_then(|p| p.as_oid().ok())
+                    .map(|oid| oid.to_id_string());
+
+                if cert_curve_oid.as_deref() != Some(expected_curve_oid) {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        "RFC 7517: x5c[0] EC curve does not match JWK crv".to_string(),
                     )));
                 }
 
@@ -1610,76 +1681,6 @@ fn is_use_consistent_with_ops(key_use: &KeyUse, key_ops: &[KeyOperation]) -> boo
         }),
         // Unknown use values: we can't determine consistency, so accept.
         KeyUse::Unknown(_) => true,
-    }
-}
-
-/// Validates that a byte slice contains a valid DER-encoded X.509 certificate structure.
-///
-/// This performs basic structural validation without full ASN.1 parsing:
-/// - Checks for SEQUENCE tag at the start
-/// - Validates the length encoding
-/// - Ensures the certificate has the expected minimum structure
-///
-/// This is a lightweight check that catches obviously malformed certificates
-/// without requiring a full X.509 parsing library.
-fn is_valid_der_certificate(der: &[u8]) -> bool {
-    // Minimum X.509 certificate is at least ~100 bytes (self-signed with minimal data)
-    if der.len() < 100 {
-        return false;
-    }
-
-    // X.509 certificates are SEQUENCE at the top level (tag 0x30)
-    if der[0] != 0x30 {
-        return false;
-    }
-
-    // Parse the length to validate structure
-    let (content_len, header_len) = match parse_der_length(&der[1..]) {
-        Some((len, hlen)) => (len, hlen + 1), // +1 for the tag byte
-        None => return false,
-    };
-
-    // Total length must match exactly: header + content, no trailing bytes
-    let expected_len = header_len + content_len;
-    if der.len() != expected_len {
-        return false;
-    }
-
-    // The certificate content should start with another SEQUENCE (TBSCertificate)
-    let content_start = header_len;
-    if der.get(content_start) != Some(&0x30) {
-        return false;
-    }
-
-    true
-}
-
-/// Parses a DER length encoding and returns (length, bytes_consumed).
-fn parse_der_length(data: &[u8]) -> Option<(usize, usize)> {
-    if data.is_empty() {
-        return None;
-    }
-
-    let first = data[0];
-    if first < 0x80 {
-        // Short form: length is directly in first byte
-        Some((first as usize, 1))
-    } else if first == 0x80 {
-        // Indefinite length - not valid for DER
-        None
-    } else {
-        // Long form: first byte indicates number of length bytes
-        let num_bytes = (first & 0x7f) as usize;
-        if num_bytes > 4 || data.len() < 1 + num_bytes {
-            return None;
-        }
-
-        let mut length: usize = 0;
-        for &b in &data[1..1 + num_bytes] {
-            length = length.checked_mul(256)?.checked_add(b as usize)?;
-        }
-
-        Some((length, 1 + num_bytes))
     }
 }
 
