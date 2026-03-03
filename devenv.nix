@@ -31,6 +31,7 @@
   ];
 
   packages = with pkgs; [
+    cargo-audit
     cargo-release
     cargo-watch
     cargo-expand
