@@ -421,8 +421,10 @@ impl KeySet {
     /// don't have an `alg` field set, which is common in real-world JWKS endpoints.
     ///
     /// A key is considered compatible if:
-    /// - Its `alg` field matches the given algorithm AND the key type/curve is compatible, OR
-    /// - Its `alg` field is not set and its key type/curve is compatible
+    /// - For known algorithms: its `alg` field matches and its key type/curve is compatible, OR
+    ///   its `alg` field is not set and its key type/curve is compatible
+    /// - For unknown/private algorithms: its `alg` field exactly matches the given algorithm
+    ///   (keys without `alg` are not included)
     ///
     /// Keys whose `alg` field is set to a *different* algorithm are excluded,
     /// even if the key type would otherwise be compatible.
@@ -505,9 +507,11 @@ impl KeySet {
     /// Returns the first signing key matching the specified algorithm, if any.
     ///
     /// This combines algorithm matching with a signing-key filter: a key matches
-    /// if its `alg` field equals the given algorithm, its key type/curve is
-    /// compatible with that algorithm, AND it is a signing key
-    /// according to the same rules as [`signing_keys`](KeySet::signing_keys):
+    /// if its `alg` field equals the given algorithm, and it is a signing key.
+    /// For known algorithms, key type/curve compatibility is also required;
+    /// for unknown/private algorithms, exact `alg` equality is treated as compatible.
+    /// Signing-key determination follows the same rules as
+    /// [`signing_keys`](KeySet::signing_keys):
     /// - if `key_ops` is present, it must contain `sign` or `verify`
     /// - otherwise, `use` must be `"sig"` or unspecified
     ///
