@@ -1,7 +1,8 @@
 //! Benchmarks for jwk-simple operations.
 
-use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use jwk_simple::{Algorithm, KeySet, KeyType};
+use std::hint::black_box;
 
 /// Sample JWKS with multiple keys for benchmarking.
 const SAMPLE_JWKS: &str = r#"{

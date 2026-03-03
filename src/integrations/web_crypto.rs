@@ -203,8 +203,7 @@ impl TryFrom<&Key> for web_sys::JsonWebKey {
             KeyParams::Okp(_) => {
                 // This should never be reached due to validate_webcrypto_support
                 return Err(Error::UnsupportedForWebCrypto {
-                    reason:
-                        "OKP keys (Ed25519, Ed448, X25519, X448) are not supported by WebCrypto",
+                    reason: "OKP keys (Ed25519, Ed448, X25519, X448) are not supported by WebCrypto",
                 });
             }
         }
