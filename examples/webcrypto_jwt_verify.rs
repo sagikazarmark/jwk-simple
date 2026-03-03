@@ -72,6 +72,7 @@ mod wasm_example {
         pub kid: Option<String>,
         /// Token type (usually "JWT")
         #[serde(default)]
+        #[allow(dead_code)]
         pub typ: Option<String>,
     }
 

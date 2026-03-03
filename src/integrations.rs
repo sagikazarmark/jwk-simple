@@ -47,14 +47,11 @@
 //! // Convert to jwt-simple key using TryFrom
 //! let key: RS256PublicKey = jwk.try_into()?;
 //!
-//! // Or using the explicit method
-//! let key = jwk.to_rs256_public_key()?;
-//!
 //! // Verify a JWT
 //! let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 //! ```
 
-// This module provides TryFrom implementations and extension methods on Key.
+// This module provides TryFrom implementations for Key conversions.
 #[cfg(feature = "jwt-simple")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
 mod jwt_simple;

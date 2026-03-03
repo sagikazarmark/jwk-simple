@@ -40,9 +40,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nSuccessfully converted to RS256PublicKey");
     println!("Key size: {} bytes", key.to_der()?.len());
 
-    // Method 2: Using convenience methods (same result)
-    // let key = jwk.to_rs256_public_key()?;
-
     // Example: Verifying a JWT (if you had a real token)
     // let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 
