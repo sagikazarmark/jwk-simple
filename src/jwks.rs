@@ -441,9 +441,12 @@ impl KeySet {
     /// ```
     pub fn find_compatible<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
         let alg = alg.clone();
+        let is_unknown_alg = alg.is_unknown();
         self.keys.iter().filter(move |k| match &k.alg {
-            Some(key_alg) => key_alg == &alg && k.is_algorithm_compatible(&alg),
-            None => k.is_algorithm_compatible(&alg),
+            Some(key_alg) => {
+                key_alg == &alg && (is_unknown_alg || k.is_algorithm_compatible(&alg))
+            }
+            None => !is_unknown_alg && k.is_algorithm_compatible(&alg),
         })
     }
 
@@ -529,8 +532,11 @@ impl KeySet {
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
     pub fn find_signing_key_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
+        let is_unknown_alg = alg.is_unknown();
         self.keys.iter().find(|k| {
-            k.alg.as_ref() == Some(alg) && k.is_algorithm_compatible(alg) && is_signing_key(k)
+            k.alg.as_ref() == Some(alg)
+                && (is_unknown_alg || k.is_algorithm_compatible(alg))
+                && is_signing_key(k)
         })
     }
 
@@ -1053,6 +1059,40 @@ mod tests {
                 .as_deref(),
             Some("legacy-eddsa")
         );
+    }
+
+    #[test]
+    fn test_find_compatible_unknown_alg_matches_only_exact_alg() {
+        let json = r#"{"keys": [
+            {"kty": "oct", "kid": "custom-1", "alg": "CUSTOM", "k": "AQAB"},
+            {"kty": "RSA", "kid": "custom-2", "alg": "CUSTOM", "n": "AQAB", "e": "AQAB"},
+            {"kty": "oct", "kid": "other", "alg": "OTHER", "k": "AQAB"},
+            {"kty": "oct", "kid": "no-alg", "k": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        let custom = Algorithm::Unknown("CUSTOM".to_string());
+        let matching: Vec<_> = jwks.find_compatible(&custom).collect();
+
+        assert_eq!(matching.len(), 2);
+        assert_eq!(matching[0].kid.as_deref(), Some("custom-1"));
+        assert_eq!(matching[1].kid.as_deref(), Some("custom-2"));
+    }
+
+    #[test]
+    fn test_find_signing_key_by_alg_unknown_alg_preserves_exact_match() {
+        let json = r#"{"keys": [
+            {"kty": "oct", "kid": "custom-enc", "alg": "CUSTOM", "use": "enc", "k": "AQAB"},
+            {"kty": "oct", "kid": "custom-sig", "alg": "CUSTOM", "use": "sig", "k": "AQAB"},
+            {"kty": "RSA", "kid": "other-sig", "alg": "OTHER", "use": "sig", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        let custom = Algorithm::Unknown("CUSTOM".to_string());
+        let key = jwks.find_signing_key_by_alg(&custom);
+
+        assert!(key.is_some());
+        assert_eq!(key.unwrap().kid.as_deref(), Some("custom-sig"));
     }
 
     #[test]
