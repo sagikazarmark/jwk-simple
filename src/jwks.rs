@@ -297,10 +297,11 @@ impl KeySet {
     /// let json = r#"{"keys": [{"kty": "RSA", "use": "sig", "n": "AQAB", "e": "AQAB"}]}"#;
     /// let jwks: KeySet = serde_json::from_str(json).unwrap();
     ///
-    /// let signing_keys: Vec<_> = jwks.find_by_use(KeyUse::Signature).collect();
+    /// let signing_keys: Vec<_> = jwks.find_by_use(&KeyUse::Signature).collect();
     /// assert_eq!(signing_keys.len(), 1);
     /// ```
-    pub fn find_by_use(&self, key_use: KeyUse) -> impl Iterator<Item = &Key> {
+    pub fn find_by_use<'a>(&'a self, key_use: &KeyUse) -> impl Iterator<Item = &'a Key> + 'a {
+        let key_use = key_use.clone();
         self.keys
             .iter()
             .filter(move |k| k.key_use.as_ref() == Some(&key_use))
@@ -707,8 +708,8 @@ mod tests {
     fn test_find_by_use() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert_eq!(jwks.find_by_use(KeyUse::Signature).count(), 2);
-        assert_eq!(jwks.find_by_use(KeyUse::Encryption).count(), 1);
+        assert_eq!(jwks.find_by_use(&KeyUse::Signature).count(), 2);
+        assert_eq!(jwks.find_by_use(&KeyUse::Encryption).count(), 1);
     }
 
     #[test]
