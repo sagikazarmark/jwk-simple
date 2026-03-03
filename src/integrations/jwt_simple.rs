@@ -3,7 +3,7 @@
 use jwt_simple::prelude::*;
 
 use crate::error::{Error, Result};
-use crate::jwk::{EcCurve, Key, KeyParams, OkpCurve, RsaParams};
+use crate::jwk::{Algorithm, EcCurve, Key, KeyParams, OkpCurve, RsaParams};
 
 // ============================================================================
 // RSA Key Conversions
@@ -186,7 +186,7 @@ fn encode_der_length(der: &mut Vec<u8>, len: usize) {
 
 // Macro to implement RSA public key conversions
 macro_rules! impl_rsa_public_key_conversion {
-    ($key_type:ty) => {
+    ($key_type:ty, $alg:expr) => {
         impl TryFrom<&Key> for $key_type {
             type Error = Error;
 
@@ -200,6 +200,8 @@ macro_rules! impl_rsa_public_key_conversion {
                         });
                     }
                 };
+
+                jwk.validate_for_algorithm(&$alg)?;
 
                 let der = build_rsa_public_key_der(params);
                 <$key_type>::from_der(&der).map_err(|e| Error::Other(e.to_string()))
@@ -218,7 +220,7 @@ macro_rules! impl_rsa_public_key_conversion {
 
 // Macro to implement RSA key pair conversions
 macro_rules! impl_rsa_key_pair_conversion {
-    ($key_type:ty) => {
+    ($key_type:ty, $alg:expr) => {
         impl TryFrom<&Key> for $key_type {
             type Error = Error;
 
@@ -237,6 +239,8 @@ macro_rules! impl_rsa_key_pair_conversion {
                     return Err(Error::MissingPrivateKey);
                 }
 
+                jwk.validate_for_algorithm(&$alg)?;
+
                 let der = build_rsa_private_key_der(params)?;
                 <$key_type>::from_der(&der).map_err(|e| Error::Other(e.to_string()))
             }
@@ -253,19 +257,19 @@ macro_rules! impl_rsa_key_pair_conversion {
 }
 
 // Implement conversions for all RSA types
-impl_rsa_public_key_conversion!(RS256PublicKey);
-impl_rsa_public_key_conversion!(RS384PublicKey);
-impl_rsa_public_key_conversion!(RS512PublicKey);
-impl_rsa_public_key_conversion!(PS256PublicKey);
-impl_rsa_public_key_conversion!(PS384PublicKey);
-impl_rsa_public_key_conversion!(PS512PublicKey);
+impl_rsa_public_key_conversion!(RS256PublicKey, Algorithm::Rs256);
+impl_rsa_public_key_conversion!(RS384PublicKey, Algorithm::Rs384);
+impl_rsa_public_key_conversion!(RS512PublicKey, Algorithm::Rs512);
+impl_rsa_public_key_conversion!(PS256PublicKey, Algorithm::Ps256);
+impl_rsa_public_key_conversion!(PS384PublicKey, Algorithm::Ps384);
+impl_rsa_public_key_conversion!(PS512PublicKey, Algorithm::Ps512);
 
-impl_rsa_key_pair_conversion!(RS256KeyPair);
-impl_rsa_key_pair_conversion!(RS384KeyPair);
-impl_rsa_key_pair_conversion!(RS512KeyPair);
-impl_rsa_key_pair_conversion!(PS256KeyPair);
-impl_rsa_key_pair_conversion!(PS384KeyPair);
-impl_rsa_key_pair_conversion!(PS512KeyPair);
+impl_rsa_key_pair_conversion!(RS256KeyPair, Algorithm::Rs256);
+impl_rsa_key_pair_conversion!(RS384KeyPair, Algorithm::Rs384);
+impl_rsa_key_pair_conversion!(RS512KeyPair, Algorithm::Rs512);
+impl_rsa_key_pair_conversion!(PS256KeyPair, Algorithm::Ps256);
+impl_rsa_key_pair_conversion!(PS384KeyPair, Algorithm::Ps384);
+impl_rsa_key_pair_conversion!(PS512KeyPair, Algorithm::Ps512);
 
 // ============================================================================
 // EC Key Conversions
@@ -273,7 +277,7 @@ impl_rsa_key_pair_conversion!(PS512KeyPair);
 
 // Macro to implement EC public key conversions
 macro_rules! impl_ec_public_key_conversion {
-    ($key_type:ty, $curve:expr, $curve_name:expr) => {
+    ($key_type:ty, $curve:expr, $curve_name:expr, $alg:expr) => {
         impl TryFrom<&Key> for $key_type {
             type Error = Error;
 
@@ -294,6 +298,8 @@ macro_rules! impl_ec_public_key_conversion {
                         actual: params.crv.name().to_string(),
                     });
                 }
+
+                jwk.validate_for_algorithm(&$alg)?;
 
                 let bytes = params.to_uncompressed_point();
                 <$key_type>::from_bytes(&bytes).map_err(|e| Error::Other(e.to_string()))
@@ -312,7 +318,7 @@ macro_rules! impl_ec_public_key_conversion {
 
 // Macro to implement EC key pair conversions
 macro_rules! impl_ec_key_pair_conversion {
-    ($key_type:ty, $curve:expr, $curve_name:expr) => {
+    ($key_type:ty, $curve:expr, $curve_name:expr, $alg:expr) => {
         impl TryFrom<&Key> for $key_type {
             type Error = Error;
 
@@ -334,6 +340,8 @@ macro_rules! impl_ec_key_pair_conversion {
                     });
                 }
 
+                jwk.validate_for_algorithm(&$alg)?;
+
                 let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
 
                 <$key_type>::from_bytes(d.as_bytes()).map_err(|e| Error::Other(e.to_string()))
@@ -351,14 +359,24 @@ macro_rules! impl_ec_key_pair_conversion {
 }
 
 // Implement EC conversions
-impl_ec_public_key_conversion!(ES256PublicKey, EcCurve::P256, "P-256");
-impl_ec_public_key_conversion!(ES384PublicKey, EcCurve::P384, "P-384");
+impl_ec_public_key_conversion!(ES256PublicKey, EcCurve::P256, "P-256", Algorithm::Es256);
+impl_ec_public_key_conversion!(ES384PublicKey, EcCurve::P384, "P-384", Algorithm::Es384);
 // Note: ES512 uses P-521, but jwt-simple may not support it
-impl_ec_public_key_conversion!(ES256kPublicKey, EcCurve::Secp256k1, "secp256k1");
+impl_ec_public_key_conversion!(
+    ES256kPublicKey,
+    EcCurve::Secp256k1,
+    "secp256k1",
+    Algorithm::Es256k
+);
 
-impl_ec_key_pair_conversion!(ES256KeyPair, EcCurve::P256, "P-256");
-impl_ec_key_pair_conversion!(ES384KeyPair, EcCurve::P384, "P-384");
-impl_ec_key_pair_conversion!(ES256kKeyPair, EcCurve::Secp256k1, "secp256k1");
+impl_ec_key_pair_conversion!(ES256KeyPair, EcCurve::P256, "P-256", Algorithm::Es256);
+impl_ec_key_pair_conversion!(ES384KeyPair, EcCurve::P384, "P-384", Algorithm::Es384);
+impl_ec_key_pair_conversion!(
+    ES256kKeyPair,
+    EcCurve::Secp256k1,
+    "secp256k1",
+    Algorithm::Es256k
+);
 
 // ============================================================================
 // EdDSA Key Conversions
@@ -384,6 +402,8 @@ impl TryFrom<&Key> for Ed25519PublicKey {
                 actual: params.crv.name().to_string(),
             });
         }
+
+        jwk.validate_for_algorithm(&Algorithm::Ed25519)?;
 
         Ed25519PublicKey::from_bytes(params.x.as_bytes()).map_err(|e| Error::Other(e.to_string()))
     }
@@ -418,6 +438,8 @@ impl TryFrom<&Key> for Ed25519KeyPair {
             });
         }
 
+        jwk.validate_for_algorithm(&Algorithm::Ed25519)?;
+
         let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
 
         // Ed25519 private key is the seed (32 bytes)
@@ -451,6 +473,8 @@ impl TryFrom<&Key> for HS256Key {
             }
         };
 
+        jwk.validate_for_algorithm(&Algorithm::Hs256)?;
+
         Ok(HS256Key::from_bytes(params.k.as_bytes()))
     }
 }
@@ -477,6 +501,8 @@ impl TryFrom<&Key> for HS384Key {
             }
         };
 
+        jwk.validate_for_algorithm(&Algorithm::Hs384)?;
+
         Ok(HS384Key::from_bytes(params.k.as_bytes()))
     }
 }
@@ -502,6 +528,8 @@ impl TryFrom<&Key> for HS512Key {
                 });
             }
         };
+
+        jwk.validate_for_algorithm(&Algorithm::Hs512)?;
 
         Ok(HS512Key::from_bytes(params.k.as_bytes()))
     }
@@ -714,5 +742,30 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
         assert!(HS256Key::try_from(&jwk).is_ok());
+    }
+
+    #[test]
+    fn test_hs256_conversion_rejects_weak_key_without_alg_field() {
+        let weak_hs_key_json = r#"{
+            "kty": "oct",
+            "k": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(weak_hs_key_json).unwrap();
+        let result: Result<HS256Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rs256_conversion_rejects_weak_rsa_without_alg_field() {
+        let weak_rsa_json = r#"{
+            "kty": "RSA",
+            "n": "sXchhHu5Mdu8J-4n8x66I8f32xNkoTfEhQ",
+            "e": "AQAB"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(weak_rsa_json).unwrap();
+        let result: Result<RS256PublicKey> = (&jwk).try_into();
+        assert!(result.is_err());
     }
 }

@@ -135,6 +135,12 @@ impl TryFrom<&Key> for web_sys::JsonWebKey {
     type Error = Error;
 
     fn try_from(key: &Key) -> Result<Self> {
+        // Keep conversion-level validation focused on key material shape.
+        // Full JWK metadata validation (including `use`/`key_ops`/x509 checks)
+        // is context-dependent and should be performed by callers that need it.
+        // This also avoids enforcing `key.alg` in explicit-alg import flows.
+        key.params.validate()?;
+
         // Validate that the key type is supported
         validate_webcrypto_support(key)?;
 
@@ -374,6 +380,23 @@ fn validate_usage_algorithm_compatibility(usage: KeyUsage, alg: &Algorithm) -> R
             reason: "algorithm is not compatible with requested key usage",
         })
     }
+}
+
+fn validate_key_for_webcrypto_usage_with_alg(
+    key: &Key,
+    usage: KeyUsage,
+    alg: &Algorithm,
+) -> Result<()> {
+    validate_usage_algorithm_compatibility(usage, alg)?;
+    key.validate_for_algorithm(alg)
+}
+
+fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
+    if let Some(alg) = key.alg.as_ref() {
+        validate_usage_algorithm_compatibility(usage, alg)?;
+    }
+
+    key.validate()
 }
 
 /// Key usage category for determining the appropriate algorithm.
@@ -869,9 +892,8 @@ pub async fn import_key_with_usages(
     usages: &[&str],
     usage: KeyUsage,
 ) -> Result<CryptoKey> {
-    if let Some(alg) = key.alg.as_ref() {
-        validate_usage_algorithm_compatibility(usage, alg)?;
-    }
+    validate_key_for_webcrypto_usage(key, usage)?;
+
     let jwk = web_sys::JsonWebKey::try_from(key)?;
     let algorithm = build_algorithm_object(key, usage)?;
 
@@ -894,7 +916,7 @@ pub async fn import_key_with_usages_for_alg(
     usage: KeyUsage,
     alg: &Algorithm,
 ) -> Result<CryptoKey> {
-    validate_usage_algorithm_compatibility(usage, alg)?;
+    validate_key_for_webcrypto_usage_with_alg(key, usage, alg)?;
     let jwk = web_sys::JsonWebKey::try_from(key)?;
 
     // Override the JWK's `alg` field to match the explicit algorithm.
@@ -1152,6 +1174,18 @@ mod validation_tests {
         assert!(
             validate_usage_algorithm_compatibility(KeyUsage::WrapKey, &Algorithm::A128kw).is_ok()
         );
+    }
+
+    #[test]
+    fn test_import_usage_validation_enforces_metadata_when_alg_present() {
+        let mut key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
+        key.key_ops = Some(vec![
+            crate::jwk::KeyOperation::Sign,
+            crate::jwk::KeyOperation::Sign,
+        ]);
+
+        let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Sign);
+        assert!(result.is_err(), "duplicate key_ops must be rejected");
     }
 }
 
