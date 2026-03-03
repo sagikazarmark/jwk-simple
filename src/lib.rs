@@ -151,7 +151,7 @@ pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
     OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,
 };
-pub use jwks::{KeySet, KeySetParseDiagnostics};
+pub use jwks::KeySet;
 
 #[cfg(all(feature = "web-crypto", any(target_arch = "wasm32", docsrs)))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "web-crypto", target_arch = "wasm32"))))]
