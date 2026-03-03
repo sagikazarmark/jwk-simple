@@ -396,7 +396,7 @@ fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
         validate_usage_algorithm_compatibility(usage, alg)?;
     }
 
-    key.validate()
+    key.validate_structure()
 }
 
 /// Key usage category for determining the appropriate algorithm.

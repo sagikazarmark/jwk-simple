@@ -844,16 +844,23 @@ impl Key {
         self.params.has_private_key()
     }
 
-    /// Validates the JWK.
+    /// Validates the JWK structure and metadata consistency.
     ///
-    /// # Errors
+    /// This includes key parameter validation, JOSE metadata consistency, and
+    /// X.509 field format checks (`x5u`, `x5c`, `x5t`, `x5t#S256`) including
+    /// key-material matching against `x5c[0]`.
     ///
-    /// Returns an error if:
-    /// - The key parameters are invalid
-    /// - The algorithm doesn't match the key type
-    /// - Both `use` and `key_ops` are specified with inconsistent values
-    ///   (RFC 7517 Section 4.3)
-    pub fn validate(&self) -> Result<()> {
+    /// If `alg` is present, this also enforces algorithm/key compatibility and
+    /// algorithm-specific minimum key-strength requirements.
+    ///
+    /// This method does **not** perform PKIX trust/path validation for `x5c`
+    /// chains (trust anchors, validity period, key usage/EKU, revocation, etc.).
+    /// PKIX trust validation is application-defined and out of scope for this crate.
+    pub fn validate_structure(&self) -> Result<()> {
+        self.validate_structure_internal()
+    }
+
+    fn validate_structure_internal(&self) -> Result<()> {
         // RFC 7517 Section 4.3: "The 'use' and 'key_ops' JWK members SHOULD NOT
         // be used together; however, if both are used, the information they convey
         // MUST be consistent."
@@ -897,71 +904,12 @@ impl Key {
             }
         }
 
-        let mut first_cert_der: Option<Vec<u8>> = None;
+        let first_x5c_der = self.decode_and_validate_x5c_first_der()?;
 
-        // RFC 7517 Section 4.7: x5c contains "a chain of one or more PKIX certificates"
-        if let Some(ref certs) = self.x5c {
-            if certs.is_empty() {
-                return Err(Error::Validation(ValidationError::InvalidParameter {
-                    name: "x5c",
-                    reason: "RFC 7517: x5c must contain one or more certificates".to_string(),
-                }));
-            }
-
-            // RFC 7517 Section 4.7: x5c values are base64 encoded (NOT base64url)
-            for (i, cert) in certs.iter().enumerate() {
-                // Standard base64 uses '+' and '/' which are NOT valid in base64url
-                // base64url uses '-' and '_' instead
-                // We validate it's proper base64 by checking for base64url-only chars
-                // and attempting to decode
-                if cert.contains('-') || cert.contains('_') {
-                    return Err(Error::Validation(ValidationError::InvalidParameter {
-                        name: "x5c",
-                        reason: format!(
-                            "RFC 7517: x5c[{}] appears to be base64url encoded; must be standard base64",
-                            i
-                        ),
-                    }));
-                }
-
-                // Validate it's valid base64 by checking character set and padding
-                if !is_valid_base64(cert) {
-                    return Err(Error::Validation(ValidationError::InvalidParameter {
-                        name: "x5c",
-                        reason: format!("RFC 7517: x5c[{}] is not valid base64 encoding", i),
-                    }));
-                }
-
-                // RFC 7517 Section 4.7: Each certificate value MUST be a DER-encoded X.509 certificate
-                // Decode and validate basic DER certificate structure
-                use base64ct::{Base64, Encoding};
-                if let Ok(der_bytes) = Base64::decode_vec(cert) {
-                    if i == 0 {
-                        first_cert_der = Some(der_bytes.clone());
-                    }
-
-                    if parse_x509_certificate(&der_bytes).is_err() {
-                        return Err(Error::Validation(ValidationError::InvalidParameter {
-                            name: "x5c",
-                            reason: format!(
-                                "RFC 7517: x5c[{}] is not a valid DER-encoded X.509 certificate",
-                                i
-                            ),
-                        }));
-                    }
-                } else {
-                    return Err(Error::Validation(ValidationError::InvalidParameter {
-                        name: "x5c",
-                        reason: format!("RFC 7517: x5c[{}] failed base64 decoding", i),
-                    }));
-                }
-            }
-
-            // RFC 7517 Section 4.7: the key in the first certificate MUST match
-            // the public key represented by other JWK members.
-            if let Some(ref first_der) = first_cert_der {
-                self.validate_x5c_public_key_match(first_der)?;
-            }
+        // RFC 7517 Section 4.7: the key in the first certificate MUST match
+        // the public key represented by other JWK members.
+        if let Some(first_der) = first_x5c_der.as_ref() {
+            self.validate_x5c_public_key_match(first_der)?;
         }
 
         // RFC 7517 Section 4.8: x5t is base64url-encoded SHA-1 thumbprint (20 bytes)
@@ -976,7 +924,7 @@ impl Key {
 
         // RFC 7517 Section 4.8/4.9 with 4.7 consistency: if x5c and thumbprints
         // are both present, thumbprints must match the first certificate.
-        if let Some(ref first_der) = first_cert_der {
+        if let Some(first_der) = first_x5c_der.as_ref() {
             if let Some(ref x5t) = self.x5t {
                 let mut hasher = Sha1::new();
                 hasher.update(first_der);
@@ -1012,24 +960,71 @@ impl Key {
         }
     }
 
-    /// Validates this key for a specific algorithm before key usage.
-    ///
-    /// This is the canonical algorithm-aware validation gate and should be
-    /// used by integrations before converting/importing key material.
-    ///
-    /// This method intentionally validates algorithm suitability and key
-    /// material only. It does not run full JWK metadata validation from
-    /// [`Key::validate`] (such as `use`/`key_ops` consistency or x509-related
-    /// checks).
-    ///
-    /// Validation order:
-    /// 1. Structural/key-material validation (`params.validate()`)
-    /// 2. Algorithm/key-type compatibility (`validate_algorithm_key_type_match`)
-    /// 3. Algorithm-specific key strength checks (`validate_algorithm_key_strength`)
-    pub fn validate_for_algorithm(&self, alg: &Algorithm) -> Result<()> {
-        self.params.validate()?;
-        self.validate_algorithm_key_type_match(alg)?;
-        self.validate_algorithm_key_strength(alg)
+    fn decode_and_validate_x5c_first_der(&self) -> Result<Option<Vec<u8>>> {
+        // RFC 7517 Section 4.7: x5c contains "a chain of one or more PKIX certificates"
+        let Some(ref certs) = self.x5c else {
+            return Ok(None);
+        };
+
+        if certs.is_empty() {
+            return Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "x5c",
+                reason: "RFC 7517: x5c must contain one or more certificates".to_string(),
+            }));
+        }
+
+        let mut first_der = None;
+
+        // RFC 7517 Section 4.7: x5c values are base64 encoded (NOT base64url)
+        for (i, cert) in certs.iter().enumerate() {
+            // Standard base64 uses '+' and '/' which are NOT valid in base64url
+            // base64url uses '-' and '_' instead
+            // We validate it's proper base64 by checking for base64url-only chars
+            // and attempting to decode
+            if cert.contains('-') || cert.contains('_') {
+                return Err(Error::Validation(ValidationError::InvalidParameter {
+                    name: "x5c",
+                    reason: format!(
+                        "RFC 7517: x5c[{}] appears to be base64url encoded; must be standard base64",
+                        i
+                    ),
+                }));
+            }
+
+            // Validate it's valid base64 by checking character set and padding
+            if !is_valid_base64(cert) {
+                return Err(Error::Validation(ValidationError::InvalidParameter {
+                    name: "x5c",
+                    reason: format!("RFC 7517: x5c[{}] is not valid base64 encoding", i),
+                }));
+            }
+
+            // RFC 7517 Section 4.7: Each certificate value MUST be a DER-encoded X.509 certificate
+            // Decode and validate basic DER certificate structure
+            use base64ct::{Base64, Encoding};
+            let der_bytes = Base64::decode_vec(cert).map_err(|_| {
+                Error::Validation(ValidationError::InvalidParameter {
+                    name: "x5c",
+                    reason: format!("RFC 7517: x5c[{}] failed base64 decoding", i),
+                })
+            })?;
+
+            if parse_x509_certificate(&der_bytes).is_err() {
+                return Err(Error::Validation(ValidationError::InvalidParameter {
+                    name: "x5c",
+                    reason: format!(
+                        "RFC 7517: x5c[{}] is not a valid DER-encoded X.509 certificate",
+                        i
+                    ),
+                }));
+            }
+
+            if i == 0 {
+                first_der = Some(der_bytes);
+            }
+        }
+
+        Ok(first_der)
     }
 
     /// Returns `true` if this key's type (and curve, where applicable) is
@@ -1305,6 +1300,26 @@ impl Key {
         }
 
         Ok(())
+    }
+
+    /// Validates this key for a specific algorithm before key usage.
+    ///
+    /// This is the canonical algorithm-aware validation gate and should be
+    /// used by integrations before converting/importing key material.
+    ///
+    /// This method intentionally validates algorithm suitability and key
+    /// material only. It does not run full JWK metadata validation from
+    /// [`Key::validate_structure`] (such as `use`/`key_ops` consistency or x509-related
+    /// checks).
+    ///
+    /// Validation order:
+    /// 1. Structural/key-material validation (`params.validate()`)
+    /// 2. Algorithm/key-type compatibility (`validate_algorithm_key_type_match`)
+    /// 3. Algorithm-specific key strength checks (`validate_algorithm_key_strength`)
+    pub fn validate_for_algorithm(&self, alg: &Algorithm) -> Result<()> {
+        self.params.validate()?;
+        self.validate_algorithm_key_type_match(alg)?;
+        self.validate_algorithm_key_strength(alg)
     }
 
     #[cfg(test)]
@@ -2191,7 +2206,6 @@ mod tests {
                 .is_ok()
         );
     }
-
     #[test]
     fn test_validate_for_algorithm_enforces_strength_without_key_alg() {
         let weak_hmac_key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
@@ -2199,7 +2213,7 @@ mod tests {
         )));
 
         // Baseline JWK validation (metadata + structure) still passes when `alg` is absent.
-        assert!(weak_hmac_key.validate().is_ok());
+        assert!(weak_hmac_key.validate_structure().is_ok());
 
         // Algorithm-aware validation enforces HS256 minimum key strength.
         assert!(

@@ -6,7 +6,7 @@
 //!
 //! ## Features
 //!
-//! - **Full RFC compliance**: Supports RFC 7517 (JWK), RFC 7518 (algorithms),
+//! - **RFC coverage (JOSE/JWK)**: Supports RFC 7517 (JWK), RFC 7518 (algorithms),
 //!   RFC 8037 (OKP), RFC 9864 (Ed25519/Ed448 JOSE algorithms), and RFC 7638
 //!   (thumbprints)
 //! - **Multiple key types**: RSA, EC (P-256, P-384, P-521, secp256k1),
@@ -118,6 +118,9 @@
 //! - All fallible operations return `Result` types — the crate avoids panics,
 //!   though standard trait implementations like `Index` follow normal Rust
 //!   semantics and may panic on invalid input (e.g., out-of-bounds indexing)
+//! - `Key::validate_structure` performs structural and consistency checks
+//!   only. PKIX trust validation for `x5c` chains is application-defined and
+//!   out of scope for this crate.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
