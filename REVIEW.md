@@ -24,6 +24,123 @@ Copy this block for new items:
 
 ## Deferred Findings
 
+## Weak conversion tests rely on non-empty output checks
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: HIGH -> LOW/MEDIUM
+- Decision: DEFER
+- Rationale: Test-quality improvement with low immediate product risk; stronger behavioral assertions can be added incrementally.
+- Preconditions/Trigger: Conversion returns structurally non-empty bytes while semantic correctness regresses.
+- Risk if not fixed: Reduced regression signal in jwt-simple conversion coverage.
+- Revisit signal: Any conversion-related bug escaping current tests.
+- Suggested future action: Replace non-empty assertions with token verify/reject behavioral checks.
+
+## parse_jwt format test does not assert parsed fields
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: HIGH -> LOW
+- Decision: DEFER
+- Rationale: Test robustness issue only; no immediate production behavior change required.
+- Preconditions/Trigger: `parse_jwt` returns incorrect header/claims/signing input while test still passes.
+- Risk if not fixed: False confidence in parsing correctness.
+- Revisit signal: Parser changes or bug reports around JWT segment handling.
+- Suggested future action: Assert ParsedJwt fields and specific error variants for malformed inputs.
+
+## Moka expiration test has tight timing margins
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: MEDIUM -> LOW
+- Decision: DEFER
+- Rationale: Low product risk; adjust only if CI noise appears.
+- Preconditions/Trigger: Slow or contended CI causes sleep/TTL race variance.
+- Risk if not fixed: Intermittent test flakiness.
+- Revisit signal: Repeated flakes in `moka_cache_expiration`.
+- Suggested future action: Increase timing margin or use deterministic time control where compatible.
+
+## Missing direct coverage for KeySet::find_by_thumbprint
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: MEDIUM -> LOW
+- Decision: DEFER
+- Rationale: Useful completeness improvement but not urgent.
+- Preconditions/Trigger: Regression in thumbprint lookup behavior.
+- Risk if not fixed: Lookup regressions may go undetected.
+- Revisit signal: Changes to thumbprint or key lookup internals.
+- Suggested future action: Add positive/negative/multi-key lookup tests for `find_by_thumbprint`.
+
+## Convenience conversion test uses broad is_ok checks
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: Primarily diagnostics/readability; current test still catches gross failures.
+- Preconditions/Trigger: Semantic regressions still return `Ok`.
+- Risk if not fixed: Coarse failure localization and weaker semantic guarantees.
+- Revisit signal: Conversion refactors or recurring ambiguous test failures.
+- Suggested future action: Split into focused per-method tests with behavioral post-conditions.
+
+## EC parameter validation is structural only
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: MEDIUM -> LOW/MEDIUM
+- Decision: DEFER
+- Rationale: Stronger cryptographic validation is valuable but non-trivial and potentially backend-dependent.
+- Preconditions/Trigger: Structurally valid but non-curve points or inconsistent EC material are accepted pre-crypto.
+- Risk if not fixed: Invalid EC keys fail later at crypto import/use rather than early validation.
+- Revisit signal: Requests for stricter validation profile or interop/security requirements.
+- Suggested future action: Add optional strict EC validation mode (curve membership and consistency checks).
+
+## EC jwt-simple key-pair conversion ignores x/y consistency with d
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: MEDIUM -> LOW/MEDIUM
+- Decision: DEFER
+- Rationale: Policy-sensitive tightening; strict checks may reject currently accepted inputs.
+- Preconditions/Trigger: JWK provides mismatched public/private EC components.
+- Risk if not fixed: Malformed EC inputs may appear acceptable until later use.
+- Revisit signal: Input-quality incidents or demand for strict key consistency guarantees.
+- Suggested future action: Add optional consistency check before EC key-pair conversion.
+
+## JWKS-level kid uniqueness is not enforced in KeySet::validate
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: DEVIATION -> LOW/MEDIUM
+- Decision: DEFER
+- Rationale: RFC guidance is SHOULD; strict rejection may reduce compatibility.
+- Preconditions/Trigger: JWKS contains duplicate `kid` values and callers rely on unambiguous `kid` selection.
+- Risk if not fixed: Ambiguous key selection behavior in duplicate-kid sets.
+- Revisit signal: Consumer incidents involving duplicate `kid` rollovers.
+- Suggested future action: Add optional strict JWKS validation mode enforcing distinct `kid` values.
+
+## Thumbprint API can operate on unvalidated non-canonical RSA input
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: RARE
+- Severity: RISK -> LOW/MEDIUM RISK
+- Decision: DEFER
+- Rationale: Important edge-case hardening, but API changes require design care.
+- Preconditions/Trigger: Caller computes thumbprint on unvalidated RSA JWK representation.
+- Risk if not fixed: Possible thumbprint mismatch across implementations for equivalent RSA keys.
+- Revisit signal: Interop issues around thumbprint-derived identifiers.
+- Suggested future action: Add validated/fallible thumbprint path and document raw method semantics.
+
 ## Cloudflare remote fetch timeout is not explicitly configured
 - Date added: 2026-03-03
 - Source: second-opinion review

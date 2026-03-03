@@ -29,6 +29,7 @@
 //! ```
 
 use worker::kv::KvStore;
+use futures::TryStreamExt;
 
 use crate::error::Result;
 use crate::jwk::Key;
@@ -107,18 +108,32 @@ impl RemoteKeyStore {
             )));
         }
 
-        let text = response.text().await.map_err(|e| {
-            crate::error::Error::Other(format!("failed to read response body: {}", e))
-        })?;
+        let mut bytes = Vec::new();
+        let mut stream = response
+            .stream()
+            .map_err(|e| crate::error::Error::Other(format!("failed to read response body: {}", e)))?;
 
-        if text.len() > self.max_response_bytes {
-            return Err(crate::error::Error::PayloadTooLarge {
-                max_bytes: self.max_response_bytes,
-                actual_bytes: text.len(),
-            });
+        while let Some(chunk) = stream
+            .try_next()
+            .await
+            .map_err(|e| crate::error::Error::Other(format!("failed to read response body: {}", e)))?
+        {
+            let next_len = bytes
+                .len()
+                .checked_add(chunk.len())
+                .unwrap_or(usize::MAX);
+
+            if next_len > self.max_response_bytes {
+                return Err(crate::error::Error::PayloadTooLarge {
+                    max_bytes: self.max_response_bytes,
+                    actual_bytes: next_len,
+                });
+            }
+
+            bytes.extend_from_slice(&chunk);
         }
 
-        Ok(serde_json::from_str::<crate::jwks::KeySet>(&text)?)
+        Ok(serde_json::from_slice::<crate::jwks::KeySet>(&bytes)?)
     }
 }
 

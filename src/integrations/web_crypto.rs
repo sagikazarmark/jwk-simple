@@ -714,15 +714,20 @@ pub async fn import_sign_key(key: &Key) -> Result<CryptoKey> {
 
 /// Imports a JWK as a [`CryptoKey`] for encryption.
 ///
+/// This requires the key's `alg` field to be set for RSA and symmetric keys,
+/// because WebCrypto requires the import algorithm to be specified.
+/// For keys without an `alg` field, use [`import_key_with_usages_for_alg`]
+/// with [`KeyUsage::Encrypt`] and an explicit algorithm.
+///
 /// # Supported Key Types
 ///
 /// - RSA public keys (RSA-OAEP)
-/// - Symmetric keys (AES-GCM, AES-KW)
+/// - Symmetric keys (AES-GCM)
 ///
 /// # Errors
 ///
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
-/// - [`Error::WebCrypto`] if the import operation fails
+/// - [`Error::WebCrypto`] if the import operation fails (including missing `alg`)
 pub async fn import_encrypt_key(key: &Key) -> Result<CryptoKey> {
     if matches!(&key.params, KeyParams::Ec(_)) {
         return Err(Error::UnsupportedForWebCrypto {
@@ -736,11 +741,15 @@ pub async fn import_encrypt_key(key: &Key) -> Result<CryptoKey> {
 /// Imports a JWK as a [`CryptoKey`] for decryption.
 ///
 /// This requires a private key (RSA) or symmetric key.
+/// This also requires the key's `alg` field to be set for RSA and symmetric keys,
+/// because WebCrypto requires the import algorithm to be specified.
+/// For keys without an `alg` field, use [`import_key_with_usages_for_alg`]
+/// with [`KeyUsage::Decrypt`] and an explicit algorithm.
 ///
 /// # Errors
 ///
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
-/// - [`Error::WebCrypto`] if the import operation fails
+/// - [`Error::WebCrypto`] if the import operation fails (including missing `alg`)
 pub async fn import_decrypt_key(key: &Key) -> Result<CryptoKey> {
     if matches!(&key.params, KeyParams::Ec(_)) {
         return Err(Error::UnsupportedForWebCrypto {
@@ -752,6 +761,11 @@ pub async fn import_decrypt_key(key: &Key) -> Result<CryptoKey> {
 }
 
 /// Imports a JWK as a [`CryptoKey`] for key wrapping.
+///
+/// This requires the key's `alg` field to be set for RSA and symmetric keys,
+/// because WebCrypto requires the import algorithm to be specified.
+/// For keys without an `alg` field, use [`import_key_with_usages_for_alg`]
+/// with [`KeyUsage::WrapKey`] and an explicit algorithm.
 ///
 /// # Supported Key Types
 ///
@@ -768,6 +782,11 @@ pub async fn import_wrap_key(key: &Key) -> Result<CryptoKey> {
 }
 
 /// Imports a JWK as a [`CryptoKey`] for key unwrapping.
+///
+/// This requires the key's `alg` field to be set for RSA and symmetric keys,
+/// because WebCrypto requires the import algorithm to be specified.
+/// For keys without an `alg` field, use [`import_key_with_usages_for_alg`]
+/// with [`KeyUsage::UnwrapKey`] and an explicit algorithm.
 ///
 /// # Supported Key Types
 ///

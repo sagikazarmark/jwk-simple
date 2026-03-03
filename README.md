@@ -25,6 +25,7 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 jwk-simple = "0.1"
+serde_json = "1"
 ```
 
 Parse a JWKS and find a key:
@@ -89,6 +90,14 @@ for key in &jwks {
 ### Converting to jwt-simple Keys
 
 With the `jwt-simple` feature enabled:
+
+Note: `jwt-simple` is not re-exported. Add it to your dependencies when using its key types directly:
+
+```toml
+[dependencies]
+jwk-simple = { version = "0.1", features = ["jwt-simple"] }
+jwt-simple = "0.12"
+```
 
 ```rust
 use jwk_simple::KeySet;

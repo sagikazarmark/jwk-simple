@@ -121,19 +121,28 @@ impl RemoteKeyStore {
 
     /// Fetches the JWKS from the remote endpoint.
     async fn fetch(&self) -> Result<KeySet> {
-        let response = self
+        let mut response = self
             .client
             .get(&self.url)
             .send()
             .await?
             .error_for_status()?;
 
-        let bytes = response.bytes().await?;
-        if bytes.len() > self.max_response_bytes {
-            return Err(crate::error::Error::PayloadTooLarge {
-                max_bytes: self.max_response_bytes,
-                actual_bytes: bytes.len(),
-            });
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            let next_len = bytes
+                .len()
+                .checked_add(chunk.len())
+                .unwrap_or(usize::MAX);
+
+            if next_len > self.max_response_bytes {
+                return Err(crate::error::Error::PayloadTooLarge {
+                    max_bytes: self.max_response_bytes,
+                    actual_bytes: next_len,
+                });
+            }
+
+            bytes.extend_from_slice(&chunk);
         }
 
         let json = std::str::from_utf8(&bytes).map_err(|e| {
