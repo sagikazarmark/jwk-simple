@@ -879,8 +879,8 @@ impl Key {
                 if !seen.insert(op) {
                     return Err(Error::Validation(ValidationError::InconsistentParameters(
                         format!(
-                            "RFC 7517: key_ops array contains duplicate value '{:?}'",
-                            op
+                            "RFC 7517: key_ops array contains duplicate value '{}'",
+                            op.as_str()
                         ),
                     )));
                 }
@@ -1053,6 +1053,10 @@ impl Key {
     ///
     /// This is intended for APIs that can perform more than one operation with
     /// the same key type (for example, HMAC sign/verify APIs).
+    ///
+    /// All requested operations must be allowed by metadata when metadata is
+    /// present. For example, `operations = [Sign, Verify]` requires both
+    /// operations to be permitted in `key_ops` (if provided).
     pub fn validate_for_operations(
         &self,
         alg: &Algorithm,
