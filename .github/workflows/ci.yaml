@@ -67,9 +67,11 @@ jobs:
         if: matrix.target == 'wasm32-unknown-unknown'
         run: rustup target add wasm32-unknown-unknown
 
+      # TODO: pinned for now to make CI green
+      # needs some automation
       - name: Install wasm-bindgen test runner
         if: matrix.target == 'wasm32-unknown-unknown'
-        run: cargo install wasm-bindgen-cli
+        run: cargo install -f wasm-bindgen-cli --version 0.2.108
 
       - name: Test
         run: |
