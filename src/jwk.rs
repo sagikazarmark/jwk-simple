@@ -2198,7 +2198,7 @@ mod tests {
             Base64UrlBytes::new(vec![0u8; 31]),
         )));
 
-        // Structural validation is still fine when `alg` is absent.
+        // Baseline JWK validation (metadata + structure) still passes when `alg` is absent.
         assert!(weak_hmac_key.validate().is_ok());
 
         // Algorithm-aware validation enforces HS256 minimum key strength.
