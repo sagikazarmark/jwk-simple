@@ -1038,7 +1038,7 @@ impl Key {
     /// Metadata members are optional in RFC 7517. If both are absent, this
     /// validation succeeds.
     pub fn validate_operation_metadata(&self, operation: KeyOperation) -> Result<()> {
-        self.validate_operation_metadata_for_any(std::slice::from_ref(&operation))
+        self.validate_operation_metadata_for_all(std::slice::from_ref(&operation))
     }
 
     /// Validates this key for a specific algorithm and operation.
@@ -1059,12 +1059,15 @@ impl Key {
         operations: &[KeyOperation],
     ) -> Result<()> {
         self.validate_for_algorithm(alg)?;
-        self.validate_operation_metadata_for_any(operations)
+        self.validate_operation_metadata_for_all(operations)
     }
 
-    fn validate_operation_metadata_for_any(&self, operations: &[KeyOperation]) -> Result<()> {
+    fn validate_operation_metadata_for_all(&self, operations: &[KeyOperation]) -> Result<()> {
         if operations.is_empty() {
-            return Ok(());
+            return Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "operations",
+                reason: "at least one requested operation is required".to_string(),
+            }));
         }
 
         if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops)
@@ -1092,7 +1095,7 @@ impl Key {
         if let Some(key_use) = &self.key_use {
             let use_allows_requested = operations
                 .iter()
-                .any(|operation| is_operation_allowed_by_use(key_use, operation));
+                .all(|operation| is_operation_allowed_by_use(key_use, operation));
 
             if !use_allows_requested {
                 return Err(Error::Validation(ValidationError::InconsistentParameters(
@@ -1108,7 +1111,7 @@ impl Key {
         if let Some(key_ops) = &self.key_ops {
             let key_ops_allow_requested = operations
                 .iter()
-                .any(|operation| key_ops.contains(operation));
+                .all(|operation| key_ops.contains(operation));
 
             if !key_ops_allow_requested {
                 return Err(Error::Validation(ValidationError::InconsistentParameters(
@@ -2392,5 +2395,16 @@ mod tests {
                 .is_ok()
         );
         assert!(key.validate_operation_metadata(KeyOperation::Sign).is_ok());
+    }
+
+    #[test]
+    fn test_validate_for_operations_rejects_empty_operation_set() {
+        let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        )));
+
+        let result = key.validate_for_operations(&Algorithm::Rs256, &[]);
+        assert!(result.is_err());
     }
 }

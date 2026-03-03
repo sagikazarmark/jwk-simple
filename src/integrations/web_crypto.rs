@@ -392,14 +392,15 @@ fn validate_key_for_webcrypto_usage_with_alg(
 }
 
 fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
-    key.validate_operation_metadata(key_operation_for_usage(usage))?;
-
     if let Some(alg) = key.alg.as_ref() {
         validate_usage_algorithm_compatibility(usage, alg)?;
+        key.validate_operation_metadata(key_operation_for_usage(usage))?;
         return key.validate_for_algorithm(alg);
     }
 
-    key.validate_structure()
+    key.validate_operation_metadata(key_operation_for_usage(usage))?;
+
+    key.params.validate()
 }
 
 fn key_operation_for_usage(usage: KeyUsage) -> KeyOperation {

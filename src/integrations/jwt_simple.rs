@@ -805,4 +805,43 @@ mod tests {
         let result: Result<RS256PublicKey> = (&jwk).try_into();
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_hs256_conversion_rejects_sign_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["sign"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS256Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs256_conversion_rejects_verify_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["verify"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS256Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs256_conversion_accepts_sign_and_verify_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["sign", "verify"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS256Key> = (&jwk).try_into();
+        assert!(result.is_ok());
+    }
 }
