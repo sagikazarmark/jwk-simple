@@ -41,7 +41,7 @@ fn main() {
     println!("Loaded {} keys from JWKS", jwks.len());
 
     // Find a key by its ID
-    if let Some(key) = jwks.find_by_kid("rsa-signing-key") {
+    if let Some(key) = jwks.get_by_kid("rsa-signing-key") {
         println!("\nFound RSA key:");
         println!("  Key type: {:?}", key.kty());
         println!("  Key use: {:?}", key.key_use);

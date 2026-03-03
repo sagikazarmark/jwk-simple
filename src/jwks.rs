@@ -158,6 +158,14 @@ pub struct KeySelector<'a> {
 
 impl<'a> KeySelector<'a> {
     /// Selects exactly one key using strict cryptographic suitability checks.
+    ///
+    /// Error precedence is deterministic:
+    /// 1. `UnknownAlgorithm`
+    /// 2. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
+    /// 3. Candidate evaluation
+    /// 4. If no candidate survives: `AlgorithmMismatch` -> `IntentMismatch`
+    ///    -> `KeyValidationFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`
+    /// 5. If multiple candidates survive: `AmbiguousSelection`
     pub fn select(&self, matcher: KeyMatcher<'_>) -> std::result::Result<&'a Key, SelectionError> {
         if matcher.alg.is_unknown() {
             return Err(SelectionError::UnknownAlgorithm);
@@ -1169,6 +1177,58 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
+    }
+
+    #[test]
+    fn test_selector_intent_mismatch_for_known_kid() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "enc-rsa", "use": "enc", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("enc-rsa"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::IntentMismatch));
+    }
+
+    #[test]
+    fn test_selector_no_kid_all_candidates_invalid_returns_no_match() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "weak-1", "use": "sig", "n": "AQAB", "e": "AQAB"},
+            {"kty": "RSA", "kid": "weak-2", "use": "sig", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::NoMatchingKey));
+    }
+
+    #[test]
+    fn test_selector_error_precedence_alg_mismatch_over_intent() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "dup", "alg": "ES256", "use": "enc", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("dup"))
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            SelectionError::AlgorithmMismatch {
+                requested: Algorithm::Rs256,
+                declared: Algorithm::Es256
+            }
+        ));
     }
 
     #[test]
