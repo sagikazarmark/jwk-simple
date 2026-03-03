@@ -1035,7 +1035,9 @@ mod tests {
         let selector = jwks.selector(&[Algorithm::Rs256]);
 
         let key = selector
-            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid(Some("rsa-key-1")))
+            .select(
+                KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid(Some("rsa-key-1")),
+            )
             .unwrap();
 
         assert_eq!(key.kid.as_deref(), Some("rsa-key-1"));
@@ -1120,7 +1122,9 @@ mod tests {
         let selector = jwks.selector(&[]);
 
         let err = selector
-            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid(Some("weak-rsa")))
+            .select(
+                KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid(Some("weak-rsa")),
+            )
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
