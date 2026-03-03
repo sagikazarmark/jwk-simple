@@ -391,6 +391,14 @@ fn validate_key_for_webcrypto_usage_with_alg(
     key.validate_for_algorithm(alg)
 }
 
+fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
+    if let Some(alg) = key.alg.as_ref() {
+        validate_usage_algorithm_compatibility(usage, alg)?;
+    }
+
+    key.validate()
+}
+
 /// Key usage category for determining the appropriate algorithm.
 ///
 /// This is used by the low-level [`import_key_with_usages`] and
@@ -884,11 +892,7 @@ pub async fn import_key_with_usages(
     usages: &[&str],
     usage: KeyUsage,
 ) -> Result<CryptoKey> {
-    if let Some(alg) = key.alg.as_ref() {
-        validate_key_for_webcrypto_usage_with_alg(key, usage, alg)?;
-    } else {
-        key.validate()?;
-    }
+    validate_key_for_webcrypto_usage(key, usage)?;
 
     let jwk = web_sys::JsonWebKey::try_from(key)?;
     let algorithm = build_algorithm_object(key, usage)?;
@@ -1170,6 +1174,15 @@ mod validation_tests {
         assert!(
             validate_usage_algorithm_compatibility(KeyUsage::WrapKey, &Algorithm::A128kw).is_ok()
         );
+    }
+
+    #[test]
+    fn test_import_usage_validation_enforces_metadata_when_alg_present() {
+        let mut key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
+        key.key_ops = Some(vec![crate::jwk::KeyOperation::Sign, crate::jwk::KeyOperation::Sign]);
+
+        let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Sign);
+        assert!(result.is_err(), "duplicate key_ops must be rejected");
     }
 }
 
