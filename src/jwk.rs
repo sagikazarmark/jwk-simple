@@ -1017,6 +1017,11 @@ impl Key {
     /// This is the canonical algorithm-aware validation gate and should be
     /// used by integrations before converting/importing key material.
     ///
+    /// This method intentionally validates algorithm suitability and key
+    /// material only. It does not run full JWK metadata validation from
+    /// [`Key::validate`] (such as `use`/`key_ops` consistency or x509-related
+    /// checks).
+    ///
     /// Validation order:
     /// 1. Structural/key-material validation (`params.validate()`)
     /// 2. Algorithm/key-type compatibility (`validate_algorithm_key_type_match`)

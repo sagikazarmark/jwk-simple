@@ -135,7 +135,11 @@ impl TryFrom<&Key> for web_sys::JsonWebKey {
     type Error = Error;
 
     fn try_from(key: &Key) -> Result<Self> {
-        key.validate()?;
+        // Keep conversion-level validation focused on key material shape.
+        // Full JWK metadata validation (including `use`/`key_ops`/x509 checks)
+        // is context-dependent and should be performed by callers that need it.
+        // This also avoids enforcing `key.alg` in explicit-alg import flows.
+        key.params.validate()?;
 
         // Validate that the key type is supported
         validate_webcrypto_support(key)?;

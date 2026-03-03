@@ -276,6 +276,25 @@ async fn test_import_verify_key_for_alg_rejects_weak_hs256_key_without_alg() {
 }
 
 #[wasm_bindgen_test]
+async fn test_import_verify_key_for_alg_ignores_conflicting_key_alg() {
+    // 32 bytes (256 bits): valid for HS256 but too weak for HS512.
+    let key_with_conflicting_alg = r#"{
+        "kty": "oct",
+        "alg": "HS512",
+        "k": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }"#;
+
+    let key: Key = serde_json::from_str(key_with_conflicting_alg).unwrap();
+
+    // Explicit algorithm should take precedence over conflicting key.alg.
+    let crypto_key = web_crypto::import_verify_key_for_alg(&key, &jwk_simple::Algorithm::Hs256)
+        .await
+        .unwrap();
+
+    assert_eq!(crypto_key.type_(), "secret");
+}
+
+#[wasm_bindgen_test]
 async fn test_rsa_verify_behavior_rejects_invalid_signatures() {
     let subtle = web_crypto::get_subtle_crypto().unwrap();
     let public_key: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
