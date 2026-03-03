@@ -392,14 +392,17 @@ fn validate_key_for_webcrypto_usage_with_alg(
 }
 
 fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
+    let requested_op = key_operation_for_usage(usage);
+
     if let Some(alg) = key.alg.as_ref() {
         validate_usage_algorithm_compatibility(usage, alg)?;
-        key.validate_operation_metadata(key_operation_for_usage(usage))?;
-        return key.validate_for_algorithm(alg);
+        key.validate_structure()?;
+        key.validate_operation_intent_for_all(std::slice::from_ref(&requested_op))?;
+        return Ok(());
     }
 
     key.validate_structure()?;
-    key.validate_operation_metadata(key_operation_for_usage(usage))?;
+    key.validate_operation_intent_for_all(std::slice::from_ref(&requested_op))?;
 
     Ok(())
 }
