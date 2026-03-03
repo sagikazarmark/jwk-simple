@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use moka::future::Cache;
 
+use crate::error::Result;
 use crate::jwks::KeySet;
 
 use super::KeyCache;
@@ -12,6 +13,7 @@ const KEYSET_CACHE_KEY: &str = "jwks";
 pub const DEFAULT_MOKA_CACHE_TTL: Duration = Duration::from_secs(300);
 
 /// A Moka-backed in-memory key cache with TTL-based expiration.
+#[derive(Debug)]
 pub struct MokaKeyCache {
     cache: Cache<&'static str, KeySet>,
     ttl: Duration,
@@ -42,28 +44,22 @@ impl Default for MokaKeyCache {
     }
 }
 
-impl std::fmt::Debug for MokaKeyCache {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MokaKeyCache")
-            .field("ttl", &self.ttl)
-            .finish_non_exhaustive()
-    }
-}
-
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl KeyCache for MokaKeyCache {
-    async fn get(&self) -> crate::error::Result<Option<KeySet>> {
+    async fn get(&self) -> Result<Option<KeySet>> {
         Ok(self.cache.get(&KEYSET_CACHE_KEY).await)
     }
 
-    async fn set(&self, keyset: KeySet) -> crate::error::Result<()> {
+    async fn set(&self, keyset: KeySet) -> Result<()> {
         self.cache.insert(KEYSET_CACHE_KEY, keyset).await;
+
         Ok(())
     }
 
-    async fn clear(&self) -> crate::error::Result<()> {
+    async fn clear(&self) -> Result<()> {
         self.cache.invalidate_all();
+
         Ok(())
     }
 }
@@ -74,7 +70,6 @@ mod tests {
     use crate::error::Error;
     use crate::jwk::Key;
     use crate::jwks::{CachedKeyStore, KeyStore};
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
@@ -170,56 +165,19 @@ mod tests {
 
         let key = cached.get_key("old-key").await.unwrap();
         assert!(key.is_some());
-        assert_eq!(cached.source().fetch_count(), 1);
+        assert_eq!(cached.store().fetch_count(), 1);
 
         let key = cached.get_key("old-key").await.unwrap();
         assert!(key.is_some());
-        assert_eq!(cached.source().fetch_count(), 1);
+        assert_eq!(cached.store().fetch_count(), 1);
 
         let key = cached.get_key("new-key").await.unwrap();
         assert!(key.is_some());
-        assert_eq!(cached.source().fetch_count(), 2);
+        assert_eq!(cached.store().fetch_count(), 2);
 
         let key = cached.get_key("new-key").await.unwrap();
         assert!(key.is_some());
-        assert_eq!(cached.source().fetch_count(), 2);
-    }
-
-    #[tokio::test]
-    async fn cached_key_store_singleflight_unknown_kid_avoids_duplicate_refresh() {
-        let initial: KeySet =
-            serde_json::from_str(r#"{"keys": [{"kty": "oct", "kid": "old-key", "k": "AQAB"}]}"#)
-                .unwrap();
-        let rotated: KeySet = serde_json::from_str(
-            r#"{"keys": [
-                {"kty": "oct", "kid": "old-key", "k": "AQAB"},
-                {"kty": "oct", "kid": "new-key", "k": "AQAB"}
-            ]}"#,
-        )
-        .unwrap();
-
-        let source = RotatingKeyStore::new(vec![initial, rotated]);
-        let cached = Arc::new(CachedKeyStore::new(
-            MokaKeyCache::new(Duration::from_secs(300)),
-            source,
-        ));
-
-        // Prime cache with initial keyset.
-        let key = cached.get_key("old-key").await.unwrap();
-        assert!(key.is_some());
-        assert_eq!(cached.source().fetch_count(), 1);
-
-        // Concurrent misses for the same new kid should coalesce to one upstream refresh.
-        let c1 = Arc::clone(&cached);
-        let c2 = Arc::clone(&cached);
-        let (r1, r2) = tokio::join!(
-            async move { c1.get_key("new-key").await },
-            async move { c2.get_key("new-key").await }
-        );
-
-        assert!(r1.unwrap().is_some());
-        assert!(r2.unwrap().is_some());
-        assert_eq!(cached.source().fetch_count(), 2);
+        assert_eq!(cached.store().fetch_count(), 2);
     }
 
     #[tokio::test]

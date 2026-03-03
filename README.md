@@ -118,11 +118,11 @@ let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 With the `http` feature enabled:
 
 ```rust
-use jwk_simple::{KeyStore, RemoteKeyStore};
+use jwk_simple::{HttpKeyStore, KeyStore};
 use std::time::Duration;
 
 // Create remote key store (uses default 30s timeout)
-let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
+let remote = HttpKeyStore::new("https://example.com/.well-known/jwks.json")?;
 
 // For custom timeout, use a custom client.
 // Note: reqwest is not re-exported, so add it to your own Cargo.toml:
@@ -130,7 +130,7 @@ let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
 let client = reqwest::Client::builder()
     .timeout(Duration::from_secs(10))
     .build()?;
-let remote = RemoteKeyStore::new_with_client(
+let remote = HttpKeyStore::new_with_client(
     "https://example.com/.well-known/jwks.json",
     client,
 );
@@ -144,14 +144,14 @@ let jwks = remote.get_keyset().await?;
 With the `http` and `cache-moka` features enabled:
 
 ```rust
-use jwk_simple::{CachedKeyStore, KeyCache, KeyStore, MokaKeyCache, RemoteKeyStore};
+use jwk_simple::{CachedKeyStore, HttpKeyStore, KeyCache, KeyStore, MokaKeyCache};
 use std::time::Duration;
 
 // For production, wrap a remote store with caching (5 minute TTL)
 let cache = MokaKeyCache::new(Duration::from_secs(300));
 let cached = CachedKeyStore::new(
     cache,
-    RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?,
+    HttpKeyStore::new("https://example.com/.well-known/jwks.json")?,
 );
 
 // Keys are automatically cached on first access

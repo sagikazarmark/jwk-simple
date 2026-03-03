@@ -12,14 +12,13 @@ use crate::jwk::{Algorithm, Key, KeyOperation, KeyType, KeyUse};
 mod cache;
 #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
 pub mod cloudflare;
-#[cfg(feature = "http")]
-mod remote;
+mod store;
 
 #[cfg(feature = "cache-moka")]
 pub use cache::moka::{DEFAULT_MOKA_CACHE_TTL, MokaKeyCache};
 pub use cache::{CachedKeyStore, KeyCache};
 #[cfg(feature = "http")]
-pub use remote::{DEFAULT_TIMEOUT, RemoteKeyStore};
+pub use store::{DEFAULT_TIMEOUT, HttpKeyStore};
 
 /// A trait for types that can provide JWK keys.
 ///

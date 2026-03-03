@@ -334,9 +334,10 @@ async fn test_ec_verify_behavior_rejects_invalid_signature() {
 
     let p256: Key = serde_json::from_str(EC_P256_PUBLIC_KEY).unwrap();
     let p256_private: Key = serde_json::from_str(EC_P256_PRIVATE_KEY).unwrap();
-    let p256_sign_key = web_crypto::import_sign_key_for_alg(&p256_private, &jwk_simple::Algorithm::Es256)
-        .await
-        .unwrap();
+    let p256_sign_key =
+        web_crypto::import_sign_key_for_alg(&p256_private, &jwk_simple::Algorithm::Es256)
+            .await
+            .unwrap();
     let p256_key = web_crypto::import_verify_key_for_alg(&p256, &jwk_simple::Algorithm::Es256)
         .await
         .unwrap();
@@ -350,7 +351,9 @@ async fn test_ec_verify_behavior_rejects_invalid_signature() {
         .await
         .unwrap();
     let p256_verify_ok = subtle
-        .verify_with_object_and_buffer_source_and_buffer_source(&p256_alg, &p256_key, &p256_sig, &data)
+        .verify_with_object_and_buffer_source_and_buffer_source(
+            &p256_alg, &p256_key, &p256_sig, &data,
+        )
         .unwrap();
     let p256_ok = wasm_bindgen_futures::JsFuture::from(p256_verify_ok)
         .await
@@ -390,9 +393,10 @@ async fn test_ec_verify_behavior_rejects_invalid_signature() {
 
     let p384: Key = serde_json::from_str(EC_P384_PUBLIC_KEY_MATCHING_PRIVATE).unwrap();
     let p384_private: Key = serde_json::from_str(EC_P384_PRIVATE_KEY).unwrap();
-    let p384_sign_key = web_crypto::import_sign_key_for_alg(&p384_private, &jwk_simple::Algorithm::Es384)
-        .await
-        .unwrap();
+    let p384_sign_key =
+        web_crypto::import_sign_key_for_alg(&p384_private, &jwk_simple::Algorithm::Es384)
+            .await
+            .unwrap();
     let p384_key = web_crypto::import_verify_key_for_alg(&p384, &jwk_simple::Algorithm::Es384)
         .await
         .unwrap();
@@ -407,10 +411,7 @@ async fn test_ec_verify_behavior_rejects_invalid_signature() {
         .unwrap();
     let p384_verify_ok = subtle
         .verify_with_object_and_buffer_source_and_buffer_source(
-            &p384_alg,
-            &p384_key,
-            &p384_sig,
-            &p384_data,
+            &p384_alg, &p384_key, &p384_sig, &p384_data,
         )
         .unwrap();
     let p384_valid_ok = wasm_bindgen_futures::JsFuture::from(p384_verify_ok)

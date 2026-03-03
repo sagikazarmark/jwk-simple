@@ -6,7 +6,7 @@
 //! Run with: `cargo run --example http_fetch --features http`
 
 #[cfg(feature = "http")]
-use jwk_simple::{KeyStore, RemoteKeyStore};
+use jwk_simple::{HttpKeyStore, KeyStore};
 #[cfg(feature = "http")]
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
-    let remote = RemoteKeyStore::new_with_client(google_jwks_url, client);
+    let remote = HttpKeyStore::new_with_client(google_jwks_url, client);
 
     // Fetch the JWKS
     let jwks = remote.get_keyset().await?;
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         use jwk_simple::{CachedKeyStore, MokaKeyCache};
 
         let cache = MokaKeyCache::new(Duration::from_secs(300));
-        let cached = CachedKeyStore::new(cache, RemoteKeyStore::new(google_jwks_url)?);
+        let cached = CachedKeyStore::new(cache, HttpKeyStore::new(google_jwks_url)?);
 
         // First call fetches from network
         let _jwks = cached.get_keyset().await?;

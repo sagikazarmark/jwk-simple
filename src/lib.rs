@@ -44,7 +44,7 @@
 //! |---------|-------------|
 //! | `jwt-simple` | Integration with the jwt-simple crate |
 //! | `web-crypto` | WebCrypto integration for browser/WASM environments |
-//! | `http` | Async HTTP fetching with `RemoteKeyStore` |
+//! | `http` | Async HTTP fetching with `HttpKeyStore` |
 //! | `cache-moka` | In-memory `KeyCache` implementation using Moka |
 //! | `cloudflare` | Cloudflare Workers support (Fetch API + KV cache) |
 //!
@@ -133,7 +133,7 @@ pub use jwks::{CachedKeyStore, KeyCache, KeySet, KeySetParseDiagnostics, KeyStor
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
-pub use jwks::{DEFAULT_TIMEOUT, RemoteKeyStore};
+pub use jwks::{DEFAULT_TIMEOUT, HttpKeyStore};
 
 #[cfg(feature = "cache-moka")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cache-moka")))]

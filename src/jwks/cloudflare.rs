@@ -1,56 +1,55 @@
 //! Cloudflare Workers support for JWKS.
 //!
 //! This module provides:
-//! - [`RemoteKeyStore`]: A key store that uses Cloudflare Worker's Fetch API
-//! - [`KeyCache`]: A cache implementation backed by Cloudflare KV
+//! - [`FetchKeyStore`]: A key store that uses Cloudflare Worker's Fetch API
+//! - [`KvKeyCache`]: A cache implementation backed by Cloudflare KV
 //!
 //! # Examples
 //!
-//! Using `RemoteKeyStore` to fetch JWKS in a Cloudflare Worker:
+//! Using `FetchKeyStore` to fetch JWKS in a Cloudflare Worker:
 //!
 //! ```ignore
 //! use jwk_simple::jwks::cloudflare;
 //! use jwk_simple::KeyStore;
 //!
-//! let store = cloudflare::RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
+//! let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json");
 //! let key = store.get_key("my-key-id").await?;
 //! ```
 //!
-//! Using `KeyCache` with KV storage:
+//! Using `KvKeyCache` with KV storage:
 //!
 //! ```ignore
 //! use jwk_simple::jwks::cloudflare;
+//! use jwk_simple::CachedKeyStore;
 //! use worker::kv::KvStore;
 //!
 //! let kv: KvStore = env.kv("JWKS_CACHE")?;
-//! let cache = cloudflare::KeyCache::new(kv);
-//! let source = cloudflare::RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
-//! let cached = cloudflare::CachedKeyStore::new(cache, source);
+//! let cache = cloudflare::KvKeyCache::new(kv);
+//! let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json");
+//! let cached = CachedKeyStore::new(cache, store);
 //! ```
 
-use worker::kv::KvStore;
 use futures::TryStreamExt;
+use worker::kv::KvStore;
 
-use crate::error::Result;
+use crate::error::{Error, ParseError, Result};
 use crate::jwk::Key;
-use crate::jwks::KeyStore;
+use crate::jwks::{KeyCache, KeySet, KeyStore};
 
 /// Default TTL for KV cache entries (5 minutes).
 pub const DEFAULT_KV_TTL_SECONDS: u64 = 300;
-
-/// Maximum allowed JWKS response size (1 MiB).
-pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 /// A key store that fetches from an HTTP endpoint using Cloudflare Worker's Fetch API.
 ///
 /// This implementation is designed for use in Cloudflare Workers where `reqwest` is not
 /// available. It uses the Worker's built-in Fetch API to make HTTP requests.
 ///
-/// Like [`RemoteKeyStore`](super::RemoteKeyStore), this does **not** cache keys. Every call
+/// Like [`crate::FetchKeyStore`], this does **not** cache keys. Every call
 /// to [`get_key`](KeyStore::get_key) or [`get_keyset`](KeyStore::get_keyset) will make
 /// an HTTP request.
 ///
-/// For production use, wrap this in [`CachedKeyStore`] with a [`KeyCache`] for KV-backed caching.
+/// For production use, wrap this in [`crate::CachedKeyStore`] with a [`KvKeyCache`] for
+/// KV-backed caching.
 ///
 /// # Examples
 ///
@@ -58,22 +57,18 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 /// use jwk_simple::jwks::cloudflare;
 /// use jwk_simple::KeyStore;
 ///
-/// let store = cloudflare::RemoteKeyStore::new("https://example.com/.well-known/jwks.json");
+/// let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json");
 /// let key = store.get_key("my-key-id").await?;
 /// ```
 #[derive(Debug, Clone)]
-pub struct RemoteKeyStore {
+pub struct FetchKeyStore {
     url: String,
-    max_response_bytes: usize,
 }
 
-impl RemoteKeyStore {
-    /// Creates a new `RemoteKeyStore` from a URL.
+impl FetchKeyStore {
+    /// Creates a new `FetchKeyStore` from a URL.
     pub fn new(url: impl Into<String>) -> Self {
-        Self {
-            url: url.into(),
-            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
-        }
+        Self { url: url.into() }
     }
 
     /// Returns the URL of the JWKS endpoint.
@@ -81,28 +76,20 @@ impl RemoteKeyStore {
         &self.url
     }
 
-    /// Sets the maximum allowed JWKS response size in bytes.
-    #[must_use]
-    pub fn with_max_response_bytes(mut self, max_response_bytes: usize) -> Self {
-        self.max_response_bytes = max_response_bytes;
-        self
-    }
-
     /// Fetches the JWKS from the remote endpoint using Cloudflare Worker's Fetch API.
-    async fn fetch(&self) -> Result<crate::jwks::KeySet> {
-        let mut response = worker::Fetch::Url(self.url.parse().map_err(|e| {
-            crate::error::Error::Parse(crate::error::ParseError::Json(format!(
-                "invalid URL: {}",
-                e
-            )))
-        })?)
+    async fn fetch(&self) -> Result<KeySet> {
+        let mut response = worker::Fetch::Url(
+            self.url
+                .parse()
+                .map_err(|e| Error::Parse(ParseError::Json(format!("invalid URL: {}", e))))?,
+        )
         .send()
         .await
-        .map_err(|e| crate::error::Error::Other(format!("fetch failed: {}", e)))?;
+        .map_err(|e| Error::Other(format!("fetch failed: {}", e)))?;
 
         let status = response.status_code();
         if !(200..300).contains(&status) {
-            return Err(crate::error::Error::Other(format!(
+            return Err(Error::Other(format!(
                 "JWKS endpoint returned HTTP {}",
                 status
             )));
@@ -111,36 +98,24 @@ impl RemoteKeyStore {
         let mut bytes = Vec::new();
         let mut stream = response
             .stream()
-            .map_err(|e| crate::error::Error::Other(format!("failed to read response body: {}", e)))?;
+            .map_err(|e| Error::Other(format!("failed to read response body: {}", e)))?;
 
         while let Some(chunk) = stream
             .try_next()
             .await
-            .map_err(|e| crate::error::Error::Other(format!("failed to read response body: {}", e)))?
+            .map_err(|e| Error::Other(format!("failed to read response body: {}", e)))?
         {
-            let next_len = bytes
-                .len()
-                .checked_add(chunk.len())
-                .unwrap_or(usize::MAX);
-
-            if next_len > self.max_response_bytes {
-                return Err(crate::error::Error::PayloadTooLarge {
-                    max_bytes: self.max_response_bytes,
-                    actual_bytes: next_len,
-                });
-            }
-
             bytes.extend_from_slice(&chunk);
         }
 
-        Ok(serde_json::from_slice::<crate::jwks::KeySet>(&bytes)?)
+        Ok(serde_json::from_slice::<KeySet>(&bytes)?)
     }
 }
 
 // Note: This module is only compiled for wasm32 targets, so we use the ?Send variant
 #[async_trait::async_trait(?Send)]
-impl KeyStore for RemoteKeyStore {
-    async fn get_keyset(&self) -> Result<crate::jwks::KeySet> {
+impl KeyStore for FetchKeyStore {
+    async fn get_keyset(&self) -> Result<KeySet> {
         self.fetch().await
     }
 }
@@ -166,17 +141,18 @@ impl KeyStore for RemoteKeyStore {
 /// use std::time::Duration;
 ///
 /// let kv = env.kv("JWKS_CACHE")?;
-/// let cache = cloudflare::KeyCache::new(kv)
+/// let cache = cloudflare::KvKeyCache::new(kv)
 ///     .with_ttl(Duration::from_secs(600))
 ///     .with_key("my-app:jwks");
 /// ```
-pub struct KeyCache {
+#[derive(Debug)]
+pub struct KvKeyCache {
     kv: KvStore,
     key: String,
     ttl_seconds: Option<u64>,
 }
 
-impl KeyCache {
+impl KvKeyCache {
     /// Creates a new KV-backed cache with default settings.
     ///
     /// Default settings:
@@ -219,42 +195,33 @@ impl KeyCache {
     }
 }
 
-impl std::fmt::Debug for KeyCache {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KeyCache")
-            .field("key", &self.key)
-            .field("ttl_seconds", &self.ttl_seconds)
-            .finish_non_exhaustive()
-    }
-}
-
 // Note: This module is only compiled for wasm32 targets, so we use the ?Send variant
 #[async_trait::async_trait(?Send)]
-impl crate::jwks::KeyCache for KeyCache {
-    async fn get(&self) -> Result<Option<crate::jwks::KeySet>> {
+impl KeyCache for KvKeyCache {
+    async fn get(&self) -> Result<Option<KeySet>> {
         let value = self
             .kv
             .get(&self.key)
             .text()
             .await
-            .map_err(|e| crate::error::Error::Cache(format!("read failed: {}", e)))?;
+            .map_err(|e| Error::Cache(format!("read failed: {}", e)))?;
 
         match value {
             Some(json) => serde_json::from_str(&json)
                 .map(Some)
-                .map_err(|e| crate::error::Error::Cache(format!("deserialize failed: {}", e))),
+                .map_err(|e| Error::Cache(format!("deserialize failed: {}", e))),
             None => Ok(None),
         }
     }
 
-    async fn set(&self, keyset: crate::jwks::KeySet) -> Result<()> {
+    async fn set(&self, keyset: KeySet) -> Result<()> {
         let json = serde_json::to_string(&keyset)
-            .map_err(|e| crate::error::Error::Cache(format!("serialize failed: {}", e)))?;
+            .map_err(|e| Error::Cache(format!("serialize failed: {}", e)))?;
 
         let builder = self
             .kv
             .put(&self.key, json)
-            .map_err(|e| crate::error::Error::Cache(format!("write setup failed: {}", e)))?;
+            .map_err(|e| Error::Cache(format!("write setup failed: {}", e)))?;
 
         let builder = if let Some(ttl) = self.ttl_seconds {
             builder.expiration_ttl(ttl)
@@ -265,7 +232,7 @@ impl crate::jwks::KeyCache for KeyCache {
         builder
             .execute()
             .await
-            .map_err(|e| crate::error::Error::Cache(format!("write failed: {}", e)))?;
+            .map_err(|e| Error::Cache(format!("write failed: {}", e)))?;
 
         Ok(())
     }
@@ -274,9 +241,6 @@ impl crate::jwks::KeyCache for KeyCache {
         self.kv
             .delete(&self.key)
             .await
-            .map_err(|e| crate::error::Error::Cache(format!("delete failed: {}", e)))
+            .map_err(|e| Error::Cache(format!("delete failed: {}", e)))
     }
 }
-
-/// Convenience type alias for a cached key store using Cloudflare KV caching.
-pub type CachedKeyStore<S> = crate::jwks::CachedKeyStore<KeyCache, S>;

@@ -1,19 +1,17 @@
 //! Remote JWKS fetching without caching.
 //!
-//! This module provides [`RemoteKeyStore`], which fetches keys from an HTTP endpoint
-//! on every request. For production use, consider wrapping with [`CachedKeyStore`](super::CachedKeyStore).
+//! This module provides [`HttpKeyStore`], which fetches keys from an HTTP endpoint
+//! on every request. For production use, consider wrapping with
+//! [`CachedKeyStore`](crate::CachedKeyStore).
 
 use std::time::Duration;
 
-use crate::error::Result;
+use crate::error::{Error, ParseError, Result};
 
-use super::{KeySet, KeyStore};
+use crate::jwks::{KeySet, KeyStore};
 
 /// Default timeout for HTTP requests (30 seconds).
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Maximum allowed JWKS response size (1 MiB).
-pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 /// A key store that fetches from an HTTP endpoint on every request.
 ///
@@ -21,13 +19,13 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 /// or [`get_keyset`](KeyStore::get_keyset) will make an HTTP request.
 ///
 /// For production use with high request volumes, wrap this in
-/// [`CachedKeyStore`](super::CachedKeyStore) with [`MokaKeyCache`](super::MokaKeyCache):
+/// [`CachedKeyStore`](crate::CachedKeyStore) with [`MokaKeyCache`](crate::MokaKeyCache):
 ///
 /// ```ignore
-/// use jwk_simple::{CachedKeyStore, MokaKeyCache, RemoteKeyStore};
+/// use jwk_simple::{CachedKeyStore, HttpKeyStore, MokaKeyCache};
 /// use std::time::Duration;
 ///
-/// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
+/// let remote = HttpKeyStore::new("https://example.com/.well-known/jwks.json")?;
 /// let cache = MokaKeyCache::new(Duration::from_secs(300));
 /// let cached = CachedKeyStore::new(cache, remote);
 /// ```
@@ -35,9 +33,9 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{KeyStore, RemoteKeyStore};
+/// use jwk_simple::{HttpKeyStore, KeyStore};
 ///
-/// let store = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
+/// let store = HttpKeyStore::new("https://example.com/.well-known/jwks.json")?;
 /// let key = store.get_key("my-key-id").await?;
 /// ```
 ///
@@ -46,7 +44,7 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 /// You can provide a custom [`reqwest::Client`] for full control over HTTP behavior:
 ///
 /// ```ignore
-/// use jwk_simple::RemoteKeyStore;
+/// use jwk_simple::HttpKeyStore;
 /// use std::time::Duration;
 ///
 /// let client = reqwest::Client::builder()
@@ -55,20 +53,19 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 ///     .build()
 ///     .unwrap();
 ///
-/// let store = RemoteKeyStore::new_with_client(
+/// let store = HttpKeyStore::new_with_client(
 ///     "https://example.com/.well-known/jwks.json",
 ///     client,
 /// );
 /// ```
 #[derive(Debug, Clone)]
-pub struct RemoteKeyStore {
+pub struct HttpKeyStore {
     url: String,
     client: reqwest::Client,
-    max_response_bytes: usize,
 }
 
-impl RemoteKeyStore {
-    /// Creates a new `RemoteKeyStore` from a URL.
+impl HttpKeyStore {
+    /// Creates a new `HttpKeyStore` from a URL.
     ///
     /// Uses a default HTTP client with a 30-second timeout. To customize the client,
     /// use [`new_with_client`](Self::new_with_client).
@@ -80,18 +77,17 @@ impl RemoteKeyStore {
         Ok(Self {
             url: url.into(),
             client,
-            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         })
     }
 
-    /// Creates a new `RemoteKeyStore` with a custom HTTP client.
+    /// Creates a new `HttpKeyStore` with a custom HTTP client.
     ///
     /// Use this to configure custom timeouts, headers, proxies, TLS settings, etc.
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// use jwk_simple::RemoteKeyStore;
+    /// use jwk_simple::HttpKeyStore;
     /// use std::time::Duration;
     ///
     /// let client = reqwest::Client::builder()
@@ -99,7 +95,7 @@ impl RemoteKeyStore {
     ///     .build()
     ///     .unwrap();
     ///
-    /// let store = RemoteKeyStore::new_with_client(
+    /// let store = HttpKeyStore::new_with_client(
     ///     "https://example.com/.well-known/jwks.json",
     ///     client,
     /// );
@@ -108,15 +104,7 @@ impl RemoteKeyStore {
         Self {
             url: url.into(),
             client,
-            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         }
-    }
-
-    /// Sets the maximum allowed JWKS response size in bytes.
-    #[must_use]
-    pub fn with_max_response_bytes(mut self, max_response_bytes: usize) -> Self {
-        self.max_response_bytes = max_response_bytes;
-        self
     }
 
     /// Fetches the JWKS from the remote endpoint.
@@ -130,23 +118,11 @@ impl RemoteKeyStore {
 
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await? {
-            let next_len = bytes
-                .len()
-                .checked_add(chunk.len())
-                .unwrap_or(usize::MAX);
-
-            if next_len > self.max_response_bytes {
-                return Err(crate::error::Error::PayloadTooLarge {
-                    max_bytes: self.max_response_bytes,
-                    actual_bytes: next_len,
-                });
-            }
-
             bytes.extend_from_slice(&chunk);
         }
 
         let json = std::str::from_utf8(&bytes).map_err(|e| {
-            crate::error::Error::Parse(crate::error::ParseError::Json(format!(
+            Error::Parse(ParseError::Json(format!(
                 "invalid UTF-8 response body: {}",
                 e
             )))
@@ -158,7 +134,7 @@ impl RemoteKeyStore {
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl KeyStore for RemoteKeyStore {
+impl KeyStore for HttpKeyStore {
     async fn get_keyset(&self) -> Result<KeySet> {
         self.fetch().await
     }
@@ -189,7 +165,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remote_keystore_fetch_success() {
+    async fn test_http_keystore_fetch_success() {
         let body = r#"{"keys":[{"kty":"oct","kid":"k1","k":"AQAB"}]}"#;
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
@@ -198,14 +174,14 @@ mod tests {
         );
         let url = spawn_single_response_server(response).await;
 
-        let store = RemoteKeyStore::new(url).unwrap();
+        let store = HttpKeyStore::new(url).unwrap();
         let keyset = store.get_keyset().await.unwrap();
         assert_eq!(keyset.len(), 1);
         assert!(keyset.find_by_kid("k1").is_some());
     }
 
     #[tokio::test]
-    async fn test_remote_keystore_non_2xx_propagates_error() {
+    async fn test_http_keystore_non_2xx_propagates_error() {
         let body = "not found";
         let response = format!(
             "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
@@ -214,10 +190,10 @@ mod tests {
         );
         let url = spawn_single_response_server(response).await;
 
-        let store = RemoteKeyStore::new(url).unwrap();
+        let store = HttpKeyStore::new(url).unwrap();
         let err = store.get_keyset().await.unwrap_err();
         match err {
-            crate::error::Error::Http(e) => {
+            Error::Http(e) => {
                 assert_eq!(e.status(), Some(StatusCode::NOT_FOUND));
             }
             other => panic!("expected HTTP status error, got: {}", other),
@@ -225,7 +201,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remote_keystore_invalid_json_error() {
+    async fn test_http_keystore_invalid_json_error() {
         let body = "not json";
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
@@ -234,24 +210,21 @@ mod tests {
         );
         let url = spawn_single_response_server(response).await;
 
-        let store = RemoteKeyStore::new(url).unwrap();
+        let store = HttpKeyStore::new(url).unwrap();
         let err = store.get_keyset().await.unwrap_err();
-        assert!(matches!(
-            err,
-            crate::error::Error::Parse(crate::error::ParseError::Json(_))
-        ));
+        assert!(matches!(err, Error::Parse(ParseError::Json(_))));
     }
 
     #[tokio::test]
-    async fn test_remote_keystore_network_failure() {
+    async fn test_http_keystore_network_failure() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);
 
-        let store = RemoteKeyStore::new(format!("http://{}", addr)).unwrap();
+        let store = HttpKeyStore::new(format!("http://{}", addr)).unwrap();
         let err = store.get_keyset().await.unwrap_err();
         match err {
-            crate::error::Error::Http(e) => {
+            Error::Http(e) => {
                 assert!(e.is_connect(), "expected connection error, got: {e}");
             }
             other => panic!("expected transport error, got: {}", other),
@@ -259,7 +232,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remote_keystore_timeout() {
+    async fn test_http_keystore_timeout() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -282,29 +255,13 @@ mod tests {
             .timeout(Duration::from_millis(50))
             .build()
             .unwrap();
-        let store = RemoteKeyStore::new_with_client(format!("http://{}", addr), client);
+        let store = HttpKeyStore::new_with_client(format!("http://{}", addr), client);
         let err = store.get_keyset().await.unwrap_err();
         match err {
-            crate::error::Error::Http(e) => {
+            Error::Http(e) => {
                 assert!(e.is_timeout(), "expected timeout error, got: {e}");
             }
             other => panic!("expected timeout transport error, got: {}", other),
         }
-    }
-
-    #[tokio::test]
-    async fn test_remote_keystore_payload_too_large() {
-        let large_key = "A".repeat(DEFAULT_MAX_RESPONSE_BYTES + 1024);
-        let body = format!(r#"{{"keys":[{{"kty":"oct","k":"{}"}}]}}"#, large_key);
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-            body.len(),
-            body
-        );
-        let url = spawn_single_response_server(response).await;
-
-        let store = RemoteKeyStore::new(url).unwrap();
-        let err = store.get_keyset().await.unwrap_err();
-        assert!(matches!(err, crate::error::Error::PayloadTooLarge { .. }));
     }
 }

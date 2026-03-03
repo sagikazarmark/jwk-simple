@@ -1,6 +1,6 @@
 //! Benchmarks for jwk-simple operations.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 use jwk_simple::{Algorithm, KeySet, KeyType};
 
 /// Sample JWKS with multiple keys for benchmarking.
