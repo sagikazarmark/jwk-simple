@@ -663,6 +663,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_skips_unknown_kty() {
+        let json = r#"{
+            "keys": [
+                {"kty": "UNKNOWN", "kid": "unknown"},
+                {"kty": "oct", "k": "AQAB", "kid": "good"}
+            ]
+        }"#;
+
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        assert_eq!(jwks.len(), 1);
+        assert!(jwks.find_by_kid("unknown").is_none());
+        assert!(jwks.find_by_kid("good").is_some());
+    }
+
+    #[test]
     fn test_find_by_kid() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
