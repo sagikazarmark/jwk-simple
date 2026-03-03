@@ -47,6 +47,9 @@ fn main() {
 }
 
 #[cfg(target_arch = "wasm32")]
+fn main() {}
+
+#[cfg(target_arch = "wasm32")]
 use base64ct::{Base64UrlUnpadded, Encoding};
 #[cfg(target_arch = "wasm32")]
 use js_sys::Uint8Array;

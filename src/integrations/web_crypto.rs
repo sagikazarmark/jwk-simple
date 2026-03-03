@@ -129,7 +129,7 @@ pub fn get_subtle_crypto() -> Result<SubtleCrypto> {
 ///
 /// let key: Key = serde_json::from_str(r#"{"kty":"RSA","n":"...","e":"AQAB"}"#)?;
 /// let jwk: web_sys::JsonWebKey = (&key).try_into()?;
-/// assert_eq!(jwk.kty(), "RSA");
+/// assert_eq!(jwk.get_kty(), "RSA");
 /// ```
 impl TryFrom<&Key> for web_sys::JsonWebKey {
     type Error = Error;
@@ -1202,28 +1202,28 @@ mod tests {
     fn test_rsa_key_to_json_web_key() {
         let key: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
         let jwk = web_sys::JsonWebKey::try_from(&key).unwrap();
-        assert_eq!(jwk.kty(), "RSA");
-        assert!(jwk.n().is_some());
-        assert!(jwk.e().is_some());
-        assert!(jwk.d().is_none()); // Public key only
+        assert_eq!(jwk.get_kty(), "RSA");
+        assert!(jwk.get_n().is_some());
+        assert!(jwk.get_e().is_some());
+        assert!(jwk.get_d().is_none()); // Public key only
     }
 
     #[test]
     fn test_ec_p256_key_to_json_web_key() {
         let key: Key = serde_json::from_str(RFC_EC_P256_PUBLIC_KEY).unwrap();
         let jwk = web_sys::JsonWebKey::try_from(&key).unwrap();
-        assert_eq!(jwk.kty(), "EC");
-        assert_eq!(jwk.crv(), Some("P-256".to_string()));
-        assert!(jwk.x().is_some());
-        assert!(jwk.y().is_some());
+        assert_eq!(jwk.get_kty(), "EC");
+        assert_eq!(jwk.get_crv(), Some("P-256".to_string()));
+        assert!(jwk.get_x().is_some());
+        assert!(jwk.get_y().is_some());
     }
 
     #[test]
     fn test_symmetric_key_to_json_web_key() {
         let key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
         let jwk = web_sys::JsonWebKey::try_from(&key).unwrap();
-        assert_eq!(jwk.kty(), "oct");
-        assert!(jwk.k().is_some());
+        assert_eq!(jwk.get_kty(), "oct");
+        assert!(jwk.get_k().is_some());
     }
 
     #[test]

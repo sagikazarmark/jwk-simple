@@ -318,10 +318,11 @@ impl KeySet {
     /// let rs256_keys: Vec<_> = jwks.find_by_alg(&Algorithm::Rs256).collect();
     /// assert_eq!(rs256_keys.len(), 1);
     /// ```
-    pub fn find_by_alg<'a>(&'a self, alg: &'a Algorithm) -> impl Iterator<Item = &'a Key> {
+    pub fn find_by_alg<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
+        let alg = alg.clone();
         self.keys
             .iter()
-            .filter(move |k| k.alg.as_ref() == Some(alg))
+            .filter(move |k| k.alg.as_ref() == Some(&alg))
     }
 
     /// Finds all keys with the specified key type.
@@ -433,10 +434,11 @@ impl KeySet {
     /// assert_eq!(jwks.find_by_alg(&Algorithm::Rs256).count(), 0);
     /// assert_eq!(jwks.find_compatible(&Algorithm::Rs256).count(), 1);
     /// ```
-    pub fn find_compatible<'a>(&'a self, alg: &'a Algorithm) -> impl Iterator<Item = &'a Key> {
+    pub fn find_compatible<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
+        let alg = alg.clone();
         self.keys.iter().filter(move |k| match &k.alg {
-            Some(key_alg) => key_alg == alg,
-            None => k.is_algorithm_compatible(alg),
+            Some(key_alg) => key_alg == &alg,
+            None => k.is_algorithm_compatible(&alg),
         })
     }
 
@@ -458,7 +460,7 @@ impl KeySet {
     /// // find_first_compatible finds them
     /// assert!(jwks.find_first_compatible(&Algorithm::Rs256).is_some());
     /// ```
-    pub fn find_first_compatible<'a>(&'a self, alg: &'a Algorithm) -> Option<&'a Key> {
+    pub fn find_first_compatible<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
         self.find_compatible(alg).next()
     }
 
@@ -490,7 +492,7 @@ impl KeySet {
     /// let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
-    pub fn find_compatible_signing_key<'a>(&'a self, alg: &'a Algorithm) -> Option<&'a Key> {
+    pub fn find_compatible_signing_key<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
         self.find_compatible(alg).find(|k| is_signing_key(k))
     }
 
