@@ -30,7 +30,8 @@ impl OkpCurve {
     pub fn public_key_size(&self) -> usize {
         match self {
             OkpCurve::Ed25519 | OkpCurve::X25519 => 32,
-            OkpCurve::Ed448 | OkpCurve::X448 => 57,
+            OkpCurve::Ed448 => 57,
+            OkpCurve::X448 => 56,
         }
     }
 
@@ -38,7 +39,8 @@ impl OkpCurve {
     pub fn private_key_size(&self) -> usize {
         match self {
             OkpCurve::Ed25519 | OkpCurve::X25519 => 32,
-            OkpCurve::Ed448 | OkpCurve::X448 => 57,
+            OkpCurve::Ed448 => 57,
+            OkpCurve::X448 => 56,
         }
     }
 
@@ -245,7 +247,8 @@ mod tests {
         assert_eq!(OkpCurve::Ed25519.private_key_size(), 32);
         assert_eq!(OkpCurve::Ed448.public_key_size(), 57);
         assert_eq!(OkpCurve::X25519.public_key_size(), 32);
-        assert_eq!(OkpCurve::X448.public_key_size(), 57);
+        assert_eq!(OkpCurve::X448.public_key_size(), 56);
+        assert_eq!(OkpCurve::X448.private_key_size(), 56);
     }
 
     #[test]
@@ -339,5 +342,21 @@ mod tests {
         assert_eq!(OkpCurve::Ed25519.extended_private_key_size(), 64);
         assert!(OkpCurve::Ed25519.is_valid_private_key_size(32));
         assert!(OkpCurve::Ed25519.is_valid_private_key_size(64));
+    }
+
+    #[test]
+    fn test_x448_sizes_and_validation() {
+        assert_eq!(OkpCurve::X448.public_key_size(), 56);
+        assert_eq!(OkpCurve::X448.private_key_size(), 56);
+        assert_eq!(OkpCurve::X448.extended_private_key_size(), 112);
+        assert!(OkpCurve::X448.is_valid_private_key_size(56));
+        assert!(OkpCurve::X448.is_valid_private_key_size(112));
+
+        let params = OkpParams::new_private(
+            OkpCurve::X448,
+            Base64UrlBytes::new(vec![0; 56]),
+            Base64UrlBytes::new(vec![1; 56]),
+        );
+        assert!(params.validate().is_ok());
     }
 }

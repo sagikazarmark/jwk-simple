@@ -167,6 +167,7 @@ impl KeyStore for RemoteKeyStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reqwest::StatusCode;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -214,7 +215,13 @@ mod tests {
         let url = spawn_single_response_server(response).await;
 
         let store = RemoteKeyStore::new(url).unwrap();
-        assert!(store.get_keyset().await.is_err());
+        let err = store.get_keyset().await.unwrap_err();
+        match err {
+            crate::error::Error::Http(e) => {
+                assert_eq!(e.status(), Some(StatusCode::NOT_FOUND));
+            }
+            other => panic!("expected HTTP status error, got: {}", other),
+        }
     }
 
     #[tokio::test]
@@ -228,7 +235,11 @@ mod tests {
         let url = spawn_single_response_server(response).await;
 
         let store = RemoteKeyStore::new(url).unwrap();
-        assert!(store.get_keyset().await.is_err());
+        let err = store.get_keyset().await.unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::Error::Parse(crate::error::ParseError::Json(_))
+        ));
     }
 
     #[tokio::test]
@@ -238,7 +249,13 @@ mod tests {
         drop(listener);
 
         let store = RemoteKeyStore::new(format!("http://{}", addr)).unwrap();
-        assert!(store.get_keyset().await.is_err());
+        let err = store.get_keyset().await.unwrap_err();
+        match err {
+            crate::error::Error::Http(e) => {
+                assert!(e.is_connect(), "expected connection error, got: {e}");
+            }
+            other => panic!("expected transport error, got: {}", other),
+        }
     }
 
     #[tokio::test]
@@ -266,7 +283,13 @@ mod tests {
             .build()
             .unwrap();
         let store = RemoteKeyStore::new_with_client(format!("http://{}", addr), client);
-        assert!(store.get_keyset().await.is_err());
+        let err = store.get_keyset().await.unwrap_err();
+        match err {
+            crate::error::Error::Http(e) => {
+                assert!(e.is_timeout(), "expected timeout error, got: {e}");
+            }
+            other => panic!("expected timeout transport error, got: {}", other),
+        }
     }
 
     #[tokio::test]

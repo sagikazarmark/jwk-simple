@@ -23,6 +23,22 @@ const RFC_RSA_PUBLIC_KEY: &str = r#"{
     "e": "AQAB"
 }"#;
 
+// Test RSA private key from RFC 7517 Appendix A.2
+const RFC_RSA_PRIVATE_KEY: &str = r#"{
+    "kty": "RSA",
+    "kid": "rsa-test-key",
+    "use": "sig",
+    "alg": "RS256",
+    "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+    "e": "AQAB",
+    "d": "X4cTteJY_gn4FYPsXB8rdXix5vwsg1FLN5E3EaG6RJoVH-HLLKD9M7dx5oo7GURknchnrRweUkC7hT5fJLM0WbFAKNLWY2vv7B6NqXSzUvxT0_YSfqijwp3RTzlBaCxWp4doFk5N2o8Gy_nHNKroADIkJ46pRUohsXywbReAdYaMwFs9tv8d_cPVY3i07a3t8MN6TNwm0dSawm9v47UiCl3Sk5ZiG7xojPLu4sbg1U2jx4IBTNBznbJSzFHK66jT8bgkuqsk0GjskDJk19Z4qwjwbsnn4j2WBii3RL-Us2lGVkY8fkFzme1z0HbIkfz0Y6mqnOYtqc0X4jfcKoAC8Q",
+    "p": "83i-7IvMGXoMXCskv73TKr8637FiO7Z27zv8oj6pbWUQyLPQBQxtPVnwD20R-60eTDmD2ujnMt5PoqMrm8RfmNhVWDtjjMmCMjOpSXicFHj7XOuVIYQyqVWlWEh6dN36GVZYk93N8Bc9vY41xy8B9RzzOGVQzXvNEvn7O0nVbfs",
+    "q": "3dfOR9cuYq-0S-mkFLzgItgMEfFzB2q3hWehMuG0oCuqnb3vobLyumqjb37qSjnPzmVDG4RLGPi_7MqKgTNX-aDZNb-z7D32dNBDU_-VjCGUv4NWzG19eGn9j7C39GvhpQhUTyF1YZdA-KV7TnRCMDYlH1tIJHrJXiTKpcPXwl0",
+    "dp": "G4sPXkc6Ya9y8oJW9_ILj4xuppu0lzi_H7VTkS8xj5SdX3coE0oimYwxIi2emTAue0UOa5dpgFGyBJ4c8tQ2VF402XRugKDTP8akYhFo5tAA77Qe_NmtuYZc3C3m3I24G2GvR5sSDxUyAN2zq8Lfn9EUms6rY3Ob8YeiKkTiBj0",
+    "dq": "s9lAH9fggBsoFR8Oac2R_E2gw282rT2kGOAhvIllETE1efrA6huUUvMfBcMpn8lqeW6hXjmpmr5BP_c3WLt8oCYwcNEo7Rt2I6hxT8qx6QIBWMB0B0lXAKKC1Fbc5UVIr_sSgK5rqsJhLwPCvCQ0FGhMg-L-TQcA2E4lmLqlLEk",
+    "qi": "GyM_p6JrXySiz1toFgKbWV-JdI3jQ4ypu9rbMWx3rQJBfmt0FoYzgUIZEVFEcOqwemRN81zoDAaa-Bk0KWNGDjJHZDdDmFhW3AN7lI-puxk_mHZGJ11rxyR8O55XLSe3SPmRfKwZI6yU24ZxvQKFYItdldUKGzO6Ia6zTKhAVRU"
+}"#;
+
 // Test EC P-256 public key
 const EC_P256_PUBLIC_KEY: &str = r#"{
     "kty": "EC",
@@ -31,6 +47,18 @@ const EC_P256_PUBLIC_KEY: &str = r#"{
     "crv": "P-256",
     "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4",
     "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"
+}"#;
+
+// Test EC P-256 private key from RFC 7517 Appendix A.2
+const EC_P256_PRIVATE_KEY: &str = r#"{
+    "kty": "EC",
+    "kid": "ec-test-key",
+    "use": "sig",
+    "alg": "ES256",
+    "crv": "P-256",
+    "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4",
+    "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM",
+    "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"
 }"#;
 
 // Test EC P-384 public key
@@ -230,36 +258,44 @@ async fn test_import_verify_key_rejects_usage_algorithm_mismatch() {
 #[wasm_bindgen_test]
 async fn test_rsa_verify_behavior_valid_and_tampered() {
     let subtle = web_crypto::get_subtle_crypto().unwrap();
-    let key: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
-    let verify_key = web_crypto::import_verify_key(&key).await.unwrap();
+    let public_key: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
+    let private_key: Key = serde_json::from_str(RFC_RSA_PRIVATE_KEY).unwrap();
+    let verify_key = web_crypto::import_verify_key(&public_key).await.unwrap();
+    let sign_key = web_crypto::import_sign_key(&private_key).await.unwrap();
 
     let data = to_uint8_array(b"web-crypto-rsa-check");
+    let sign_alg = rsassa_verify_alg();
     let verify_alg = rsassa_verify_alg();
 
-    // A known-bad signature must fail verification (behavior check)
-    let bad_sig = to_uint8_array(&[0u8; 256]);
-    let verify_bad = subtle
+    let sign_promise = subtle
+        .sign_with_object_and_buffer_source(&sign_alg, &sign_key, &data)
+        .unwrap();
+    let signature = wasm_bindgen_futures::JsFuture::from(sign_promise)
+        .await
+        .unwrap();
+
+    let verify_ok = subtle
         .verify_with_object_and_buffer_source_and_buffer_source(
             &verify_alg,
             &verify_key,
-            &bad_sig,
+            &signature,
             &data,
         )
         .unwrap();
-    let ok = wasm_bindgen_futures::JsFuture::from(verify_bad)
+    let ok = wasm_bindgen_futures::JsFuture::from(verify_ok)
         .await
         .unwrap()
         .as_bool()
-        .unwrap_or(true);
-    assert!(!ok);
+        .unwrap_or(false);
+    assert!(ok);
 
-    // Tampered payload with same bad signature also fails (negative path)
+    // Tampered payload with same signature fails.
     let tampered = to_uint8_array(b"web-crypto-rsa-check!");
     let verify_tampered = subtle
         .verify_with_object_and_buffer_source_and_buffer_source(
             &verify_alg,
             &verify_key,
-            &bad_sig,
+            &signature,
             &tampered,
         )
         .unwrap();
@@ -267,7 +303,7 @@ async fn test_rsa_verify_behavior_valid_and_tampered() {
         .await
         .unwrap()
         .as_bool()
-        .unwrap_or(true);
+        .unwrap_or(false);
     assert!(!tampered_ok);
 }
 
@@ -276,23 +312,60 @@ async fn test_ec_verify_behavior_rejects_invalid_signature() {
     let subtle = web_crypto::get_subtle_crypto().unwrap();
 
     let p256: Key = serde_json::from_str(EC_P256_PUBLIC_KEY).unwrap();
+    let p256_private: Key = serde_json::from_str(EC_P256_PRIVATE_KEY).unwrap();
+    let p256_sign_key = web_crypto::import_sign_key_for_alg(&p256_private, &jwk_simple::Algorithm::Es256)
+        .await
+        .unwrap();
     let p256_key = web_crypto::import_verify_key_for_alg(&p256, &jwk_simple::Algorithm::Es256)
         .await
         .unwrap();
     let p256_alg = ecdsa_verify_alg("SHA-256");
     let data = to_uint8_array(b"ec-p256-verify");
+
+    let p256_sign = subtle
+        .sign_with_object_and_buffer_source(&p256_alg, &p256_sign_key, &data)
+        .unwrap();
+    let p256_sig = wasm_bindgen_futures::JsFuture::from(p256_sign)
+        .await
+        .unwrap();
+    let p256_verify_ok = subtle
+        .verify_with_object_and_buffer_source_and_buffer_source(&p256_alg, &p256_key, &p256_sig, &data)
+        .unwrap();
+    let p256_ok = wasm_bindgen_futures::JsFuture::from(p256_verify_ok)
+        .await
+        .unwrap()
+        .as_bool()
+        .unwrap_or(false);
+    assert!(p256_ok);
+
+    let p256_tampered_data = to_uint8_array(b"ec-p256-verify!");
+    let p256_tampered = subtle
+        .verify_with_object_and_buffer_source_and_buffer_source(
+            &p256_alg,
+            &p256_key,
+            &p256_sig,
+            &p256_tampered_data,
+        )
+        .unwrap();
+    let p256_tampered_ok = wasm_bindgen_futures::JsFuture::from(p256_tampered)
+        .await
+        .unwrap()
+        .as_bool()
+        .unwrap_or(false);
+    assert!(!p256_tampered_ok);
+
     let bad_sig = to_uint8_array(&[0u8; 64]);
     let p256_verify = subtle
         .verify_with_object_and_buffer_source_and_buffer_source(
             &p256_alg, &p256_key, &bad_sig, &data,
         )
         .unwrap();
-    let p256_ok = wasm_bindgen_futures::JsFuture::from(p256_verify)
+    let p256_bad_ok = wasm_bindgen_futures::JsFuture::from(p256_verify)
         .await
         .unwrap()
         .as_bool()
         .unwrap_or(true);
-    assert!(!p256_ok);
+    assert!(!p256_bad_ok);
 
     let p384: Key = serde_json::from_str(EC_P384_PUBLIC_KEY).unwrap();
     let p384_key = web_crypto::import_verify_key_for_alg(&p384, &jwk_simple::Algorithm::Es384)

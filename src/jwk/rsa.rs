@@ -332,19 +332,15 @@ impl RsaParams {
             }));
         }
 
-        if self.e.len() > std::mem::size_of::<u64>() {
-            return Err(Error::Validation(ValidationError::InvalidParameter {
-                name: "e",
-                reason: "RSA public exponent is too large to validate".to_string(),
-            }));
-        }
+        let e_bytes = self.e.as_bytes();
+        let is_odd = (e_bytes[e_bytes.len() - 1] & 1) == 1;
+        let ge_three = if e_bytes.len() > 1 {
+            true
+        } else {
+            e_bytes[0] >= 3
+        };
 
-        let mut e_value: u64 = 0;
-        for &b in self.e.as_bytes() {
-            e_value = (e_value << 8) | u64::from(b);
-        }
-
-        if e_value < 3 || e_value.is_multiple_of(2) {
+        if !ge_three || !is_odd {
             return Err(Error::Validation(ValidationError::InvalidParameter {
                 name: "e",
                 reason: "RSA public exponent must be odd and >= 3".to_string(),
