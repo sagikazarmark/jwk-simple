@@ -1070,12 +1070,7 @@ impl Key {
     }
 
     fn validate_operation_metadata_for_all(&self, operations: &[KeyOperation]) -> Result<()> {
-        if operations.is_empty() {
-            return Err(Error::Validation(ValidationError::InvalidParameter {
-                name: "operations",
-                reason: "at least one requested operation is required".to_string(),
-            }));
-        }
+        debug_assert!(!operations.is_empty());
 
         if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops)
             && !is_use_consistent_with_ops(key_use, key_ops)
@@ -1091,8 +1086,8 @@ impl Key {
                 if !seen.insert(op) {
                     return Err(Error::Validation(ValidationError::InconsistentParameters(
                         format!(
-                            "RFC 7517: key_ops array contains duplicate value '{:?}'",
-                            op
+                            "RFC 7517: key_ops array contains duplicate value '{}'",
+                            op.as_str()
                         ),
                     )));
                 }
@@ -1116,6 +1111,8 @@ impl Key {
         }
 
         if let Some(key_ops) = &self.key_ops {
+            // `key_ops` is an explicit allow-list. Unknown operations are
+            // accepted only when explicitly listed in the key metadata.
             let key_ops_allow_requested = operations
                 .iter()
                 .all(|operation| key_ops.contains(operation));
