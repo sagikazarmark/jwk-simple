@@ -211,20 +211,6 @@ impl KeySet {
         Self { keys: Vec::new() }
     }
 
-    /// Creates a KeySet from a vector of keys.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use jwk_simple::{KeySet, Key};
-    ///
-    /// let keys = vec![]; // Would contain Key instances
-    /// let jwks = KeySet::from_keys(keys);
-    /// ```
-    pub fn from_keys(keys: Vec<Key>) -> Self {
-        Self { keys }
-    }
-
     /// Parses a JWKS JSON document and returns parse diagnostics for skipped keys.
     ///
     /// This behaves like normal [`serde_json`] parsing for top-level structure
@@ -568,6 +554,7 @@ impl KeySet {
         for key in &self.keys {
             key.validate()?;
         }
+
         Ok(())
     }
 
@@ -599,6 +586,12 @@ impl<'a> IntoIterator for &'a KeySet {
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys.iter()
+    }
+}
+
+impl From<Vec<Key>> for KeySet {
+    fn from(keys: Vec<Key>) -> Self {
+        Self { keys }
     }
 }
 
