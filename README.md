@@ -260,7 +260,7 @@ This crate prioritizes security:
 - **Debug redaction**: Debug output redacts sensitive key material
 - **Panic-free APIs**: All fallible operations return `Result` types — standard trait implementations like `Index` follow normal Rust semantics and may panic on invalid input (e.g., out-of-bounds indexing)
 - **Input validation**: Key parameters are validated for correct sizes
-- **Trust boundary clarity**: `Key::validate` / `Key::validate_structure` perform structural and metadata consistency checks only; PKIX trust validation (chain path, trust anchors, validity, EKU/KU, revocation) must be provided by your application, e.g. via `Key::validate_with_certificate_validator`
+- **Trust boundary clarity**: `Key::validate_structure` performs structural and metadata consistency checks only; PKIX trust validation (chain path, trust anchors, validity, EKU/KU, revocation) must be provided by your application
 
 When enabling the optional `jwt-simple` integration, note that some `jwt-simple`
 dependency chains may pull in `rsa` versions affected by

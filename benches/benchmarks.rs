@@ -169,7 +169,7 @@ fn bench_validation(c: &mut Criterion) {
     group.bench_function("validate_single_key", |b| {
         let key = jwks.find_by_kid("rsa-key-1").unwrap();
         b.iter(|| {
-            let result = key.validate();
+            let result = key.validate_structure();
             black_box(result)
         })
     });

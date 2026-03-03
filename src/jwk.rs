@@ -724,15 +724,6 @@ pub struct Key {
     pub x5u: Option<String>,
 }
 
-/// External certificate-chain validator used for trust decisions.
-///
-/// This is intentionally separate from [`Key::validate_structure`] because
-/// PKIX path validation requires caller-specific policy inputs.
-pub trait CertificateValidator {
-    /// Validates the provided `x5c` DER certificate chain for trust.
-    fn validate_x5c_chain(&self, key: &Key, der_chain: &[Vec<u8>]) -> Result<()>;
-}
-
 impl Key {
     /// Creates a new `Key` from key-type-specific parameters.
     ///
@@ -855,52 +846,18 @@ impl Key {
 
     /// Validates the JWK structure and metadata consistency.
     ///
-    /// This method does **not** perform PKIX trust/path validation for `x5c`
-    /// certificate chains.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The key parameters are invalid
-    /// - The algorithm doesn't match the key type
-    /// - Both `use` and `key_ops` are specified with inconsistent values
-    ///   (RFC 7517 Section 4.3)
-    pub fn validate(&self) -> Result<()> {
-        self.validate_structure()
-    }
-
-    /// Validates the JWK structure and metadata consistency.
-    ///
     /// This includes key parameter validation, JOSE metadata consistency, and
     /// X.509 field format checks (`x5u`, `x5c`, `x5t`, `x5t#S256`) including
     /// key-material matching against `x5c[0]`.
     ///
     /// This method does **not** perform PKIX trust/path validation for `x5c`
     /// chains (trust anchors, validity period, key usage/EKU, revocation, etc.).
-    /// Use [`Key::validate_with_certificate_validator`] to run trust validation
-    /// with an application-supplied certificate policy.
+    /// PKIX trust validation is application-defined and out of scope for this crate.
     pub fn validate_structure(&self) -> Result<()> {
-        self.validate_structure_internal().map(|_| ())
+        self.validate_structure_internal()
     }
 
-    /// Validates JWK structure and then applies an external certificate trust validator.
-    ///
-    /// This runs [`Key::validate_structure`] first. If `x5c` is present, the
-    /// decoded DER chain is then passed to `validator`.
-    pub fn validate_with_certificate_validator<V: CertificateValidator>(
-        &self,
-        validator: &V,
-    ) -> Result<()> {
-        let x5c_der_chain = self.validate_structure_internal()?;
-
-        if let Some(ref der_chain) = x5c_der_chain {
-            validator.validate_x5c_chain(self, der_chain)?;
-        }
-
-        Ok(())
-    }
-
-    fn validate_structure_internal(&self) -> Result<Option<Vec<Vec<u8>>>> {
+    fn validate_structure_internal(&self) -> Result<()> {
         // RFC 7517 Section 4.3: "The 'use' and 'key_ops' JWK members SHOULD NOT
         // be used together; however, if both are used, the information they convey
         // MUST be consistent."
@@ -1063,26 +1020,6 @@ impl Key {
         }
 
         Ok(Some(der_chain))
-    }
-
-    /// Validates this key for a specific algorithm before key usage.
-    ///
-    /// This is the canonical algorithm-aware validation gate and should be
-    /// used by integrations before converting/importing key material.
-    ///
-    /// This method intentionally validates algorithm suitability and key
-    /// material only. It does not run full JWK metadata validation from
-    /// [`Key::validate`] (such as `use`/`key_ops` consistency or x509-related
-    /// checks).
-    ///
-    /// Validation order:
-    /// 1. Structural/key-material validation (`params.validate()`)
-    /// 2. Algorithm/key-type compatibility (`validate_algorithm_key_type_match`)
-    /// 3. Algorithm-specific key strength checks (`validate_algorithm_key_strength`)
-    pub fn validate_for_algorithm(&self, alg: &Algorithm) -> Result<()> {
-        self.params.validate()?;
-        self.validate_algorithm_key_type_match(alg)?;
-        self.validate_algorithm_key_strength(alg)
     }
 
     /// Returns `true` if this key's type (and curve, where applicable) is
@@ -1969,26 +1906,6 @@ fn is_valid_base64url(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
-
-    // Minimal self-signed EC P-256 certificate in base64 DER.
-    const TEST_CERT: &str = "MIIBczCCARmgAwIBAgIUEZ4zOagIq49DPWyEEFfn0Q325qkwCgYIKoZIzj0EAwIwDzENMAsGA1UEAwwEdGVzdDAeFw0yNjAxMTkxODI1MTZaFw0yNzAxMTkxODI1MTZaMA8xDTALBgNVBAMMBHRlc3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAR5eBAaA0NLl5d8mCtJNGHbnDUOdh27yD/NiFPij/tOYG4LJzblnvxO/pQPtuVbRV5pLUCK6fNGMhqIrRrGst8+o1MwUTAdBgNVHQ4EFgQUCifkjvMQSt/gmQ9h/4O8g8nqlF0wHwYDVR0jBBgwFoAUCifkjvMQSt/gmQ9h/4O8g8nqlF0wDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiBW1y43qzwzG9MRIK5K6L9gPX4LBfjIjTbTyBYTctl1zQIhAIcqe6Be/xtw9bB+GEgA6LlSamnYJL56zNdPIciQDuMM";
-
-    struct RecordingValidator {
-        calls: Cell<usize>,
-        fail: bool,
-    }
-
-    impl CertificateValidator for RecordingValidator {
-        fn validate_x5c_chain(&self, _key: &Key, _der_chain: &[Vec<u8>]) -> Result<()> {
-            self.calls.set(self.calls.get() + 1);
-            if self.fail {
-                return Err(Error::Other("untrusted certificate chain".to_string()));
-            }
-
-            Ok(())
-        }
-    }
 
     #[test]
     fn test_parse_rsa_public_key() {
@@ -2291,7 +2208,7 @@ mod tests {
         )));
 
         // Baseline JWK validation (metadata + structure) still passes when `alg` is absent.
-        assert!(weak_hmac_key.validate().is_ok());
+        assert!(weak_hmac_key.validate_structure().is_ok());
 
         // Algorithm-aware validation enforces HS256 minimum key strength.
         assert!(

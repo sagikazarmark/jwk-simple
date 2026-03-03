@@ -520,7 +520,7 @@ impl KeySet {
     /// Returns the first validation error encountered, if any.
     pub fn validate(&self) -> Result<()> {
         for key in &self.keys {
-            key.validate()?;
+            key.validate_structure()?;
         }
 
         Ok(())
