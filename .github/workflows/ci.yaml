@@ -70,7 +70,7 @@ jobs:
       - name: Test
         run: |
           if [ -n "${{ matrix.target }}" ]; then
-            cargo check --target "${{ matrix.target }}" --features "${{ matrix.features }}"
+            cargo test --target "${{ matrix.target }}" --features "${{ matrix.features }}"
           else
             cargo test --features "${{ matrix.features }}"
           fi
