@@ -3,7 +3,7 @@
 use jwt_simple::prelude::*;
 
 use crate::error::{Error, Result};
-use crate::jwk::{Algorithm, EcCurve, Key, KeyParams, OkpCurve, RsaParams};
+use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams, OkpCurve, RsaParams};
 
 // ============================================================================
 // RSA Key Conversions
@@ -201,7 +201,7 @@ macro_rules! impl_rsa_public_key_conversion {
                     }
                 };
 
-                jwk.validate_for_algorithm(&$alg)?;
+                jwk.validate_for_operation(&$alg, KeyOperation::Verify)?;
 
                 let der = build_rsa_public_key_der(params);
                 <$key_type>::from_der(&der).map_err(|e| Error::Other(e.to_string()))
@@ -239,7 +239,7 @@ macro_rules! impl_rsa_key_pair_conversion {
                     return Err(Error::MissingPrivateKey);
                 }
 
-                jwk.validate_for_algorithm(&$alg)?;
+                jwk.validate_for_operation(&$alg, KeyOperation::Sign)?;
 
                 let der = build_rsa_private_key_der(params)?;
                 <$key_type>::from_der(&der).map_err(|e| Error::Other(e.to_string()))
@@ -299,7 +299,7 @@ macro_rules! impl_ec_public_key_conversion {
                     });
                 }
 
-                jwk.validate_for_algorithm(&$alg)?;
+                jwk.validate_for_operation(&$alg, KeyOperation::Verify)?;
 
                 let bytes = params.to_uncompressed_point();
                 <$key_type>::from_bytes(&bytes).map_err(|e| Error::Other(e.to_string()))
@@ -340,7 +340,7 @@ macro_rules! impl_ec_key_pair_conversion {
                     });
                 }
 
-                jwk.validate_for_algorithm(&$alg)?;
+                jwk.validate_for_operation(&$alg, KeyOperation::Sign)?;
 
                 let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
 
@@ -403,7 +403,7 @@ impl TryFrom<&Key> for Ed25519PublicKey {
             });
         }
 
-        jwk.validate_for_algorithm(&Algorithm::Ed25519)?;
+        jwk.validate_for_operation(&Algorithm::Ed25519, KeyOperation::Verify)?;
 
         Ed25519PublicKey::from_bytes(params.x.as_bytes()).map_err(|e| Error::Other(e.to_string()))
     }
@@ -438,7 +438,7 @@ impl TryFrom<&Key> for Ed25519KeyPair {
             });
         }
 
-        jwk.validate_for_algorithm(&Algorithm::Ed25519)?;
+        jwk.validate_for_operation(&Algorithm::Ed25519, KeyOperation::Sign)?;
 
         let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
 
@@ -473,7 +473,10 @@ impl TryFrom<&Key> for HS256Key {
             }
         };
 
-        jwk.validate_for_algorithm(&Algorithm::Hs256)?;
+        jwk.validate_for_operations(
+            &Algorithm::Hs256,
+            &[KeyOperation::Sign, KeyOperation::Verify],
+        )?;
 
         Ok(HS256Key::from_bytes(params.k.as_bytes()))
     }
@@ -501,7 +504,10 @@ impl TryFrom<&Key> for HS384Key {
             }
         };
 
-        jwk.validate_for_algorithm(&Algorithm::Hs384)?;
+        jwk.validate_for_operations(
+            &Algorithm::Hs384,
+            &[KeyOperation::Sign, KeyOperation::Verify],
+        )?;
 
         Ok(HS384Key::from_bytes(params.k.as_bytes()))
     }
@@ -529,7 +535,10 @@ impl TryFrom<&Key> for HS512Key {
             }
         };
 
-        jwk.validate_for_algorithm(&Algorithm::Hs512)?;
+        jwk.validate_for_operations(
+            &Algorithm::Hs512,
+            &[KeyOperation::Sign, KeyOperation::Verify],
+        )?;
 
         Ok(HS512Key::from_bytes(params.k.as_bytes()))
     }
@@ -766,6 +775,173 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(weak_rsa_json).unwrap();
         let result: Result<RS256PublicKey> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rs256_public_conversion_rejects_encryption_use() {
+        let json = r#"{
+            "kty": "RSA",
+            "use": "enc",
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<RS256PublicKey> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rs256_public_conversion_rejects_verify_missing_in_key_ops() {
+        let json = r#"{
+            "kty": "RSA",
+            "key_ops": ["encrypt"],
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<RS256PublicKey> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rs256_key_pair_conversion_rejects_encryption_use() {
+        let json = r#"{
+            "kty": "RSA",
+            "use": "enc",
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB",
+            "d": "X4cTteJY_gn4FYPsXB8rd5Qw9Y8Q8fN4EuM4fM9x2s8"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<RS256KeyPair> = (&jwk).try_into();
+        assert!(matches!(
+            result,
+            Err(Error::Validation(
+                crate::error::ValidationError::InconsistentParameters(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_ed25519_key_pair_conversion_rejects_verify_only_key_ops() {
+        let json = r#"{
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+            "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A",
+            "key_ops": ["verify"]
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<Ed25519KeyPair> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs256_conversion_rejects_sign_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["sign"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS256Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs256_conversion_rejects_verify_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["verify"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS256Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs256_conversion_accepts_sign_and_verify_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["sign", "verify"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS256Key> = (&jwk).try_into();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_hs256_conversion_rejects_encryption_use() {
+        let json = r#"{
+            "kty": "oct",
+            "use": "enc",
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS256Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs384_conversion_rejects_sign_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["sign"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS384Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs512_conversion_rejects_verify_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["verify"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS512Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs384_conversion_rejects_verify_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["verify"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS384Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs512_conversion_rejects_sign_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["sign"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS512Key> = (&jwk).try_into();
         assert!(result.is_err());
     }
 }
