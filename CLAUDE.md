@@ -72,7 +72,7 @@ Specific things to verify:
 
 ### API Consistency
 
-- New public types, methods, and trait implementations should follow the naming and ergonomics patterns of existing APIs (e.g., `Key`, `KeySet`, `RemoteKeyStore`).
+- New public types, methods, and trait implementations should follow the naming and ergonomics patterns of existing APIs (e.g., `Key`, `KeySet`, `jwks::KeyStore`, `HttpKeyStore`, `CachedKeyStore`).
 - Builder patterns should be consistent with existing builders.
 - Method names should follow Rust idioms: `From`/`Into` (and commonly `from_*`/`into_*`) are for infallible conversions; use `TryFrom`/`TryInto`, `try_*`, or `parse_*` for conversions that can fail.
 
