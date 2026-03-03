@@ -443,9 +443,7 @@ impl KeySet {
         let alg = alg.clone();
         let is_unknown_alg = alg.is_unknown();
         self.keys.iter().filter(move |k| match &k.alg {
-            Some(key_alg) => {
-                key_alg == &alg && (is_unknown_alg || k.is_algorithm_compatible(&alg))
-            }
+            Some(key_alg) => key_alg == &alg && (is_unknown_alg || k.is_algorithm_compatible(&alg)),
             None => !is_unknown_alg && k.is_algorithm_compatible(&alg),
         })
     }
