@@ -1851,6 +1851,10 @@ fn is_use_consistent_with_ops(key_use: &KeyUse, key_ops: &[KeyOperation]) -> boo
 }
 
 fn is_operation_allowed_by_use(key_use: &KeyUse, operation: &KeyOperation) -> bool {
+    if matches!(operation, KeyOperation::Unknown(_)) {
+        return true;
+    }
+
     match key_use {
         KeyUse::Signature => is_signature_operation(operation),
         KeyUse::Encryption => is_encryption_operation(operation),
@@ -2428,5 +2432,16 @@ mod tests {
             key.validate_operation_metadata(KeyOperation::Verify)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn test_validate_operation_metadata_allows_unknown_operation_with_use() {
+        let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )))
+        .with_use(KeyUse::Signature);
+
+        let result = key.validate_operation_metadata(KeyOperation::Unknown("custom-op".into()));
+        assert!(result.is_ok());
     }
 }
