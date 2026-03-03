@@ -63,7 +63,7 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{CryptoKey, SubtleCrypto};
 
 use crate::error::{Error, Result};
-use crate::jwk::{Algorithm, EcCurve, Key, KeyParams};
+use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams};
 
 // ============================================================================
 // SubtleCrypto Access
@@ -388,15 +388,29 @@ fn validate_key_for_webcrypto_usage_with_alg(
     alg: &Algorithm,
 ) -> Result<()> {
     validate_usage_algorithm_compatibility(usage, alg)?;
-    key.validate_for_algorithm(alg)
+    key.validate_for_operation(alg, key_operation_for_usage(usage))
 }
 
 fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
+    key.validate_operation_metadata(key_operation_for_usage(usage))?;
+
     if let Some(alg) = key.alg.as_ref() {
         validate_usage_algorithm_compatibility(usage, alg)?;
+        return key.validate_for_algorithm(alg);
     }
 
     key.validate_structure()
+}
+
+fn key_operation_for_usage(usage: KeyUsage) -> KeyOperation {
+    match usage {
+        KeyUsage::Sign => KeyOperation::Sign,
+        KeyUsage::Verify => KeyOperation::Verify,
+        KeyUsage::Encrypt => KeyOperation::Encrypt,
+        KeyUsage::Decrypt => KeyOperation::Decrypt,
+        KeyUsage::WrapKey => KeyOperation::WrapKey,
+        KeyUsage::UnwrapKey => KeyOperation::UnwrapKey,
+    }
 }
 
 /// Key usage category for determining the appropriate algorithm.
@@ -1186,6 +1200,34 @@ mod validation_tests {
 
         let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Sign);
         assert!(result.is_err(), "duplicate key_ops must be rejected");
+    }
+
+    #[test]
+    fn test_validate_key_for_webcrypto_usage_rejects_incompatible_use() {
+        let json = r#"{
+            "kty": "RSA",
+            "use": "enc",
+            "alg": "RS256",
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB"
+        }"#;
+
+        let key: Key = serde_json::from_str(json).unwrap();
+        let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Verify);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_key_for_webcrypto_usage_allows_missing_optional_metadata() {
+        let json = r#"{
+            "kty": "RSA",
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB"
+        }"#;
+
+        let key: Key = serde_json::from_str(json).unwrap();
+        let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Verify);
+        assert!(result.is_ok());
     }
 }
 

@@ -1027,6 +1027,102 @@ impl Key {
         Ok(first_der)
     }
 
+    /// Validates operation-intent metadata for a requested operation.
+    ///
+    /// This enforces RFC 7517 operation intent semantics when metadata is
+    /// present:
+    /// - If `key_ops` is present, it must include the requested operation.
+    /// - If `use` is present, it must be compatible with the requested operation.
+    /// - If both are present, they must be mutually consistent.
+    ///
+    /// Metadata members are optional in RFC 7517. If both are absent, this
+    /// validation succeeds.
+    pub fn validate_operation_metadata(&self, operation: KeyOperation) -> Result<()> {
+        self.validate_operation_metadata_for_any(std::slice::from_ref(&operation))
+    }
+
+    /// Validates this key for a specific algorithm and operation.
+    ///
+    /// This combines algorithm/key-material validation with metadata intent
+    /// enforcement for operation-specific APIs.
+    pub fn validate_for_operation(&self, alg: &Algorithm, operation: KeyOperation) -> Result<()> {
+        self.validate_for_operations(alg, std::slice::from_ref(&operation))
+    }
+
+    /// Validates this key for a specific algorithm and one-or-more operations.
+    ///
+    /// This is intended for APIs that can perform more than one operation with
+    /// the same key type (for example, HMAC sign/verify APIs).
+    pub fn validate_for_operations(
+        &self,
+        alg: &Algorithm,
+        operations: &[KeyOperation],
+    ) -> Result<()> {
+        self.validate_for_algorithm(alg)?;
+        self.validate_operation_metadata_for_any(operations)
+    }
+
+    fn validate_operation_metadata_for_any(&self, operations: &[KeyOperation]) -> Result<()> {
+        if operations.is_empty() {
+            return Ok(());
+        }
+
+        if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops)
+            && !is_use_consistent_with_ops(key_use, key_ops)
+        {
+            return Err(Error::Validation(ValidationError::InconsistentParameters(
+                "RFC 7517: 'use' and 'key_ops' are both present but inconsistent".to_string(),
+            )));
+        }
+
+        if let Some(key_ops) = &self.key_ops {
+            let mut seen = HashSet::new();
+            for op in key_ops {
+                if !seen.insert(op) {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        format!(
+                            "RFC 7517: key_ops array contains duplicate value '{:?}'",
+                            op
+                        ),
+                    )));
+                }
+            }
+        }
+
+        if let Some(key_use) = &self.key_use {
+            let use_allows_requested = operations
+                .iter()
+                .any(|operation| is_operation_allowed_by_use(key_use, operation));
+
+            if !use_allows_requested {
+                return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    format!(
+                        "RFC 7517: key 'use' '{}' is not compatible with requested operation(s): {}",
+                        key_use,
+                        format_operations_list(operations)
+                    ),
+                )));
+            }
+        }
+
+        if let Some(key_ops) = &self.key_ops {
+            let key_ops_allow_requested = operations
+                .iter()
+                .any(|operation| key_ops.contains(operation));
+
+            if !key_ops_allow_requested {
+                return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    format!(
+                        "RFC 7517: key_ops does not permit requested operation(s): {}",
+                        format_operations_list(operations)
+                    ),
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Returns `true` if this key's type (and curve, where applicable) is
     /// compatible with the given algorithm per RFC 7518.
     ///
@@ -1744,6 +1840,38 @@ fn is_use_consistent_with_ops(key_use: &KeyUse, key_ops: &[KeyOperation]) -> boo
     }
 }
 
+fn is_operation_allowed_by_use(key_use: &KeyUse, operation: &KeyOperation) -> bool {
+    match key_use {
+        KeyUse::Signature => is_signature_operation(operation),
+        KeyUse::Encryption => is_encryption_operation(operation),
+        KeyUse::Unknown(_) => true,
+    }
+}
+
+fn is_signature_operation(operation: &KeyOperation) -> bool {
+    matches!(operation, KeyOperation::Sign | KeyOperation::Verify)
+}
+
+fn is_encryption_operation(operation: &KeyOperation) -> bool {
+    matches!(
+        operation,
+        KeyOperation::Encrypt
+            | KeyOperation::Decrypt
+            | KeyOperation::WrapKey
+            | KeyOperation::UnwrapKey
+            | KeyOperation::DeriveKey
+            | KeyOperation::DeriveBits
+    )
+}
+
+fn format_operations_list(operations: &[KeyOperation]) -> String {
+    operations
+        .iter()
+        .map(KeyOperation::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Encodes a byte slice as a DER INTEGER.
 fn encode_der_integer(bytes: &[u8]) -> Vec<u8> {
     if bytes.is_empty() {
@@ -2221,5 +2349,48 @@ mod tests {
                 .validate_for_algorithm(&Algorithm::Hs256)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn test_validate_operation_metadata_enforces_use_when_present() {
+        let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )))
+        .with_use(KeyUse::Encryption);
+
+        assert!(
+            key.validate_operation_metadata(KeyOperation::Encrypt)
+                .is_ok()
+        );
+        assert!(key.validate_operation_metadata(KeyOperation::Sign).is_err());
+    }
+
+    #[test]
+    fn test_validate_operation_metadata_enforces_key_ops_when_present() {
+        let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        )))
+        .with_key_ops(vec![KeyOperation::Verify]);
+
+        assert!(
+            key.validate_operation_metadata(KeyOperation::Verify)
+                .is_ok()
+        );
+        assert!(key.validate_operation_metadata(KeyOperation::Sign).is_err());
+    }
+
+    #[test]
+    fn test_validate_operation_metadata_allows_missing_optional_fields() {
+        let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        )));
+
+        assert!(
+            key.validate_operation_metadata(KeyOperation::Verify)
+                .is_ok()
+        );
+        assert!(key.validate_operation_metadata(KeyOperation::Sign).is_ok());
     }
 }
