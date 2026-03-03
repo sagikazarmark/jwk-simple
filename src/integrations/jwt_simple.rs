@@ -612,19 +612,15 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("rsa-conversion-test");
         let token = ec_key_pair.sign(claims).unwrap();
 
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&token, None)
-                .is_err()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&token, None)
+            .is_err());
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&tampered, None)
-                .is_err()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&tampered, None)
+            .is_err());
     }
 
     #[test]
@@ -638,19 +634,15 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("ec-conversion-test");
         let token = key_pair.sign(claims).unwrap();
 
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&token, None)
-                .is_ok()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&token, None)
+            .is_ok());
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&tampered, None)
-                .is_err()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&tampered, None)
+            .is_err());
     }
 
     #[test]
@@ -664,25 +656,19 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("conversion-test");
 
         let token_256 = hs256_key.authenticate(claims.clone()).unwrap();
-        assert!(
-            hs256_key
-                .verify_token::<NoCustomClaims>(&token_256, None)
-                .is_ok()
-        );
+        assert!(hs256_key
+            .verify_token::<NoCustomClaims>(&token_256, None)
+            .is_ok());
 
         let token_384 = hs384_key.authenticate(claims.clone()).unwrap();
-        assert!(
-            hs384_key
-                .verify_token::<NoCustomClaims>(&token_384, None)
-                .is_ok()
-        );
+        assert!(hs384_key
+            .verify_token::<NoCustomClaims>(&token_384, None)
+            .is_ok());
 
         let token_512 = hs512_key.authenticate(claims).unwrap();
-        assert!(
-            hs512_key
-                .verify_token::<NoCustomClaims>(&token_512, None)
-                .is_ok()
-        );
+        assert!(hs512_key
+            .verify_token::<NoCustomClaims>(&token_512, None)
+            .is_ok());
 
         assert!(
             hs256_key
@@ -807,6 +793,36 @@ mod tests {
     }
 
     #[test]
+    fn test_rs256_key_pair_conversion_rejects_encryption_use() {
+        let json = r#"{
+            "kty": "RSA",
+            "use": "enc",
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB",
+            "d": "X4cTteJY_gn4FYPsXB8rd5Qw9Y8Q8fN4EuM4fM9x2s8"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<RS256KeyPair> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ed25519_key_pair_conversion_rejects_verify_only_key_ops() {
+        let json = r#"{
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+            "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A",
+            "key_ops": ["verify"]
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<Ed25519KeyPair> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_hs256_conversion_rejects_sign_only_key_ops() {
         let json = r#"{
             "kty": "oct",
@@ -843,5 +859,44 @@ mod tests {
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS256Key> = (&jwk).try_into();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_hs256_conversion_rejects_encryption_use() {
+        let json = r#"{
+            "kty": "oct",
+            "use": "enc",
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS256Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs384_conversion_rejects_sign_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["sign"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS384Key> = (&jwk).try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hs512_conversion_rejects_verify_only_key_ops() {
+        let json = r#"{
+            "kty": "oct",
+            "key_ops": ["verify"],
+            "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<HS512Key> = (&jwk).try_into();
+        assert!(result.is_err());
     }
 }
