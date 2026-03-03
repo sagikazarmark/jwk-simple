@@ -262,6 +262,14 @@ This crate prioritizes security:
 - **Panic-free APIs**: All fallible operations return `Result` types — standard trait implementations like `Index` follow normal Rust semantics and may panic on invalid input (e.g., out-of-bounds indexing)
 - **Input validation**: Key parameters are validated for correct sizes
 
+When enabling the optional `jwt-simple` integration, note that some `jwt-simple`
+dependency chains may pull in `rsa` versions affected by
+[`RUSTSEC-2023-0071`](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
+(Marvin timing side-channel). This primarily concerns RSA private-key
+operations (for example, signing) in attacker-observable timing contexts. If
+this matters for your deployment, prefer EdDSA/ECDSA or avoid RSA private-key
+operations until an upstream patched chain is available.
+
 ## WASM Usage
 
 Core JWKS parsing works in WebAssembly environments.
