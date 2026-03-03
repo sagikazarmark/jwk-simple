@@ -92,14 +92,14 @@ Copy this block for new items:
 ## Weak conversion tests rely on non-empty output checks
 - Date added: 2026-03-03
 - Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
+- Validity: PLAUSIBLE
+- Trigger likelihood: RARE
 - Severity: HIGH -> LOW/MEDIUM
 - Decision: DEFER
-- Rationale: Test-quality improvement with low immediate product risk; stronger behavioral assertions can be added incrementally.
-- Preconditions/Trigger: Conversion returns structurally non-empty bytes while semantic correctness regresses.
-- Risk if not fixed: Reduced regression signal in jwt-simple conversion coverage.
-- Revisit signal: Any conversion-related bug escaping current tests.
+- Rationale: Broader behavioral conversion tests are now present; remaining non-empty checks are narrow and mostly diagnostic.
+- Preconditions/Trigger: A conversion-specific regression escapes behavioral token sign/verify checks while still producing non-empty output.
+- Risk if not fixed: Residual blind spots in conversion-path diagnostics rather than broad semantic coverage gaps.
+- Revisit signal: Conversion-related bug where behavioral tests pass but format/output assumptions are wrong.
 - Suggested future action: Replace non-empty assertions with token verify/reject behavioral checks.
 
 ## parse_jwt format test does not assert parsed fields
@@ -118,11 +118,11 @@ Copy this block for new items:
 ## Moka expiration test has tight timing margins
 - Date added: 2026-03-03
 - Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
+- Validity: PLAUSIBLE
+- Trigger likelihood: RARE
 - Severity: MEDIUM -> LOW
 - Decision: DEFER
-- Rationale: Low product risk; adjust only if CI noise appears.
+- Rationale: Timing margin is currently reasonable for the test shape; keep deferred unless CI variability proves otherwise.
 - Preconditions/Trigger: Slow or contended CI causes sleep/TTL race variance.
 - Risk if not fixed: Intermittent test flakiness.
 - Revisit signal: Repeated flakes in `moka_cache_expiration`.
@@ -274,11 +274,11 @@ Copy this block for new items:
 ## Timeout test may be timing-flaky
 - Date added: 2026-03-03
 - Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
+- Validity: PLAUSIBLE
+- Trigger likelihood: RARE
 - Severity: MEDIUM -> LOW
 - Decision: DEFER
-- Rationale: Low product risk; test currently acceptable unless CI instability appears.
+- Rationale: Test uses explicit timeout with a wider server-delay margin; still timing-based but lower practical flake risk.
 - Preconditions/Trigger: Slow/variable CI hosts cause timeout race around small margins.
 - Risk if not fixed: Intermittent CI flakes.
 - Revisit signal: Any recurring flaky failures in `test_remote_keystore_timeout`.
