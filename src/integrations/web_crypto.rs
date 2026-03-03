@@ -25,9 +25,10 @@
 //!
 //! ```ignore
 //! use jwk_simple::{Key, integrations::web_crypto};
+//! use std::convert::TryInto;
 //!
 //! let key: Key = serde_json::from_str(jwk_json)?;
-//! let web_jwk: web_sys::JsonWebKey = web_crypto::to_json_web_key(&key)?;
+//! let web_jwk: web_sys::JsonWebKey = (&key).try_into()?;
 //! ```
 //!
 //! ## Importing a Key for Signature Verification
@@ -56,6 +57,7 @@
 //! [`Error::UnsupportedForWebCrypto`](crate::Error::UnsupportedForWebCrypto) error.
 
 use js_sys::{Array, Object, Reflect};
+use std::convert::TryFrom;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{CryptoKey, SubtleCrypto};
@@ -105,10 +107,7 @@ pub fn get_subtle_crypto() -> Result<SubtleCrypto> {
 // Key to JsonWebKey Conversion
 // ============================================================================
 
-/// Converts a jwk-simple [`Key`] to a [`web_sys::JsonWebKey`].
-///
-/// This function creates a `JsonWebKey` object that can be used with
-/// the WebCrypto `SubtleCrypto.importKey()` method.
+/// Conversion from [`Key`] to [`web_sys::JsonWebKey`] for WebCrypto usage.
 ///
 /// # Supported Key Types
 ///
@@ -125,87 +124,93 @@ pub fn get_subtle_crypto() -> Result<SubtleCrypto> {
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{Key, integrations::web_crypto};
+/// use jwk_simple::Key;
+/// use std::convert::TryInto;
 ///
 /// let key: Key = serde_json::from_str(r#"{"kty":"RSA","n":"...","e":"AQAB"}"#)?;
-/// let jwk = web_crypto::to_json_web_key(&key)?;
+/// let jwk: web_sys::JsonWebKey = (&key).try_into()?;
 /// assert_eq!(jwk.kty(), "RSA");
 /// ```
-pub fn to_json_web_key(key: &Key) -> Result<web_sys::JsonWebKey> {
-    // Validate that the key type is supported
-    validate_webcrypto_support(key)?;
+impl TryFrom<&Key> for web_sys::JsonWebKey {
+    type Error = Error;
 
-    let jwk = web_sys::JsonWebKey::new(&key.kty().as_str());
+    fn try_from(key: &Key) -> Result<Self> {
+        // Validate that the key type is supported
+        validate_webcrypto_support(key)?;
 
-    // Set common optional fields
-    // Note: `kid` is not part of the WebCrypto JsonWebKey dictionary,
-    // so it is not set here.
+        let jwk = web_sys::JsonWebKey::new(&key.kty().as_str());
 
-    if let Some(alg) = &key.alg {
-        jwk.set_alg(alg.as_str());
+        // Set common optional fields
+        // Note: `kid` is not part of the WebCrypto JsonWebKey dictionary,
+        // so it is not set here.
+
+        if let Some(alg) = &key.alg {
+            jwk.set_alg(alg.as_str());
+        }
+
+        if let Some(key_use) = &key.key_use {
+            jwk.set_use(key_use.as_str());
+        }
+
+        if let Some(key_ops) = &key.key_ops {
+            let ops = Array::new();
+            for op in key_ops {
+                ops.push(&JsValue::from_str(op.as_str()));
+            }
+            jwk.set_key_ops(&ops);
+        }
+
+        // Set type-specific parameters
+        match &key.params {
+            KeyParams::Rsa(params) => {
+                // Public key components (always present)
+                jwk.set_n(&params.n.to_base64url());
+                jwk.set_e(&params.e.to_base64url());
+
+                // Private key components (optional)
+                if let Some(d) = &params.d {
+                    jwk.set_d(&d.to_base64url());
+                }
+                if let Some(p) = &params.p {
+                    jwk.set_p(&p.to_base64url());
+                }
+                if let Some(q) = &params.q {
+                    jwk.set_q(&q.to_base64url());
+                }
+                if let Some(dp) = &params.dp {
+                    jwk.set_dp(&dp.to_base64url());
+                }
+                if let Some(dq) = &params.dq {
+                    jwk.set_dq(&dq.to_base64url());
+                }
+                if let Some(qi) = &params.qi {
+                    jwk.set_qi(&qi.to_base64url());
+                }
+                // Note: 'oth' (other primes) is not supported by web_sys::JsonWebKey
+            }
+            KeyParams::Ec(params) => {
+                jwk.set_crv(params.crv.name());
+                jwk.set_x(&params.x.to_base64url());
+                jwk.set_y(&params.y.to_base64url());
+
+                if let Some(d) = &params.d {
+                    jwk.set_d(&d.to_base64url());
+                }
+            }
+            KeyParams::Symmetric(params) => {
+                jwk.set_k(&params.k.to_base64url());
+            }
+            KeyParams::Okp(_) => {
+                // This should never be reached due to validate_webcrypto_support
+                return Err(Error::UnsupportedForWebCrypto {
+                    reason:
+                        "OKP keys (Ed25519, Ed448, X25519, X448) are not supported by WebCrypto",
+                });
+            }
+        }
+
+        Ok(jwk)
     }
-
-    if let Some(key_use) = &key.key_use {
-        jwk.set_use(key_use.as_str());
-    }
-
-    if let Some(key_ops) = &key.key_ops {
-        let ops = Array::new();
-        for op in key_ops {
-            ops.push(&JsValue::from_str(op.as_str()));
-        }
-        jwk.set_key_ops(&ops);
-    }
-
-    // Set type-specific parameters
-    match &key.params {
-        KeyParams::Rsa(params) => {
-            // Public key components (always present)
-            jwk.set_n(&params.n.to_base64url());
-            jwk.set_e(&params.e.to_base64url());
-
-            // Private key components (optional)
-            if let Some(d) = &params.d {
-                jwk.set_d(&d.to_base64url());
-            }
-            if let Some(p) = &params.p {
-                jwk.set_p(&p.to_base64url());
-            }
-            if let Some(q) = &params.q {
-                jwk.set_q(&q.to_base64url());
-            }
-            if let Some(dp) = &params.dp {
-                jwk.set_dp(&dp.to_base64url());
-            }
-            if let Some(dq) = &params.dq {
-                jwk.set_dq(&dq.to_base64url());
-            }
-            if let Some(qi) = &params.qi {
-                jwk.set_qi(&qi.to_base64url());
-            }
-            // Note: 'oth' (other primes) is not supported by web_sys::JsonWebKey
-        }
-        KeyParams::Ec(params) => {
-            jwk.set_crv(params.crv.name());
-            jwk.set_x(&params.x.to_base64url());
-            jwk.set_y(&params.y.to_base64url());
-
-            if let Some(d) = &params.d {
-                jwk.set_d(&d.to_base64url());
-            }
-        }
-        KeyParams::Symmetric(params) => {
-            jwk.set_k(&params.k.to_base64url());
-        }
-        KeyParams::Okp(_) => {
-            // This should never be reached due to validate_webcrypto_support
-            return Err(Error::UnsupportedForWebCrypto {
-                reason: "OKP keys (Ed25519, Ed448, X25519, X448) are not supported by WebCrypto",
-            });
-        }
-    }
-
-    Ok(jwk)
 }
 
 /// Validates that a key is supported by WebCrypto.
@@ -868,7 +873,7 @@ pub async fn import_key_with_usages(
     if let Some(alg) = key.alg.as_ref() {
         validate_usage_algorithm_compatibility(usage, alg)?;
     }
-    let jwk = to_json_web_key(key)?;
+    let jwk = web_sys::JsonWebKey::try_from(key)?;
     let algorithm = build_algorithm_object(key, usage)?;
 
     import_crypto_key(jwk, &algorithm, usages).await
@@ -891,7 +896,7 @@ pub async fn import_key_with_usages_for_alg(
     alg: &Algorithm,
 ) -> Result<CryptoKey> {
     validate_usage_algorithm_compatibility(usage, alg)?;
-    let jwk = to_json_web_key(key)?;
+    let jwk = web_sys::JsonWebKey::try_from(key)?;
 
     // Override the JWK's `alg` field to match the explicit algorithm.
     // WebCrypto validates that the JWK `alg` (if present) is consistent with
@@ -935,23 +940,6 @@ async fn import_crypto_key(
 // ============================================================================
 
 impl Key {
-    /// Converts this key to a [`web_sys::JsonWebKey`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::UnsupportedForWebCrypto`] if the key type or curve
-    /// is not supported by WebCrypto.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let jwk = key.to_web_crypto_jwk()?;
-    /// ```
-    #[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
-    pub fn to_web_crypto_jwk(&self) -> Result<web_sys::JsonWebKey> {
-        to_json_web_key(self)
-    }
-
     /// Returns `true` if this key can be used with WebCrypto.
     ///
     /// OKP keys and secp256k1 EC keys are not supported by WebCrypto.
@@ -1214,7 +1202,7 @@ mod tests {
     #[test]
     fn test_rsa_key_to_json_web_key() {
         let key: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
-        let jwk = to_json_web_key(&key).unwrap();
+        let jwk = web_sys::JsonWebKey::try_from(&key).unwrap();
         assert_eq!(jwk.kty(), "RSA");
         assert!(jwk.n().is_some());
         assert!(jwk.e().is_some());
@@ -1224,7 +1212,7 @@ mod tests {
     #[test]
     fn test_ec_p256_key_to_json_web_key() {
         let key: Key = serde_json::from_str(RFC_EC_P256_PUBLIC_KEY).unwrap();
-        let jwk = to_json_web_key(&key).unwrap();
+        let jwk = web_sys::JsonWebKey::try_from(&key).unwrap();
         assert_eq!(jwk.kty(), "EC");
         assert_eq!(jwk.crv(), Some("P-256".to_string()));
         assert!(jwk.x().is_some());
@@ -1234,7 +1222,7 @@ mod tests {
     #[test]
     fn test_symmetric_key_to_json_web_key() {
         let key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
-        let jwk = to_json_web_key(&key).unwrap();
+        let jwk = web_sys::JsonWebKey::try_from(&key).unwrap();
         assert_eq!(jwk.kty(), "oct");
         assert!(jwk.k().is_some());
     }
@@ -1242,14 +1230,14 @@ mod tests {
     #[test]
     fn test_okp_key_unsupported() {
         let key: Key = serde_json::from_str(OKP_ED25519_KEY).unwrap();
-        let result = to_json_web_key(&key);
+        let result = web_sys::JsonWebKey::try_from(&key);
         assert!(matches!(result, Err(Error::UnsupportedForWebCrypto { .. })));
     }
 
     #[test]
     fn test_secp256k1_key_unsupported() {
         let key: Key = serde_json::from_str(EC_SECP256K1_KEY).unwrap();
-        let result = to_json_web_key(&key);
+        let result = web_sys::JsonWebKey::try_from(&key);
         assert!(matches!(result, Err(Error::UnsupportedForWebCrypto { .. })));
     }
 

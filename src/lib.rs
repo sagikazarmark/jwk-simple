@@ -73,6 +73,7 @@
 //!
 //! ```ignore
 //! use jwk_simple::{Algorithm, KeySet, integrations::web_crypto};
+//! use std::convert::TryInto;
 //!
 //! // Parse a JWKS
 //! let keyset: KeySet = serde_json::from_str(json)?;
@@ -88,7 +89,7 @@
 //!     let crypto_key = key.import_as_verify_key_for_alg(&alg).await?;
 //!
 //!     // Or get the JsonWebKey directly
-//!     let jwk = key.to_web_crypto_jwk()?;
+//!     let jwk: web_sys::JsonWebKey = key.try_into()?;
 //! }
 //! ```
 //!
