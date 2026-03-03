@@ -160,10 +160,13 @@ jobs:
         if: matrix.target == 'wasm32-unknown-unknown'
         run: rustup target add wasm32-unknown-unknown
 
-      - name: Check examples
+      - name: Run examples
         run: |
           if [ -n "${{ matrix.target }}" ]; then
             cargo check --examples --target "${{ matrix.target }}" --features "${{ matrix.features }}"
           else
             cargo check --examples --features "${{ matrix.features }}"
+            cargo run --example basic_usage --features "${{ matrix.features }}"
+            cargo run --example jwt_verify --features "${{ matrix.features }}"
+            cargo run --example http_fetch --features "${{ matrix.features }}"
           fi

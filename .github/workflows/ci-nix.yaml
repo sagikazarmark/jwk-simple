@@ -165,11 +165,14 @@ jobs:
       - name: Set up Rust
         uses: ./.github/actions/rust/
 
-      - name: Check examples
+      - name: Run examples
         shell: devenv shell bash -- -e {0}
         run: |
           if [ -n "${{ matrix.target }}" ]; then
             cargo check --examples --target "${{ matrix.target }}" --features "${{ matrix.features }}"
           else
             cargo check --examples --features "${{ matrix.features }}"
+            cargo run --example basic_usage --features "${{ matrix.features }}"
+            cargo run --example jwt_verify --features "${{ matrix.features }}"
+            cargo run --example http_fetch --features "${{ matrix.features }}"
           fi
