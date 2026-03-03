@@ -70,6 +70,27 @@ const EC_P384_PUBLIC_KEY: &str = r#"{
     "y": "20M1ZBIKQpWeJzpBhWxxCiZCY6CHwJrIvYk5S6Qmzp15hG-nV7nY2oJRZUFfGpjX"
 }"#;
 
+// Test EC P-384 private key
+const EC_P384_PRIVATE_KEY: &str = r#"{
+    "kty": "EC",
+    "kid": "ec-p384-key",
+    "use": "sig",
+    "alg": "ES384",
+    "crv": "P-384",
+    "x": "NzMtUzQovdr-Z_jkY-WC4oqyqutKc2UV29koQG_aJ7H059vEfCkI1Rooi978DAjC",
+    "y": "YT8tnNm05Tfm8K5aSvXHupxCPTiJ-WWD83M6_pOsSgENgPAZ9xbUm0CMcCTu0RNM",
+    "d": "Az36XG8hJd_AxN2TcIN0-6R0kxB1IUxCNkzCrSgpS2rCdvtCpDbf4Fz6doX6zdO4"
+}"#;
+
+// Matching EC P-384 public key for EC_P384_PRIVATE_KEY
+const EC_P384_PUBLIC_KEY_MATCHING_PRIVATE: &str = r#"{
+    "kty": "EC",
+    "kid": "ec-p384-key",
+    "crv": "P-384",
+    "x": "NzMtUzQovdr-Z_jkY-WC4oqyqutKc2UV29koQG_aJ7H059vEfCkI1Rooi978DAjC",
+    "y": "YT8tnNm05Tfm8K5aSvXHupxCPTiJ-WWD83M6_pOsSgENgPAZ9xbUm0CMcCTu0RNM"
+}"#;
+
 // Test HMAC key
 const HMAC_KEY: &str = r#"{
     "kty": "oct",
@@ -367,12 +388,54 @@ async fn test_ec_verify_behavior_rejects_invalid_signature() {
         .unwrap_or(true);
     assert!(!p256_bad_ok);
 
-    let p384: Key = serde_json::from_str(EC_P384_PUBLIC_KEY).unwrap();
+    let p384: Key = serde_json::from_str(EC_P384_PUBLIC_KEY_MATCHING_PRIVATE).unwrap();
+    let p384_private: Key = serde_json::from_str(EC_P384_PRIVATE_KEY).unwrap();
+    let p384_sign_key = web_crypto::import_sign_key_for_alg(&p384_private, &jwk_simple::Algorithm::Es384)
+        .await
+        .unwrap();
     let p384_key = web_crypto::import_verify_key_for_alg(&p384, &jwk_simple::Algorithm::Es384)
         .await
         .unwrap();
     let p384_alg = ecdsa_verify_alg("SHA-384");
     let p384_data = to_uint8_array(b"ec-p384-verify");
+
+    let p384_sign = subtle
+        .sign_with_object_and_buffer_source(&p384_alg, &p384_sign_key, &p384_data)
+        .unwrap();
+    let p384_sig = wasm_bindgen_futures::JsFuture::from(p384_sign)
+        .await
+        .unwrap();
+    let p384_verify_ok = subtle
+        .verify_with_object_and_buffer_source_and_buffer_source(
+            &p384_alg,
+            &p384_key,
+            &p384_sig,
+            &p384_data,
+        )
+        .unwrap();
+    let p384_valid_ok = wasm_bindgen_futures::JsFuture::from(p384_verify_ok)
+        .await
+        .unwrap()
+        .as_bool()
+        .unwrap_or(false);
+    assert!(p384_valid_ok);
+
+    let p384_tampered_data = to_uint8_array(b"ec-p384-verify!");
+    let p384_verify_tampered = subtle
+        .verify_with_object_and_buffer_source_and_buffer_source(
+            &p384_alg,
+            &p384_key,
+            &p384_sig,
+            &p384_tampered_data,
+        )
+        .unwrap();
+    let p384_tampered_ok = wasm_bindgen_futures::JsFuture::from(p384_verify_tampered)
+        .await
+        .unwrap()
+        .as_bool()
+        .unwrap_or(false);
+    assert!(!p384_tampered_ok);
+
     let p384_bad_sig = to_uint8_array(&[0u8; 96]);
     let p384_verify = subtle
         .verify_with_object_and_buffer_source_and_buffer_source(

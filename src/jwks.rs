@@ -785,7 +785,7 @@ mod tests {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
         let first = jwks.first_signing_key().unwrap();
-        assert!(first.key_use == Some(KeyUse::Signature) || first.key_use.is_none());
+        assert_eq!(first.kid.as_deref(), Some("rsa-key-1"));
     }
 
     #[test]

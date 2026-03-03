@@ -24,6 +24,71 @@ Copy this block for new items:
 
 ## Deferred Findings
 
+## ECDH-ES compatibility accepts secp256k1 EC keys
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: RISK -> LOW/MEDIUM RISK
+- Decision: DEFER
+- Rationale: Interoperability hardening rather than a direct correctness break; may affect users relying on extension behavior.
+- Preconditions/Trigger: EC JWK with `crv=secp256k1` is used with `alg=ECDH-ES` (or ECDH-ES key-wrap variants) against stricter JOSE stacks.
+- Risk if not fixed: Cross-implementation import/negotiation failures for non-RFC curve usage.
+- Revisit signal: Interop bugs involving ECDH-ES with secp256k1.
+- Suggested future action: Restrict ECDH-ES EC curves to P-256/P-384/P-521 or gate secp256k1 behind explicit extension mode.
+
+## OKP private-key validation accepts extended lengths
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: RISK -> LOW/MEDIUM RISK
+- Decision: DEFER
+- Rationale: Current permissive behavior is intentional compatibility, but strict RFC-profile consumers may want tighter checks.
+- Preconditions/Trigger: OKP JWK `d` uses extended seed+public representation and peer/tooling expects canonical private length only.
+- Risk if not fixed: Interop mismatches on import/export with strict toolchains.
+- Revisit signal: Requests for strict RFC profile or reported OKP import incompatibilities.
+- Suggested future action: Add strict validation mode (or `validate_strict`) enforcing exact per-curve private key lengths.
+
+## Duplicate DER helper logic across modules
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: Maintainability cleanup only; no immediate functional risk.
+- Preconditions/Trigger: Future DER behavior changes are applied in one module but not the other.
+- Risk if not fixed: Drift between implementations and extra maintenance overhead.
+- Revisit signal: Any DER-related bugfix touching both `src/jwk.rs` and `src/integrations/jwt_simple.rs`.
+- Suggested future action: Extract shared crate-private DER helpers and remove duplicate implementations.
+
+## WebCrypto pass-through wrappers add unnecessary indirection
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: Pure simplification with minimal impact; defer until nearby edits.
+- Preconditions/Trigger: Ongoing maintenance in WebCrypto algorithm builder path.
+- Risk if not fixed: Small readability/maintenance tax.
+- Revisit signal: Next refactor touching `build_algorithm_object*` path.
+- Suggested future action: Call `build_algorithm_object_with_alg` directly at call sites and remove thin wrappers.
+
+## RFC compliance tests rely on broad is_ok/is_err checks
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: PLAUSIBLE
+- Trigger likelihood: UNCOMMON
+- Severity: MEDIUM -> LOW/MEDIUM
+- Decision: DEFER
+- Rationale: Better diagnostics are useful but broad conversion to variant-level assertions may be noisy and costly.
+- Preconditions/Trigger: A test continues passing/failing for an unintended reason because only boolean result is asserted.
+- Risk if not fixed: Reduced precision in regression signals for rule-targeted tests.
+- Revisit signal: Confusing compliance test failures or refactors in validation error taxonomy.
+- Suggested future action: Add specific error-variant assertions to highest-value rule-focused tests first.
+
 ## Weak conversion tests rely on non-empty output checks
 - Date added: 2026-03-03
 - Source: second-opinion review
@@ -259,6 +324,58 @@ Copy this block for new items:
 - Suggested future action: Clarify docs and optionally add external-cert lookup hooks.
 
 ## Ignored Findings
+
+## Parse-count-only tests in RFC vectors and JWKS module
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: IGNORE
+- Rationale: Low-value tests are real, but removal is optional housekeeping and not worth churn right now.
+- Preconditions/Trigger: Key-content regressions that preserve item counts.
+- Risk if not fixed: Slightly weaker signal-to-noise in test suite.
+- Revisit signal: Test-suite cleanup pass or persistent maintenance burden.
+- Suggested future action: Remove or strengthen count-only parse tests opportunistically.
+
+## Duplicate unsupported-path WebCrypto tests
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: DUPLICATE
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: IGNORE
+- Rationale: Duplication is minor and stable; merging tests yields little practical benefit.
+- Preconditions/Trigger: Both `validate_*` and `is_web_crypto_compatible` paths remain thinly coupled.
+- Risk if not fixed: Slight extra test maintenance.
+- Revisit signal: Future test reorganization in `src/integrations/web_crypto.rs`.
+- Suggested future action: Merge pairs into single parametrized tests when editing this area.
+
+## Table-driven refactor recommendation for RFC compliance tests
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: DISPUTED
+- Trigger likelihood: THEORETICAL
+- Severity: LOW -> LOW
+- Decision: IGNORE
+- Rationale: Primarily stylistic preference; current structure is acceptable and readable enough.
+- Preconditions/Trigger: Significant expansion or churn in similar scenarios.
+- Risk if not fixed: Minor duplication in test setup.
+- Revisit signal: Repeated copy/paste defects or painful future edits.
+- Suggested future action: Consider table-driven structure only if maintenance pain increases.
+
+## Informational RFC 9864 transition note is not a defect
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: DISPUTED
+- Trigger likelihood: THEORETICAL
+- Severity: INFORMATIONAL -> N/A
+- Decision: IGNORE
+- Rationale: Positive observation, not an actionable issue.
+- Preconditions/Trigger: N/A.
+- Risk if not fixed: None.
+- Revisit signal: N/A.
+- Suggested future action: Keep as release-note context, not as backlog finding.
 
 ## JWKS ingestion should always run full `Key::validate()`
 - Date added: 2026-03-03

@@ -74,6 +74,7 @@ mod tests {
     use crate::error::Error;
     use crate::jwk::Key;
     use crate::jwks::{CachedKeyStore, KeyStore};
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
@@ -181,6 +182,43 @@ mod tests {
 
         let key = cached.get_key("new-key").await.unwrap();
         assert!(key.is_some());
+        assert_eq!(cached.source().fetch_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn cached_key_store_singleflight_unknown_kid_avoids_duplicate_refresh() {
+        let initial: KeySet =
+            serde_json::from_str(r#"{"keys": [{"kty": "oct", "kid": "old-key", "k": "AQAB"}]}"#)
+                .unwrap();
+        let rotated: KeySet = serde_json::from_str(
+            r#"{"keys": [
+                {"kty": "oct", "kid": "old-key", "k": "AQAB"},
+                {"kty": "oct", "kid": "new-key", "k": "AQAB"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let source = RotatingKeyStore::new(vec![initial, rotated]);
+        let cached = Arc::new(CachedKeyStore::new(
+            MokaKeyCache::new(Duration::from_secs(300)),
+            source,
+        ));
+
+        // Prime cache with initial keyset.
+        let key = cached.get_key("old-key").await.unwrap();
+        assert!(key.is_some());
+        assert_eq!(cached.source().fetch_count(), 1);
+
+        // Concurrent misses for the same new kid should coalesce to one upstream refresh.
+        let c1 = Arc::clone(&cached);
+        let c2 = Arc::clone(&cached);
+        let (r1, r2) = tokio::join!(
+            async move { c1.get_key("new-key").await },
+            async move { c2.get_key("new-key").await }
+        );
+
+        assert!(r1.unwrap().is_some());
+        assert!(r2.unwrap().is_some());
         assert_eq!(cached.source().fetch_count(), 2);
     }
 

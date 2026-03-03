@@ -114,7 +114,25 @@ mod key_ops_parameter {
         let json = r#"{"kty": "oct", "key_ops": ["sign", "verify", "encrypt", "decrypt", "wrapKey", "unwrapKey", "deriveKey", "deriveBits"], "k": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         let ops = jwk.key_ops.as_ref().unwrap();
-        assert_eq!(ops.len(), 8);
+        let expected = [
+            KeyOperation::Sign,
+            KeyOperation::Verify,
+            KeyOperation::Encrypt,
+            KeyOperation::Decrypt,
+            KeyOperation::WrapKey,
+            KeyOperation::UnwrapKey,
+            KeyOperation::DeriveKey,
+            KeyOperation::DeriveBits,
+        ];
+
+        assert_eq!(ops.len(), expected.len());
+        for op in expected {
+            assert!(
+                ops.contains(&op),
+                "missing expected key_ops value: {:?}",
+                op
+            );
+        }
     }
 
     #[test]

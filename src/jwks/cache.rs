@@ -137,7 +137,7 @@ where
             return Ok(keyset);
         }
 
-        self.refresh_keyset_singleflight(false).await
+        self.refresh_keyset_singleflight(None).await
     }
 
     async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
@@ -149,7 +149,7 @@ where
         }
         // Key not in cached set — could be a newly added key, refetch
 
-        let keyset = self.refresh_keyset_singleflight(true).await?;
+        let keyset = self.refresh_keyset_singleflight(Some(kid)).await?;
         let result = keyset.find_by_kid(kid).cloned();
         Ok(result)
     }
@@ -160,12 +160,16 @@ where
     C: KeyCache + Send + Sync,
     S: KeyStore + Send + Sync,
 {
-    async fn refresh_keyset_singleflight(&self, force_refresh: bool) -> Result<KeySet> {
+    async fn refresh_keyset_singleflight(&self, required_kid: Option<&str>) -> Result<KeySet> {
         let _guard = self.refresh_lock.lock().await;
 
         // Double-check after waiting for in-flight refresh.
-        if !force_refresh && let Some(keyset) = self.cache.get().await? {
-            return Ok(keyset);
+        if let Some(keyset) = self.cache.get().await? {
+            match required_kid {
+                None => return Ok(keyset),
+                Some(kid) if keyset.find_by_kid(kid).is_some() => return Ok(keyset),
+                Some(_) => {}
+            }
         }
 
         let keyset = self.source.get_keyset().await?;
