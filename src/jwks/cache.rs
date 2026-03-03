@@ -3,8 +3,11 @@
 //! This module provides a [`KeyCache`] trait for caching key sets,
 //! and a [`CachedKeyStore`] wrapper that combines any cache with any key store.
 //!
-//! For a ready-to-use in-memory implementation, enable the `cache-inmemory` feature
-//! and use [`InMemoryKeyCache`](super::InMemoryKeyCache).
+//! For a ready-to-use Moka implementation, enable the `cache-moka` feature
+//! and use [`MokaKeyCache`](super::MokaKeyCache).
+
+#[cfg(feature = "cache-moka")]
+pub mod moka;
 
 use futures::lock::Mutex;
 
@@ -25,10 +28,10 @@ use super::{KeySet, KeyStore};
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{KeyCache, InMemoryKeyCache};
+/// use jwk_simple::{KeyCache, MokaKeyCache};
 /// use std::time::Duration;
 ///
-/// let cache = InMemoryKeyCache::new(Duration::from_secs(300));
+/// let cache = MokaKeyCache::new(Duration::from_secs(300));
 ///
 /// // Store a key set
 /// cache.set(keyset).await;
@@ -71,11 +74,11 @@ pub trait KeyCache {
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{CachedKeyStore, InMemoryKeyCache, RemoteKeyStore, KeyStore};
+/// use jwk_simple::{CachedKeyStore, MokaKeyCache, RemoteKeyStore, KeyStore};
 /// use std::time::Duration;
 ///
 /// // Create a cached remote key store
-/// let cache = InMemoryKeyCache::new(Duration::from_secs(300));
+/// let cache = MokaKeyCache::new(Duration::from_secs(300));
 /// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
 /// let cached = CachedKeyStore::new(cache, remote);
 ///

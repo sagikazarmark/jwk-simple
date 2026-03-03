@@ -21,14 +21,15 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 /// or [`get_keyset`](KeyStore::get_keyset) will make an HTTP request.
 ///
 /// For production use with high request volumes, wrap this in
-/// [`InMemoryCachedKeyStore`](super::InMemoryCachedKeyStore):
+/// [`CachedKeyStore`](super::CachedKeyStore) with [`MokaKeyCache`](super::MokaKeyCache):
 ///
 /// ```ignore
-/// use jwk_simple::{RemoteKeyStore, InMemoryCachedKeyStore};
+/// use jwk_simple::{CachedKeyStore, MokaKeyCache, RemoteKeyStore};
 /// use std::time::Duration;
 ///
 /// let remote = RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?;
-/// let cached = InMemoryCachedKeyStore::with_ttl(remote, Duration::from_secs(300));
+/// let cache = MokaKeyCache::new(Duration::from_secs(300));
+/// let cached = CachedKeyStore::new(cache, remote);
 /// ```
 ///
 /// # Examples

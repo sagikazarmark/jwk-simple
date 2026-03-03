@@ -15,12 +15,12 @@ base64ct = { version = "1.8", features = ["alloc"] }
 futures = "0.3"
 js-sys = { version = "0.3", optional = true }
 jwt-simple = { version = "0.12", optional = true, default-features = false, features = ["pure-rust"] }
+moka = { version = "0.12", optional = true, features = ["future"] }
 reqwest = { version = "0.13", optional = true, default-features = false, features = ["json", "default-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 sha1 = "0.10"
-tokio = { version = "1.49", optional = true, features = ["sync", "time"] }
 url = "2.5"
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
@@ -41,7 +41,7 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [features]
 default = []
-cache-inmemory = ["dep:tokio"]
+cache-moka = ["dep:moka"]
 cloudflare = ["dep:worker"]
 http = ["dep:reqwest"]
 jwt-simple = ["dep:jwt-simple"]

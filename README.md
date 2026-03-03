@@ -56,7 +56,7 @@ If you need visibility into dropped keys, use `KeySet::from_json_with_diagnostic
 |---------|---------|-------------|
 | `jwt-simple` | ❌ | Integration with the jwt-simple crate |
 | `http` | ❌ | Async HTTP fetching (reqwest) |
-| `cache-inmemory` | ❌ | In-memory TTL-based key caching (tokio) |
+| `cache-moka` | ❌ | In-memory TTL-based key caching (moka) |
 | `cloudflare` | ❌ | Cloudflare Workers support (KV cache + fetch), wasm32 targets only |
 | `web-crypto` | ❌ | WebCrypto API integration for WASM |
 
@@ -132,23 +132,24 @@ let jwks = remote.get_keyset().await?;
 
 ### Caching Keys
 
-With the `http` and `cache-inmemory` features enabled:
+With the `http` and `cache-moka` features enabled:
 
 ```rust
-use jwk_simple::{InMemoryKeyCache, InMemoryCachedKeyStore, KeyCache, KeyStore, RemoteKeyStore};
+use jwk_simple::{CachedKeyStore, KeyCache, KeyStore, MokaKeyCache, RemoteKeyStore};
 use std::time::Duration;
 
 // For production, wrap a remote store with caching (5 minute TTL)
-let cached = InMemoryCachedKeyStore::with_ttl(
+let cache = MokaKeyCache::new(Duration::from_secs(300));
+let cached = CachedKeyStore::new(
+    cache,
     RemoteKeyStore::new("https://example.com/.well-known/jwks.json")?,
-    Duration::from_secs(300), // 5 minute TTL
 );
 
 // Keys are automatically cached on first access
 let key = cached.get_key("key-id").await?;
 
 // Invalidate the entire cache when needed
-cached.invalidate().await;
+cached.cache().clear().await?;
 ```
 
 ### JWK Thumbprints (RFC 7638)
