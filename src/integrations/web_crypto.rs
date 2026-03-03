@@ -398,9 +398,10 @@ fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
         return key.validate_for_algorithm(alg);
     }
 
+    key.validate_structure()?;
     key.validate_operation_metadata(key_operation_for_usage(usage))?;
 
-    key.params.validate()
+    Ok(())
 }
 
 fn key_operation_for_usage(usage: KeyUsage) -> KeyOperation {

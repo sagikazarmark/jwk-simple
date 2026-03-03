@@ -1058,6 +1058,13 @@ impl Key {
         alg: &Algorithm,
         operations: &[KeyOperation],
     ) -> Result<()> {
+        if operations.is_empty() {
+            return Err(Error::Validation(ValidationError::InvalidParameter {
+                name: "operations",
+                reason: "at least one requested operation is required".to_string(),
+            }));
+        }
+
         self.validate_for_algorithm(alg)?;
         self.validate_operation_metadata_for_all(operations)
     }
@@ -2406,5 +2413,20 @@ mod tests {
 
         let result = key.validate_for_operations(&Algorithm::Rs256, &[]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_operation_metadata_rejects_inconsistent_use_and_key_ops() {
+        let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
+            Base64UrlBytes::new(vec![1, 2, 3]),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        )))
+        .with_use(KeyUse::Signature)
+        .with_key_ops(vec![KeyOperation::Encrypt]);
+
+        assert!(
+            key.validate_operation_metadata(KeyOperation::Verify)
+                .is_err()
+        );
     }
 }
