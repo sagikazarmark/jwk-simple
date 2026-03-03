@@ -26,7 +26,16 @@ This document defines the non-negotiable scope for v1 so the security boundary f
    - Ambiguity and mismatch errors include enough context for operators.
 
 5. **Deterministic error precedence**
-   - Define and document check order (and corresponding error precedence).
+   - Define and document check order (and corresponding error precedence):
+     - `UnknownAlgorithm`
+     - `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
+     - per-candidate matching and validation
+     - terminal result resolution in this order when no candidate survives:
+       - `AlgorithmMismatch`
+       - `IntentMismatch`
+       - `KeyValidationFailed`
+       - `IncompatibleKeyType`
+       - `NoMatchingKey`
    - Add tests to lock precedence and prevent telemetry drift.
 
 6. **Operation scope clarity for v1**
@@ -99,14 +108,19 @@ impl<'a> KeyMatcher<'a> {
         Self { op, alg, kid: None }
     }
 
-    pub fn with_kid(mut self, kid: Option<&'a str>) -> Self {
+    pub fn with_kid(mut self, kid: &'a str) -> Self {
+        self.kid = Some(kid);
+        self
+    }
+
+    pub fn with_optional_kid(mut self, kid: Option<&'a str>) -> Self {
         self.kid = kid;
         self
     }
 }
 
 pub struct KeyFilter<'a> {
-    pub op: Option<SelectionOperation>,
+    pub op: Option<KeyOperation>,
     pub alg: Option<Algorithm>,
     pub kid: Option<&'a str>,
     pub kty: Option<KeyType>,
@@ -147,7 +161,7 @@ impl<'a> KeySelector<'a> {
 ```rust
 let key = keyset
     .selector(&allowed_verify_algs)
-    .select(KeyMatcher::new(KeyOperation::Verify, header_alg).with_kid(header_kid))?;
+    .select(KeyMatcher::new(KeyOperation::Verify, header_alg).with_optional_kid(header_kid))?;
 ```
 
 ### Integration usage (signing)
@@ -155,5 +169,5 @@ let key = keyset
 ```rust
 let key = keyset
     .selector(&[])
-    .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid(Some("my-kid")))?;
+    .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("my-kid"))?;
 ```

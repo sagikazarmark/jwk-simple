@@ -175,6 +175,9 @@ impl<'a> KeySelector<'a> {
 
         let mut candidates = Vec::new();
         let mut incompatible_for_known_kid = false;
+        let mut saw_alg_mismatch: Option<(Algorithm, Algorithm)> = None;
+        let mut saw_intent_mismatch = false;
+        let mut saw_validation_error: Option<ValidationError> = None;
 
         for key in self.keyset.keys.iter() {
             if let Some(kid) = matcher.kid
@@ -186,10 +189,10 @@ impl<'a> KeySelector<'a> {
             if let Some(declared_alg) = &key.alg {
                 if declared_alg != &matcher.alg {
                     if matcher.kid.is_some() {
-                        return Err(SelectionError::AlgorithmMismatch {
-                            requested: matcher.alg.clone(),
-                            declared: declared_alg.clone(),
-                        });
+                        if saw_alg_mismatch.is_none() {
+                            saw_alg_mismatch =
+                                Some((matcher.alg.clone(), declared_alg.clone()));
+                        }
                     }
                     continue;
                 }
@@ -204,22 +207,22 @@ impl<'a> KeySelector<'a> {
 
             if let Err(e) = key.validate_operation_metadata(matcher.op.clone()) {
                 if matcher.kid.is_some() {
-                    return match e {
-                        Error::Validation(_) => Err(SelectionError::IntentMismatch),
-                        _ => Err(SelectionError::IntentMismatch),
-                    };
+                    let _ = e;
+                    saw_intent_mismatch = true;
                 }
                 continue;
             }
 
             if let Err(e) = key.validate_for_algorithm(&matcher.alg) {
                 if matcher.kid.is_some() {
-                    return match e {
+                    match e {
                         Error::Validation(validation) => {
-                            Err(SelectionError::KeyValidationFailed(validation))
+                            if saw_validation_error.is_none() {
+                                saw_validation_error = Some(validation);
+                            }
                         }
-                        _ => Err(SelectionError::IncompatibleKeyType),
-                    };
+                        _ => incompatible_for_known_kid = true,
+                    }
                 }
                 continue;
             }
@@ -228,6 +231,18 @@ impl<'a> KeySelector<'a> {
         }
 
         if candidates.is_empty() {
+            if let Some((requested, declared)) = saw_alg_mismatch {
+                return Err(SelectionError::AlgorithmMismatch {
+                    requested,
+                    declared,
+                });
+            }
+            if saw_intent_mismatch {
+                return Err(SelectionError::IntentMismatch);
+            }
+            if let Some(validation) = saw_validation_error {
+                return Err(SelectionError::KeyValidationFailed(validation));
+            }
             if incompatible_for_known_kid {
                 return Err(SelectionError::IncompatibleKeyType);
             }
@@ -472,10 +487,10 @@ impl KeySet {
     /// let json = r#"{"keys": [{"kty": "oct", "kid": "my-key", "k": "AQAB"}]}"#;
     /// let jwks: KeySet = serde_json::from_str(json).unwrap();
     ///
-    /// let key = jwks.find_by_kid("my-key");
+    /// let key = jwks.get_by_kid("my-key");
     /// assert!(key.is_some());
     ///
-    /// let missing = jwks.find_by_kid("unknown");
+    /// let missing = jwks.get_by_kid("unknown");
     /// assert!(missing.is_none());
     /// ```
     pub fn get_by_kid(&self, kid: &str) -> Option<&Key> {
@@ -620,6 +635,7 @@ impl KeySet {
     /// assert_eq!(jwks.find_by_alg(&Algorithm::Rs256).count(), 0);
     /// assert_eq!(jwks.find_compatible(&Algorithm::Rs256).count(), 1);
     /// ```
+    #[deprecated(note = "use find(&KeyFilter) for discovery or selector(...).select(...) for strict selection")]
     pub fn find_compatible<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
         let alg = alg.clone();
         let is_unknown_alg = alg.is_unknown();
@@ -680,7 +696,7 @@ impl KeySet {
     /// let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
-    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Verify, ...))")]
+    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) or KeyOperation::Verify")]
     pub fn find_compatible_signing_key<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
         self.find_compatible(alg).find(|k| is_signing_key(k))
     }
@@ -714,7 +730,7 @@ impl KeySet {
     /// let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
-    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Verify, ...))")]
+    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) or KeyOperation::Verify")]
     pub fn find_signing_key_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
         let is_unknown_alg = alg.is_unknown();
         self.keys.iter().find(|k| {
@@ -817,8 +833,10 @@ impl KeySet {
                         KeyOperation::Encrypt
                         | KeyOperation::Decrypt
                         | KeyOperation::WrapKey
-                        | KeyOperation::UnwrapKey => key_use == &KeyUse::Encryption,
-                        _ => true,
+                        | KeyOperation::UnwrapKey
+                        | KeyOperation::DeriveKey
+                        | KeyOperation::DeriveBits => key_use == &KeyUse::Encryption,
+                        KeyOperation::Unknown(_) => true,
                     };
 
                     if !allowed_by_use {

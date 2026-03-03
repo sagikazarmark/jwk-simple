@@ -149,12 +149,12 @@ pub mod jwk;
 pub mod jwks;
 
 // Re-exports for convenience
-pub use error::{Error, Result};
+pub use error::{Error, Result, ValidationError};
 pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
     OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,
 };
-pub use jwks::KeySet;
+pub use jwks::{KeyFilter, KeyMatcher, KeySelector, KeySet, SelectionError};
 
 #[cfg(all(feature = "web-crypto", any(target_arch = "wasm32", docsrs)))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "web-crypto", target_arch = "wasm32"))))]
