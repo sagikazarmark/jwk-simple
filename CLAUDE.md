@@ -4,7 +4,7 @@ This file provides structured review criteria for Claude Code when reviewing pul
 
 ## About This Repository
 
-`jwk-simple` is a security-sensitive Rust library for JWK/JWKS handling targeting RFC 7517, 7518, 7519, 7638, 8037, and 9864. It also supports WebCrypto and integrates with `jwt-simple`. The library runs on both native (x86/arm) and WASM (via `wasm-bindgen`) targets.
+`jwk-simple` is a security-sensitive Rust library for JWK/JWKS handling targeting RFC 7517, 7518, 7638, 8037, and 9864. It also supports WebCrypto and integrates with `jwt-simple` for JWT workflows. The library runs on both native (x86/arm) and WASM (via `wasm-bindgen`) targets.
 
 ## Review Process
 
@@ -20,10 +20,9 @@ Cross-check changes against the RFCs this library targets:
 
 - **RFC 7517** — JSON Web Key (JWK): key structure, `kty`, `use`, `key_ops`, `alg`, `kid`, `x5*` parameters
 - **RFC 7518** — JSON Web Algorithms (JWA): algorithm identifiers, key requirements per algorithm, curve names
-- **RFC 7519** — JSON Web Token (JWT): only relevant where JWT parsing/validation is involved
 - **RFC 7638** — JWK Thumbprint: canonical member ordering, required members per `kty`, SHA-256 hashing
 - **RFC 8037** — OKP Keys (Ed25519/Ed448/X25519/X448): `crv`, `x`, `d` parameters and constraints
-- **RFC 9864** — JWK Thumbprint URI: `urn:ietf:params:oauth:jwk-thumbprint:` scheme structure
+- **RFC 9864** — Ed25519/Ed448 JOSE algorithms and EdDSA deprecation guidance
 
 Specific things to verify:
 - New algorithm identifiers or curve names match IANA-registered values exactly (case-sensitive).
@@ -44,7 +43,7 @@ Specific things to verify:
 
 ### Algorithm Validation
 
-- Algorithm validation must remain centralized (see PR #23). Verify that new algorithm paths do not bypass the central validation gate.
+- Algorithm validation must remain centralized in the canonical algorithm-aware validation gate (see `Key::validate_for_alg` and related checks). Verify that new algorithm paths do not bypass the central validation gate.
 - New algorithms added to the `alg` field must be registered in the centralized validation map, not handled with ad-hoc string matching.
 
 ### Base64 Operations
@@ -75,12 +74,12 @@ Specific things to verify:
 
 - New public types, methods, and trait implementations should follow the naming and ergonomics patterns of existing APIs (e.g., `Key`, `KeySet`, `RemoteKeyStore`).
 - Builder patterns should be consistent with existing builders.
-- Method names should use Rust idioms: `from_*` for conversions that can fail, `into_*` for infallible consuming conversions.
+- Method names should follow Rust idioms: `From`/`Into` (and commonly `from_*`/`into_*`) are for infallible conversions; use `TryFrom`/`TryInto`, `try_*`, or `parse_*` for conversions that can fail.
 
 ### Error Types
 
 - New error conditions should introduce typed variants rather than collapsing into `Error::Other(String)`. The `Error::Other` variant is a known deferred issue; new code should not make it worse.
-- Error variants should be `#[non_exhaustive]` for public error enums to allow future additions without breaking callers.
+- Public error enums (and structs) should be `#[non_exhaustive]` to allow future additions without breaking callers.
 
 ### Documentation
 
