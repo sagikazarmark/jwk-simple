@@ -1,14 +1,15 @@
 //! Base64URL encoding utilities with security features.
 //!
 //! This module provides a [`Base64UrlBytes`] wrapper type that handles
-//! base64url encoding/decoding (as required by RFC 7517) with constant-time
-//! operations and automatic memory zeroing for sensitive data.
+//! base64url encoding/decoding (as required by RFC 7517) with automatic memory
+//! zeroing for sensitive data.
 
 use std::fmt::{self, Debug};
 use std::hash::{Hash, Hasher};
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use subtle::{Choice, ConstantTimeEq};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::error::Result;
@@ -19,6 +20,13 @@ use crate::error::Result;
 /// - Base64url encoding without padding (per RFC 7517)
 /// - Constant-time base64 operations via `base64ct`
 /// - Automatic memory zeroing on drop via `zeroize`
+/// - Explicit constant-time byte comparison via [`Base64UrlBytes::ct_eq`]
+///
+/// # Security Note
+///
+/// [`PartialEq`] for this type is a regular byte equality check and is not
+/// guaranteed to be constant-time. For secret-dependent comparisons, use
+/// [`Base64UrlBytes::ct_eq`].
 ///
 /// # Examples
 ///
@@ -155,6 +163,14 @@ impl Base64UrlBytes {
         let mut s = self;
         Zeroizing::new(std::mem::take(&mut s.0))
     }
+
+    /// Performs a constant-time equality comparison.
+    ///
+    /// Use this method for secret-dependent decisions.
+    #[inline]
+    pub fn ct_eq(&self, other: &Self) -> bool {
+        bool::from(ConstantTimeEq::ct_eq(self, other))
+    }
 }
 
 impl Debug for Base64UrlBytes {
@@ -173,6 +189,13 @@ impl PartialEq for Base64UrlBytes {
 }
 
 impl Eq for Base64UrlBytes {}
+
+impl ConstantTimeEq for Base64UrlBytes {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> Choice {
+        self.0.as_slice().ct_eq(other.0.as_slice())
+    }
+}
 
 impl Hash for Base64UrlBytes {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -244,6 +267,18 @@ mod tests {
         assert!(empty.is_empty());
         assert_eq!(empty.len(), 0);
         assert_eq!(empty.to_base64url(), "");
+    }
+
+    #[test]
+    fn test_constant_time_equality() {
+        let a = Base64UrlBytes::new(vec![1, 2, 3, 4]);
+        let b = Base64UrlBytes::new(vec![1, 2, 3, 4]);
+        let c = Base64UrlBytes::new(vec![1, 2, 3, 5]);
+        let d = Base64UrlBytes::new(vec![1, 2, 3]);
+
+        assert!(a.ct_eq(&b));
+        assert!(!a.ct_eq(&c));
+        assert!(!a.ct_eq(&d));
     }
 
     #[test]

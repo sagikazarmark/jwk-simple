@@ -19,6 +19,7 @@ use crate::error::{Error, Result, ValidationError};
 /// # Security Note
 ///
 /// The key material is automatically zeroed from memory when this type is dropped.
+/// For secret comparisons, prefer [`SymmetricParams::ct_eq`] over [`PartialEq`].
 ///
 /// # Examples
 ///
@@ -136,6 +137,12 @@ impl SymmetricParams {
 
         Ok(())
     }
+
+    /// Performs a constant-time equality comparison of the key material.
+    #[inline]
+    pub fn ct_eq(&self, other: &Self) -> bool {
+        self.k.ct_eq(&other.k)
+    }
 }
 
 impl Debug for SymmetricParams {
@@ -197,5 +204,17 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let decoded: SymmetricParams = serde_json::from_str(&json).unwrap();
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_constant_time_equality() {
+        let a = SymmetricParams::new(Base64UrlBytes::new(vec![0; 32]));
+        let b = SymmetricParams::new(Base64UrlBytes::new(vec![0; 32]));
+        let mut different = vec![0; 32];
+        different[31] = 1;
+        let c = SymmetricParams::new(Base64UrlBytes::new(different));
+
+        assert!(a.ct_eq(&b));
+        assert!(!a.ct_eq(&c));
     }
 }
