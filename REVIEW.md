@@ -24,6 +24,32 @@ Copy this block for new items:
 
 ## Deferred Findings
 
+## Cloudflare remote fetch timeout is not explicitly configured
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: MEDIUM -> LOW/MEDIUM
+- Decision: DEFER
+- Rationale: Primarily resilience hardening; platform-level worker timeout already bounds worst-case behavior.
+- Preconditions/Trigger: Upstream stalls or responds very slowly, and callers need tighter app-level fail-fast semantics.
+- Risk if not fixed: Longer-than-desired latency and less precise timeout classification for retry/backoff behavior.
+- Revisit signal: SLO pressure, latency incidents, or need for distinct timeout error handling.
+- Suggested future action: Add optional configurable timeout/abort in Cloudflare `RemoteKeyStore` with typed timeout error.
+
+## Public-only OKP enforcement is not explicit
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: PLAUSIBLE
+- Trigger likelihood: RARE
+- Severity: HIGH -> MEDIUM
+- Decision: DEFER
+- Rationale: Generic key model supports both public and private OKP keys; strict RFC 8037 public-only enforcement requires context-aware validation.
+- Preconditions/Trigger: A workflow treats parsed keys as public-only material but accepts keys carrying `d` without additional policy checks.
+- Risk if not fixed: Potential policy/compliance mismatch in public-key-only pipelines.
+- Revisit signal: Requests for strict public-key validation profile or compliance certification needs.
+- Suggested future action: Add `validate_public()` or context-specific parser that rejects `d` for public-only use.
+
 ## Cache behavior policy (strict vs fail-open) for cache backend errors
 - Date added: 2026-03-03
 - Source: implementation planning follow-up
@@ -116,6 +142,19 @@ Copy this block for new items:
 - Suggested future action: Clarify docs and optionally add external-cert lookup hooks.
 
 ## Ignored Findings
+
+## JWKS ingestion should always run full `Key::validate()`
+- Date added: 2026-03-03
+- Source: second-opinion review
+- Validity: DISPUTED
+- Trigger likelihood: THEORETICAL
+- Severity: HIGH -> LOW
+- Decision: IGNORE
+- Rationale: Current behavior is intentional permissive JWKS ingestion aligned with RFC 7517 Section 5 SHOULD-ignore semantics.
+- Preconditions/Trigger: Assumes project policy should be strict-at-ingest for all metadata consistency checks.
+- Risk if not fixed: None for intended permissive mode; strict-mode users should call explicit validation.
+- Revisit signal: Product decision to switch to strict parsing by default.
+- Suggested future action: If needed, add an opt-in strict ingestion mode rather than changing default behavior.
 
 ## `test_get_subtle_crypto` is environment-oriented noise
 - Date added: 2026-03-03
