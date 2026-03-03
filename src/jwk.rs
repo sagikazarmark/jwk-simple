@@ -850,6 +850,9 @@ impl Key {
     /// X.509 field format checks (`x5u`, `x5c`, `x5t`, `x5t#S256`) including
     /// key-material matching against `x5c[0]`.
     ///
+    /// If `alg` is present, this also enforces algorithm/key compatibility and
+    /// algorithm-specific minimum key-strength requirements.
+    ///
     /// This method does **not** perform PKIX trust/path validation for `x5c`
     /// chains (trust anchors, validity period, key usage/EKU, revocation, etc.).
     /// PKIX trust validation is application-defined and out of scope for this crate.
@@ -901,11 +904,11 @@ impl Key {
             }
         }
 
-        let x5c_der_chain = self.decode_x5c_der_chain()?;
+        let first_x5c_der = self.decode_and_validate_x5c_first_der()?;
 
         // RFC 7517 Section 4.7: the key in the first certificate MUST match
         // the public key represented by other JWK members.
-        if let Some(first_der) = x5c_der_chain.as_ref().and_then(|chain| chain.first()) {
+        if let Some(first_der) = first_x5c_der.as_ref() {
             self.validate_x5c_public_key_match(first_der)?;
         }
 
@@ -921,7 +924,7 @@ impl Key {
 
         // RFC 7517 Section 4.8/4.9 with 4.7 consistency: if x5c and thumbprints
         // are both present, thumbprints must match the first certificate.
-        if let Some(first_der) = x5c_der_chain.as_ref().and_then(|chain| chain.first()) {
+        if let Some(first_der) = first_x5c_der.as_ref() {
             if let Some(ref x5t) = self.x5t {
                 let mut hasher = Sha1::new();
                 hasher.update(first_der);
@@ -957,7 +960,7 @@ impl Key {
         }
     }
 
-    fn decode_x5c_der_chain(&self) -> Result<Option<Vec<Vec<u8>>>> {
+    fn decode_and_validate_x5c_first_der(&self) -> Result<Option<Vec<u8>>> {
         // RFC 7517 Section 4.7: x5c contains "a chain of one or more PKIX certificates"
         let Some(ref certs) = self.x5c else {
             return Ok(None);
@@ -970,7 +973,7 @@ impl Key {
             }));
         }
 
-        let mut der_chain = Vec::with_capacity(certs.len());
+        let mut first_der = None;
 
         // RFC 7517 Section 4.7: x5c values are base64 encoded (NOT base64url)
         for (i, cert) in certs.iter().enumerate() {
@@ -1016,10 +1019,12 @@ impl Key {
                 }));
             }
 
-            der_chain.push(der_bytes);
+            if i == 0 {
+                first_der = Some(der_bytes);
+            }
         }
 
-        Ok(Some(der_chain))
+        Ok(first_der)
     }
 
     /// Returns `true` if this key's type (and curve, where applicable) is
