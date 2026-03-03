@@ -1179,7 +1179,10 @@ mod validation_tests {
     #[test]
     fn test_import_usage_validation_enforces_metadata_when_alg_present() {
         let mut key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
-        key.key_ops = Some(vec![crate::jwk::KeyOperation::Sign, crate::jwk::KeyOperation::Sign]);
+        key.key_ops = Some(vec![
+            crate::jwk::KeyOperation::Sign,
+            crate::jwk::KeyOperation::Sign,
+        ]);
 
         let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Sign);
         assert!(result.is_err(), "duplicate key_ops must be rejected");
