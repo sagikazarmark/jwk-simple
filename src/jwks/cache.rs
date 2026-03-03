@@ -3,10 +3,10 @@
 //! This module provides a [`KeyCache`] trait for caching key sets,
 //! and a [`CachedKeyStore`] wrapper that combines any cache with any key store.
 //!
-//! For a ready-to-use Moka implementation, enable the `cache-moka` feature
+//! For a ready-to-use Moka implementation, enable the `moka` feature
 //! and use [`MokaKeyCache`](super::MokaKeyCache).
 
-#[cfg(feature = "cache-moka")]
+#[cfg(all(feature = "moka", not(target_arch = "wasm32")))]
 pub mod moka;
 
 use crate::error::Result;

@@ -4,6 +4,7 @@
 //! on every request. For production use, consider wrapping with
 //! [`CachedKeyStore`](crate::CachedKeyStore).
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use crate::error::{Error, ParseError, Result};
@@ -11,6 +12,7 @@ use crate::error::{Error, ParseError, Result};
 use crate::jwks::{KeySet, KeyStore};
 
 /// Default timeout for HTTP requests (30 seconds).
+#[cfg(not(target_arch = "wasm32"))]
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A key store that fetches from an HTTP endpoint on every request.
@@ -70,9 +72,13 @@ impl HttpKeyStore {
     /// Uses a default HTTP client with a 30-second timeout. To customize the client,
     /// use [`new_with_client`](Self::new_with_client).
     pub fn new(url: impl Into<String>) -> Result<Self> {
+        #[cfg(not(target_arch = "wasm32"))]
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_TIMEOUT)
             .build()?;
+
+        #[cfg(target_arch = "wasm32")]
+        let client = reqwest::Client::builder().build()?;
 
         Ok(Self {
             url: url.into(),
@@ -109,17 +115,14 @@ impl HttpKeyStore {
 
     /// Fetches the JWKS from the remote endpoint.
     async fn fetch(&self) -> Result<KeySet> {
-        let mut response = self
+        let response = self
             .client
             .get(&self.url)
             .send()
             .await?
             .error_for_status()?;
 
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await? {
-            bytes.extend_from_slice(&chunk);
-        }
+        let bytes = response.bytes().await?;
 
         let json = std::str::from_utf8(&bytes).map_err(|e| {
             Error::Parse(ParseError::Json(format!(
@@ -140,6 +143,7 @@ impl KeyStore for HttpKeyStore {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 mod tests {
     use super::*;

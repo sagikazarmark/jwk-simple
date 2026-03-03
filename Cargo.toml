@@ -41,7 +41,7 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [features]
 default = []
-cache-moka = ["dep:moka"]
+moka = ["dep:moka"]
 cloudflare = ["dep:worker"]
 http = ["dep:reqwest"]
 jwt-simple = ["dep:jwt-simple"]

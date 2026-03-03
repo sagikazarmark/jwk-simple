@@ -14,11 +14,15 @@ mod cache;
 pub mod cloudflare;
 mod store;
 
-#[cfg(feature = "cache-moka")]
+#[cfg(feature = "moka")]
 pub use cache::moka::{DEFAULT_MOKA_CACHE_TTL, MokaKeyCache};
 pub use cache::{CachedKeyStore, KeyCache};
+
 #[cfg(feature = "http")]
-pub use store::{DEFAULT_TIMEOUT, HttpKeyStore};
+pub use store::HttpKeyStore;
+
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+pub use store::DEFAULT_TIMEOUT;
 
 /// A trait for types that can provide JWK keys.
 ///

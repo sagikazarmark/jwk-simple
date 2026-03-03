@@ -45,7 +45,7 @@
 //! | `jwt-simple` | Integration with the jwt-simple crate |
 //! | `web-crypto` | WebCrypto integration for browser/WASM environments |
 //! | `http` | Async HTTP fetching with `HttpKeyStore` |
-//! | `cache-moka` | In-memory `KeyCache` implementation using Moka |
+//! | `moka` | In-memory `KeyCache` implementation using Moka |
 //! | `cloudflare` | Cloudflare Workers support (Fetch API + KV cache) |
 //!
 //! ## Converting to jwt-simple keys
@@ -133,10 +133,14 @@ pub use jwks::{CachedKeyStore, KeyCache, KeySet, KeySetParseDiagnostics, KeyStor
 
 #[cfg(feature = "http")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
-pub use jwks::{DEFAULT_TIMEOUT, HttpKeyStore};
+pub use jwks::HttpKeyStore;
 
-#[cfg(feature = "cache-moka")]
-#[cfg_attr(docsrs, doc(cfg(feature = "cache-moka")))]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "http", not(target_arch = "wasm32")))))]
+pub use jwks::DEFAULT_TIMEOUT;
+
+#[cfg(all(feature = "moka", not(target_arch = "wasm32")))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "moka", not(target_arch = "wasm32")))))]
 pub use jwks::{DEFAULT_MOKA_CACHE_TTL, MokaKeyCache};
 
 #[cfg(feature = "web-crypto")]

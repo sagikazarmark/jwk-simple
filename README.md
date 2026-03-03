@@ -57,7 +57,7 @@ If you need visibility into dropped keys, use `KeySet::from_json_with_diagnostic
 |---------|---------|-------------|
 | `jwt-simple` | ❌ | Integration with the jwt-simple crate |
 | `http` | ❌ | Async HTTP fetching (reqwest) |
-| `cache-moka` | ❌ | In-memory TTL-based key caching (moka) |
+| `moka` | ❌ | In-memory TTL-based key caching (moka) |
 | `cloudflare` | ❌ | Cloudflare Workers support (KV cache + fetch), wasm32 targets only |
 | `web-crypto` | ❌ | WebCrypto API integration for WASM |
 
@@ -141,7 +141,7 @@ let jwks = remote.get_keyset().await?;
 
 ### Caching Keys
 
-With the `http` and `cache-moka` features enabled:
+With the `http` and `moka` features enabled:
 
 ```rust
 use jwk_simple::{CachedKeyStore, HttpKeyStore, KeyCache, KeyStore, MokaKeyCache};

@@ -5,12 +5,12 @@
 //!
 //! Run with: `cargo run --example http_fetch --features http`
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use jwk_simple::{HttpKeyStore, KeyStore};
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use std::time::Duration;
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example: Fetch Google's JWKS (used for verifying Google ID tokens)
@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    #[cfg(feature = "cache-moka")]
+    #[cfg(feature = "moka")]
     {
         // For production use, wrap with CachedKeyStore + MokaKeyCache for TTL-based caching
         println!("\n--- Using CachedKeyStore + MokaKeyCache for production ---");
@@ -64,13 +64,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Second call: served from cache");
     }
 
-    #[cfg(not(feature = "cache-moka"))]
+    #[cfg(not(feature = "moka"))]
     {
-        println!("\nTip: enable 'cache-moka' to use MokaKeyCache.");
-        println!("Run with: cargo run --example http_fetch --features \"http cache-moka\"");
+        println!("\nTip: enable 'moka' to use MokaKeyCache.");
+        println!("Run with: cargo run --example http_fetch --features \"http moka\"");
     }
 
     Ok(())
+}
+
+#[cfg(all(feature = "http", target_arch = "wasm32"))]
+fn main() {
+    eprintln!("This example is native-only because it uses tokio + timeout configuration.");
+    eprintln!("Use `http_fetch_wasm` for a wasm-compatible variant.");
 }
 
 #[cfg(not(feature = "http"))]
