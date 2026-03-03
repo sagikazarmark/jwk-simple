@@ -82,7 +82,7 @@ let jwks: KeySet = serde_json::from_str(json)?;
 // Find keys by various criteria
 let key = jwks.find_by_kid("key-id");
 let rsa_keys = jwks.find_by_kty(KeyType::Rsa);
-let signing_keys = jwks.find_by_use(KeyUse::Signature);
+let signing_keys = jwks.find_by_use(&KeyUse::Signature);
 
 // Get the first signing key (common pattern)
 let first_signing = jwks.first_signing_key();
