@@ -42,6 +42,9 @@ pub use rsa::{RsaOtherPrime, RsaParams, RsaParamsBuilder};
 pub use symmetric::SymmetricParams;
 
 use std::collections::HashSet;
+use std::fmt::{self, Debug, Display};
+use std::hash::{Hash, Hasher};
+use std::str::FromStr;
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -79,13 +82,13 @@ impl KeyType {
     }
 }
 
-impl std::fmt::Display for KeyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for KeyType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl std::str::FromStr for KeyType {
+impl FromStr for KeyType {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
@@ -148,13 +151,13 @@ impl KeyUse {
     }
 }
 
-impl std::fmt::Display for KeyUse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for KeyUse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl std::str::FromStr for KeyUse {
+impl FromStr for KeyUse {
     type Err = std::convert::Infallible;
 
     /// Parses a key use string.
@@ -185,6 +188,7 @@ impl<'de> Deserialize<'de> for KeyUse {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
+
         // Infallible, so unwrap is safe
         Ok(s.parse().unwrap())
     }
@@ -236,13 +240,13 @@ impl KeyOperation {
     }
 }
 
-impl std::fmt::Display for KeyOperation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for KeyOperation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl std::str::FromStr for KeyOperation {
+impl FromStr for KeyOperation {
     type Err = std::convert::Infallible;
 
     /// Parses a key operation string.
@@ -279,6 +283,7 @@ impl<'de> Deserialize<'de> for KeyOperation {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
+
         // Infallible, so unwrap is safe
         Ok(s.parse().unwrap())
     }
@@ -471,13 +476,13 @@ impl Algorithm {
     }
 }
 
-impl std::fmt::Display for Algorithm {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for Algorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl std::str::FromStr for Algorithm {
+impl FromStr for Algorithm {
     type Err = std::convert::Infallible;
 
     /// Parses an algorithm string.
@@ -552,7 +557,7 @@ impl<'de> Deserialize<'de> for Algorithm {
 }
 
 /// Key-type-specific parameters.
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub enum KeyParams {
     /// RSA key parameters.
     Rsa(RsaParams),
@@ -601,6 +606,18 @@ impl KeyParams {
     }
 }
 
+impl From<&KeyParams> for KeyType {
+    fn from(params: &KeyParams) -> Self {
+        params.key_type()
+    }
+}
+
+impl From<KeyParams> for KeyType {
+    fn from(params: KeyParams) -> Self {
+        (&params).into()
+    }
+}
+
 impl From<RsaParams> for KeyParams {
     fn from(p: RsaParams) -> Self {
         KeyParams::Rsa(p)
@@ -625,17 +642,6 @@ impl From<OkpParams> for KeyParams {
     }
 }
 
-impl std::fmt::Debug for KeyParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            KeyParams::Rsa(p) => write!(f, "KeyParams::Rsa({:?})", p),
-            KeyParams::Ec(p) => write!(f, "KeyParams::Ec({:?})", p),
-            KeyParams::Symmetric(p) => write!(f, "KeyParams::Symmetric({:?})", p),
-            KeyParams::Okp(p) => write!(f, "KeyParams::Okp({:?})", p),
-        }
-    }
-}
-
 impl PartialEq for KeyParams {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -650,8 +656,8 @@ impl PartialEq for KeyParams {
 
 impl Eq for KeyParams {}
 
-impl std::hash::Hash for KeyParams {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for KeyParams {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
             KeyParams::Rsa(p) => p.hash(state),
@@ -1374,8 +1380,8 @@ impl Key {
     }
 }
 
-impl std::fmt::Debug for Key {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Key")
             .field("kty", &self.kty())
             .field("kid", &self.kid)
@@ -1403,8 +1409,8 @@ impl PartialEq for Key {
 
 impl Eq for Key {}
 
-impl std::hash::Hash for Key {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for Key {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         // Same fields as PartialEq: kty, kid, key_use, key_ops, alg, params
         // Excludes X.509 fields, consistent with the PartialEq contract.
         self.kty().hash(state);

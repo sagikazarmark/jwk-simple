@@ -3,6 +3,9 @@
 //! This module contains the [`RsaParams`] type which holds RSA public and
 //! private key components, including support for multi-prime RSA keys.
 
+use std::fmt::{self, Debug};
+use std::hash::{Hash, Hasher};
+
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -84,8 +87,8 @@ impl RsaOtherPrime {
     }
 }
 
-impl std::fmt::Debug for RsaOtherPrime {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for RsaOtherPrime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RsaOtherPrime")
             .field("r", &format!("[{} bytes]", self.r.len()))
             .field("d", &"[REDACTED]")
@@ -102,8 +105,8 @@ impl PartialEq for RsaOtherPrime {
 
 impl Eq for RsaOtherPrime {}
 
-impl std::hash::Hash for RsaOtherPrime {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for RsaOtherPrime {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.r.hash(state);
         self.d.hash(state);
         self.t.hash(state);
@@ -626,8 +629,8 @@ impl RsaParamsBuilder {
     }
 }
 
-impl std::fmt::Debug for RsaParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for RsaParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RsaParams")
             .field("n", &format!("[{} bytes]", self.n.len()))
             .field("e", &self.e)
@@ -652,8 +655,8 @@ impl PartialEq for RsaParams {
 
 impl Eq for RsaParams {}
 
-impl std::hash::Hash for RsaParams {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for RsaParams {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.n.hash(state);
         self.e.hash(state);
         self.d.hash(state);

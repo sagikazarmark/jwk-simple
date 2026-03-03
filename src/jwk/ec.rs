@@ -3,6 +3,10 @@
 //! This module contains the [`EcParams`] type which holds EC public and
 //! private key components.
 
+use std::fmt::{self, Display};
+use std::hash::{Hash, Hasher};
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -51,7 +55,7 @@ impl EcCurve {
     }
 }
 
-impl std::str::FromStr for EcCurve {
+impl FromStr for EcCurve {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
@@ -65,8 +69,8 @@ impl std::str::FromStr for EcCurve {
     }
 }
 
-impl std::fmt::Display for EcCurve {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for EcCurve {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
     }
 }
@@ -207,8 +211,8 @@ impl EcParams {
     }
 }
 
-impl std::fmt::Debug for EcParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for EcParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EcParams")
             .field("crv", &self.crv)
             .field("x", &format!("[{} bytes]", self.x.len()))
@@ -226,8 +230,8 @@ impl PartialEq for EcParams {
 
 impl Eq for EcParams {}
 
-impl std::hash::Hash for EcParams {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for EcParams {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.crv.hash(state);
         self.x.hash(state);
         self.y.hash(state);

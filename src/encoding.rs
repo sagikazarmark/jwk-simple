@@ -4,6 +4,9 @@
 //! base64url encoding/decoding (as required by RFC 7517) with constant-time
 //! operations and automatic memory zeroing for sensitive data.
 
+use std::fmt::{self, Debug};
+use std::hash::{Hash, Hasher};
+
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -154,8 +157,8 @@ impl Base64UrlBytes {
     }
 }
 
-impl std::fmt::Debug for Base64UrlBytes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for Base64UrlBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Don't print the actual bytes in debug output for security
         f.debug_tuple("Base64UrlBytes")
             .field(&format!("[{} bytes]", self.0.len()))
@@ -171,8 +174,8 @@ impl PartialEq for Base64UrlBytes {
 
 impl Eq for Base64UrlBytes {}
 
-impl std::hash::Hash for Base64UrlBytes {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for Base64UrlBytes {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state);
     }
 }

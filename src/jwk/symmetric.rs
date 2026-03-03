@@ -3,6 +3,9 @@
 //! This module contains the [`SymmetricParams`] type which holds symmetric
 //! key material for algorithms like HMAC and AES.
 
+use std::fmt::{self, Debug};
+use std::hash::{Hash, Hasher};
+
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -135,8 +138,8 @@ impl SymmetricParams {
     }
 }
 
-impl std::fmt::Debug for SymmetricParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for SymmetricParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Never show the actual key value in debug output
         f.debug_struct("SymmetricParams")
             .field("key_size_bits", &self.key_size_bits())
@@ -152,8 +155,8 @@ impl PartialEq for SymmetricParams {
 
 impl Eq for SymmetricParams {}
 
-impl std::hash::Hash for SymmetricParams {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for SymmetricParams {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.k.hash(state);
     }
 }

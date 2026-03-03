@@ -3,6 +3,10 @@
 //! This module contains the [`OkpParams`] type which holds key material for
 //! Edwards-curve and Montgomery-curve keys (Ed25519, Ed448, X25519, X448).
 
+use std::fmt::{self, Display};
+use std::hash::{Hash, Hasher};
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -70,7 +74,7 @@ impl OkpCurve {
     }
 }
 
-impl std::str::FromStr for OkpCurve {
+impl FromStr for OkpCurve {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
@@ -84,8 +88,8 @@ impl std::str::FromStr for OkpCurve {
     }
 }
 
-impl std::fmt::Display for OkpCurve {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for OkpCurve {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
     }
 }
@@ -211,8 +215,8 @@ impl OkpParams {
     }
 }
 
-impl std::fmt::Debug for OkpParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for OkpParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OkpParams")
             .field("crv", &self.crv)
             .field("x", &format!("[{} bytes]", self.x.len()))
@@ -229,8 +233,8 @@ impl PartialEq for OkpParams {
 
 impl Eq for OkpParams {}
 
-impl std::hash::Hash for OkpParams {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for OkpParams {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.crv.hash(state);
         self.x.hash(state);
         self.d.hash(state);
