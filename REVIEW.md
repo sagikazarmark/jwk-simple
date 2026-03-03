@@ -8,7 +8,7 @@ It is structured so new findings can be added consistently over time.
 Copy this block for new items:
 
 ```md
-## Finding #[N]: [Title]
+## [Title]
 - Date added: YYYY-MM-DD
 - Source: [review round, PR, audit, etc.]
 - Validity: CONFIRMED | PLAUSIBLE | DISPUTED | DUPLICATE
@@ -24,7 +24,7 @@ Copy this block for new items:
 
 ## Deferred Findings
 
-## Finding #26: Cache behavior policy (strict vs fail-open) for cache backend errors
+## Cache behavior policy (strict vs fail-open) for cache backend errors
 - Date added: 2026-03-03
 - Source: implementation planning follow-up
 - Validity: CONFIRMED
@@ -37,7 +37,7 @@ Copy this block for new items:
 - Revisit signal: Need for high-availability fail-open operation or strict consistency mode split.
 - Suggested future action: Add explicit cache error policy configuration on `CachedKeyStore`.
 
-## Finding #5: Malformed key drops are silent at parse time
+## Malformed key drops are silent at parse time
 - Date added: 2026-03-03
 - Source: second-opinion review
 - Validity: PLAUSIBLE
@@ -50,7 +50,7 @@ Copy this block for new items:
 - Revisit signal: Operational incidents with unexplained key lookup misses.
 - Suggested future action: Add default counters/logging for skipped keys in remote/cache flows.
 
-## Finding #7: Error classification collapses into Error::Other(String)
+## Error classification collapses into Error::Other(String)
 - Date added: 2026-03-03
 - Source: second-opinion review
 - Validity: CONFIRMED
@@ -63,7 +63,7 @@ Copy this block for new items:
 - Revisit signal: Requests for programmatic error matching or repeated support/debug pain.
 - Suggested future action: Introduce typed error variants incrementally, keep `Other` for unknowns only.
 
-## Finding #11: Timeout test may be timing-flaky
+## Timeout test may be timing-flaky
 - Date added: 2026-03-03
 - Source: second-opinion review
 - Validity: CONFIRMED
@@ -76,7 +76,7 @@ Copy this block for new items:
 - Revisit signal: Any recurring flaky failures in `test_remote_keystore_timeout`.
 - Suggested future action: Increase margin or migrate to deterministic timeout harness.
 
-## Finding #22: x5c RSA SPKI OID excludes RSASSA-PSS OID
+## x5c RSA SPKI OID excludes RSASSA-PSS OID
 - Date added: 2026-03-03
 - Source: second-opinion review
 - Validity: PLAUSIBLE
@@ -89,7 +89,7 @@ Copy this block for new items:
 - Revisit signal: User reports/certs exhibiting this OID.
 - Suggested future action: Accept both `rsaEncryption` and `id-RSASSA-PSS` OIDs in RSA x5c matching path.
 
-## Finding #24: x5u checks are syntactic only
+## x5u checks are syntactic only
 - Date added: 2026-03-03
 - Source: second-opinion review
 - Validity: CONFIRMED
@@ -102,7 +102,7 @@ Copy this block for new items:
 - Revisit signal: Feature request for resolver-backed x5u validation.
 - Suggested future action: Document current scope clearly; add optional resolver API in a future release.
 
-## Finding #25: x5t/x5t#S256 binding only checked when x5c present
+## x5t/x5t#S256 binding only checked when x5c present
 - Date added: 2026-03-03
 - Source: second-opinion review
 - Validity: PLAUSIBLE
@@ -117,7 +117,7 @@ Copy this block for new items:
 
 ## Ignored Findings
 
-## Finding #12: `test_get_subtle_crypto` is environment-oriented noise
+## `test_get_subtle_crypto` is environment-oriented noise
 - Date added: 2026-03-03
 - Source: second-opinion review
 - Validity: PLAUSIBLE
