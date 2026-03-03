@@ -5,6 +5,7 @@
 //! over different sources of JWK keys.
 
 use serde::{Deserialize, Deserializer, Serialize};
+use subtle::ConstantTimeEq;
 
 use crate::error::{Error, Result, ValidationError};
 use crate::jwk::{Algorithm, Key, KeyOperation, KeyType, KeyUse};
@@ -26,6 +27,7 @@ pub use store::http::DEFAULT_TIMEOUT;
 
 /// Errors returned by strict key selection.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum SelectionError {
     /// Verification selection was requested without a configured allowlist.
     EmptyVerifyAllowlist,
@@ -90,7 +92,14 @@ impl std::fmt::Display for SelectionError {
     }
 }
 
-impl std::error::Error for SelectionError {}
+impl std::error::Error for SelectionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SelectionError::KeyValidationFailed(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 /// Strict selection request criteria.
 #[derive(Debug, Clone)]
@@ -109,8 +118,14 @@ impl<'a> KeyMatcher<'a> {
         Self { op, alg, kid: None }
     }
 
-    /// Adds an optional key identifier constraint.
-    pub fn with_kid(mut self, kid: Option<&'a str>) -> Self {
+    /// Adds a key identifier (`kid`) constraint.
+    pub fn with_kid(mut self, kid: &'a str) -> Self {
+        self.kid = Some(kid);
+        self
+    }
+
+    /// Adds an optional key identifier (`kid`) constraint.
+    pub fn with_optional_kid(mut self, kid: Option<&'a str>) -> Self {
         self.kid = kid;
         self
     }
@@ -118,6 +133,7 @@ impl<'a> KeyMatcher<'a> {
 
 /// Discovery filter criteria.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct KeyFilter<'a> {
     /// Optional operation-intent filter.
     pub op: Option<KeyOperation>,
@@ -747,9 +763,11 @@ impl KeySet {
     /// This method computes the SHA-256 thumbprint of each key in the set on
     /// every call, making it O(n) hash computations per lookup. For hot paths
     /// (e.g., verifying JWTs in a web server), consider caching thumbprints
-    /// externally or using [`find_by_kid`](KeySet::find_by_kid) instead.
+    /// externally or using [`get_by_kid`](KeySet::get_by_kid) instead.
     pub fn get_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
-        self.keys.iter().find(|k| k.thumbprint() == thumbprint)
+        self.keys.iter().find(|k| {
+            bool::from(k.thumbprint().as_bytes().ct_eq(thumbprint.as_bytes()))
+        })
     }
 
     /// Finds a key by its JWK thumbprint (RFC 7638).
@@ -817,6 +835,11 @@ impl KeySet {
     ///
     /// Verification algorithm allowlists are enforced only when selecting for
     /// [`KeyOperation::Verify`].
+    ///
+    /// # Errors
+    ///
+    /// This constructor is infallible; strict selection failures are returned
+    /// by [`KeySelector::select`].
     pub fn selector(&self, allowed_verify_algs: &[Algorithm]) -> KeySelector<'_> {
         KeySelector {
             keyset: self,
@@ -977,7 +1000,7 @@ mod tests {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
         assert!(jwks.get_by_kid("rsa-key-1").is_some());
-        assert!(jwks.get_by_kid("rsa-key-1").is_some());
+        assert!(jwks.get_by_kid("rsa-enc-1").is_some());
         assert!(jwks.get_by_kid("ec-key-1").is_some());
         assert!(jwks.get_by_kid("unknown").is_none());
     }
@@ -1036,7 +1059,7 @@ mod tests {
 
         let key = selector
             .select(
-                KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid(Some("rsa-key-1")),
+                KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-key-1"),
             )
             .unwrap();
 
@@ -1071,7 +1094,7 @@ mod tests {
         let selector = jwks.selector(&[Algorithm::Es256]);
 
         let err = selector
-            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid(Some("rsa")))
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("rsa"))
             .unwrap_err();
 
         assert!(matches!(
@@ -1107,7 +1130,7 @@ mod tests {
         let selector = jwks.selector(&[]);
 
         let err = selector
-            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid(Some("oct-1")))
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("oct-1"))
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::IncompatibleKeyType));
@@ -1123,11 +1146,23 @@ mod tests {
 
         let err = selector
             .select(
-                KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid(Some("weak-rsa")),
+                KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("weak-rsa"),
             )
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
+    }
+
+    #[test]
+    fn test_selector_verify_selects_single_key_without_kid() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[Algorithm::Es256]);
+
+        let key = selector
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256))
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("ec-key-1"));
     }
 
     #[test]
