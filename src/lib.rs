@@ -34,7 +34,7 @@
 //! }"#;
 //!
 //! let jwks = serde_json::from_str::<KeySet>(json).unwrap();
-//! let key = jwks.find_by_kid("my-key-id").expect("key not found");
+//! let key = jwks.get_by_kid("my-key-id").expect("key not found");
 //! assert!(key.is_public_key_only());
 //! ```
 //!
@@ -63,7 +63,7 @@
 //! use jwt_simple::prelude::*;
 //!
 //! let keyset = serde_json::from_str::<KeySet>(json)?;
-//! let jwk = keyset.find_by_kid("my-key-id").unwrap();
+//! let jwk = keyset.get_by_kid("my-key-id").unwrap();
 //!
 //! // Convert to jwt-simple key
 //! let key: RS256PublicKey = jwk.try_into()?;
@@ -84,7 +84,7 @@
 //!
 //! // Parse a JWKS
 //! let keyset: KeySet = serde_json::from_str(json)?;
-//! let key = keyset.find_by_kid("my-key-id").unwrap();
+//! let key = keyset.get_by_kid("my-key-id").unwrap();
 //!
 //! // Check if the key is WebCrypto compatible
 //! if key.is_web_crypto_compatible() {

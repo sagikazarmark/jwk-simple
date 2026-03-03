@@ -726,7 +726,7 @@ pub fn build_verify_algorithm(alg: &Algorithm) -> Result<Object> {
 /// use jwk_simple::{web_crypto, KeySet};
 ///
 /// let jwks: KeySet = serde_json::from_str(jwks_json)?;
-/// let key = jwks.find_by_kid("my-key-id").unwrap();
+/// let key = jwks.get_by_kid("my-key-id").unwrap();
 ///
 /// // Works when the key has an `alg` field set
 /// let crypto_key = web_crypto::import_verify_key(key).await?;
@@ -872,7 +872,7 @@ pub async fn import_unwrap_key(key: &Key) -> Result<CryptoKey> {
 /// use jwk_simple::{Algorithm, web_crypto, KeySet};
 ///
 /// let jwks: KeySet = serde_json::from_str(jwks_json)?;
-/// let key = jwks.find_by_kid("my-key-id").unwrap();
+/// let key = jwks.get_by_kid("my-key-id").unwrap();
 /// // Use the algorithm from the JWT header, not the key
 /// let crypto_key = web_crypto::import_verify_key_for_alg(key, &Algorithm::Rs384).await?;
 /// ```

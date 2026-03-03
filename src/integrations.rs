@@ -42,7 +42,7 @@
 //!
 //! // Load JWKS and find a key
 //! let jwks = serde_json::from_str::<KeySet>(json)?;
-//! let jwk = jwks.find_by_kid("my-key").unwrap();
+//! let jwk = jwks.get_by_kid("my-key").unwrap();
 //!
 //! // Convert to jwt-simple key using TryFrom
 //! let key: RS256PublicKey = jwk.try_into()?;

@@ -181,7 +181,7 @@ mod tests {
         let store = HttpKeyStore::new(url).unwrap();
         let keyset = store.get_keyset().await.unwrap();
         assert_eq!(keyset.len(), 1);
-        assert!(keyset.find_by_kid("k1").is_some());
+        assert!(keyset.get_by_kid("k1").is_some());
     }
 
     #[tokio::test]

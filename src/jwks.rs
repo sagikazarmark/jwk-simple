@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::error::Result;
+use crate::error::{Error, Result, ValidationError};
 use crate::jwk::{Algorithm, Key, KeyOperation, KeyType, KeyUse};
 
 mod cache;
@@ -23,6 +23,210 @@ pub use store::http::HttpKeyStore;
 
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub use store::http::DEFAULT_TIMEOUT;
+
+/// Errors returned by strict key selection.
+#[derive(Debug)]
+pub enum SelectionError {
+    /// Verification selection was requested without a configured allowlist.
+    EmptyVerifyAllowlist,
+    /// The requested algorithm is unknown/private and strict selection rejects it.
+    UnknownAlgorithm,
+    /// The requested verification algorithm is not permitted by the allowlist.
+    AlgorithmNotAllowed,
+    /// The requested algorithm conflicts with a key's declared `alg` value.
+    AlgorithmMismatch {
+        /// Algorithm requested by the caller.
+        requested: Algorithm,
+        /// Algorithm declared on the matching key.
+        declared: Algorithm,
+    },
+    /// Key metadata (`use` / `key_ops`) does not permit the requested operation.
+    IntentMismatch,
+    /// Key material type/curve is incompatible with the requested algorithm.
+    IncompatibleKeyType,
+    /// Key failed algorithm-specific validation (strength/parameter constraints).
+    KeyValidationFailed(ValidationError),
+    /// More than one key satisfies strict selection criteria.
+    AmbiguousSelection {
+        /// Number of matched keys.
+        count: usize,
+    },
+    /// No key satisfies strict selection criteria.
+    NoMatchingKey,
+}
+
+impl std::fmt::Display for SelectionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SelectionError::EmptyVerifyAllowlist => {
+                write!(f, "verification allowlist is empty")
+            }
+            SelectionError::UnknownAlgorithm => write!(f, "unknown or unsupported algorithm"),
+            SelectionError::AlgorithmNotAllowed => {
+                write!(f, "algorithm is not allowed for verification")
+            }
+            SelectionError::AlgorithmMismatch {
+                requested,
+                declared,
+            } => write!(
+                f,
+                "algorithm mismatch: requested {}, key declares {}",
+                requested, declared
+            ),
+            SelectionError::IntentMismatch => {
+                write!(f, "key metadata does not permit requested operation")
+            }
+            SelectionError::IncompatibleKeyType => {
+                write!(f, "key type/curve is incompatible with requested algorithm")
+            }
+            SelectionError::KeyValidationFailed(e) => {
+                write!(f, "key validation failed: {}", e)
+            }
+            SelectionError::AmbiguousSelection { count } => {
+                write!(f, "selection is ambiguous: {} matching keys", count)
+            }
+            SelectionError::NoMatchingKey => write!(f, "no matching key found"),
+        }
+    }
+}
+
+impl std::error::Error for SelectionError {}
+
+/// Strict selection request criteria.
+#[derive(Debug, Clone)]
+pub struct KeyMatcher<'a> {
+    /// Requested cryptographic operation.
+    op: KeyOperation,
+    /// Requested JOSE algorithm.
+    alg: Algorithm,
+    /// Optional key identifier (`kid`) constraint.
+    kid: Option<&'a str>,
+}
+
+impl<'a> KeyMatcher<'a> {
+    /// Creates strict selection criteria for an operation and algorithm.
+    pub fn new(op: KeyOperation, alg: Algorithm) -> Self {
+        Self { op, alg, kid: None }
+    }
+
+    /// Adds an optional key identifier constraint.
+    pub fn with_kid(mut self, kid: Option<&'a str>) -> Self {
+        self.kid = kid;
+        self
+    }
+}
+
+/// Discovery filter criteria.
+#[derive(Debug, Clone, Default)]
+pub struct KeyFilter<'a> {
+    /// Optional operation-intent filter.
+    pub op: Option<KeyOperation>,
+    /// Optional algorithm filter (exact `alg` match only).
+    pub alg: Option<Algorithm>,
+    /// Optional key identifier filter.
+    pub kid: Option<&'a str>,
+    /// Optional key-type filter.
+    pub kty: Option<KeyType>,
+    /// Optional key-use filter.
+    pub key_use: Option<KeyUse>,
+}
+
+/// Policy-bound strict selector for a [`KeySet`].
+#[derive(Debug, Clone)]
+pub struct KeySelector<'a> {
+    /// Backing key set used for selection.
+    keyset: &'a KeySet,
+    /// Allowed algorithms for verification operations.
+    allowed_verify_algs: Vec<Algorithm>,
+}
+
+impl<'a> KeySelector<'a> {
+    /// Selects exactly one key using strict cryptographic suitability checks.
+    pub fn select(&self, matcher: KeyMatcher<'_>) -> std::result::Result<&'a Key, SelectionError> {
+        if matcher.alg.is_unknown() {
+            return Err(SelectionError::UnknownAlgorithm);
+        }
+
+        if matcher.op == KeyOperation::Verify {
+            if self.allowed_verify_algs.is_empty() {
+                return Err(SelectionError::EmptyVerifyAllowlist);
+            }
+
+            if !self.allowed_verify_algs.contains(&matcher.alg) {
+                return Err(SelectionError::AlgorithmNotAllowed);
+            }
+        }
+
+        let mut candidates = Vec::new();
+        let mut incompatible_for_known_kid = false;
+
+        for key in self.keyset.keys.iter() {
+            if let Some(kid) = matcher.kid
+                && key.kid.as_deref() != Some(kid)
+            {
+                continue;
+            }
+
+            if let Some(declared_alg) = &key.alg {
+                if declared_alg != &matcher.alg {
+                    if matcher.kid.is_some() {
+                        return Err(SelectionError::AlgorithmMismatch {
+                            requested: matcher.alg.clone(),
+                            declared: declared_alg.clone(),
+                        });
+                    }
+                    continue;
+                }
+            }
+
+            if !key.is_algorithm_compatible(&matcher.alg) {
+                if matcher.kid.is_some() {
+                    incompatible_for_known_kid = true;
+                }
+                continue;
+            }
+
+            if let Err(e) = key.validate_operation_metadata(matcher.op.clone()) {
+                if matcher.kid.is_some() {
+                    return match e {
+                        Error::Validation(_) => Err(SelectionError::IntentMismatch),
+                        _ => Err(SelectionError::IntentMismatch),
+                    };
+                }
+                continue;
+            }
+
+            if let Err(e) = key.validate_for_algorithm(&matcher.alg) {
+                if matcher.kid.is_some() {
+                    return match e {
+                        Error::Validation(validation) => {
+                            Err(SelectionError::KeyValidationFailed(validation))
+                        }
+                        _ => Err(SelectionError::IncompatibleKeyType),
+                    };
+                }
+                continue;
+            }
+
+            candidates.push(key);
+        }
+
+        if candidates.is_empty() {
+            if incompatible_for_known_kid {
+                return Err(SelectionError::IncompatibleKeyType);
+            }
+            return Err(SelectionError::NoMatchingKey);
+        }
+
+        if candidates.len() > 1 {
+            return Err(SelectionError::AmbiguousSelection {
+                count: candidates.len(),
+            });
+        }
+
+        Ok(candidates[0])
+    }
+}
 
 /// A trait for types that can provide JWK keys.
 ///
@@ -79,7 +283,7 @@ pub trait KeyStore {
     /// The default implementation fetches the full key set and looks up by key ID.
     /// Implementations may override this for more efficient lookups (e.g., caching).
     async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
-        Ok(self.get_keyset().await?.find_by_kid(kid).cloned())
+        Ok(self.get_keyset().await?.get_by_kid(kid).cloned())
     }
 }
 
@@ -92,7 +296,7 @@ impl KeyStore for KeySet {
     }
 
     async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
-        Ok(self.find_by_kid(kid).cloned())
+        Ok(self.get_by_kid(kid).cloned())
     }
 }
 
@@ -258,8 +462,14 @@ impl KeySet {
     /// let missing = jwks.find_by_kid("unknown");
     /// assert!(missing.is_none());
     /// ```
-    pub fn find_by_kid(&self, kid: &str) -> Option<&Key> {
+    pub fn get_by_kid(&self, kid: &str) -> Option<&Key> {
         self.keys.iter().find(|k| k.kid.as_deref() == Some(kid))
+    }
+
+    /// Finds a key by its ID (`kid`).
+    #[deprecated(note = "use get_by_kid instead")]
+    pub fn find_by_kid(&self, kid: &str) -> Option<&Key> {
+        self.get_by_kid(kid)
     }
 
     /// Finds all keys with the specified algorithm.
@@ -421,6 +631,7 @@ impl KeySet {
     /// // find_first_compatible finds them
     /// assert!(jwks.find_first_compatible(&Algorithm::Rs256).is_some());
     /// ```
+    #[deprecated(note = "use selector(...).select(KeyMatcher::new(...)) for strict selection")]
     pub fn find_first_compatible<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
         self.find_compatible(alg).next()
     }
@@ -453,6 +664,7 @@ impl KeySet {
     /// let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
+    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Verify, ...))")]
     pub fn find_compatible_signing_key<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
         self.find_compatible(alg).find(|k| is_signing_key(k))
     }
@@ -486,6 +698,7 @@ impl KeySet {
     /// let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
+    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Verify, ...))")]
     pub fn find_signing_key_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
         let is_unknown_alg = alg.is_unknown();
         self.keys.iter().find(|k| {
@@ -535,8 +748,80 @@ impl KeySet {
     /// every call, making it O(n) hash computations per lookup. For hot paths
     /// (e.g., verifying JWTs in a web server), consider caching thumbprints
     /// externally or using [`find_by_kid`](KeySet::find_by_kid) instead.
-    pub fn find_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
+    pub fn get_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
         self.keys.iter().find(|k| k.thumbprint() == thumbprint)
+    }
+
+    /// Finds a key by its JWK thumbprint (RFC 7638).
+    #[deprecated(note = "use get_by_thumbprint instead")]
+    pub fn find_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
+        self.get_by_thumbprint(thumbprint)
+    }
+
+    /// Finds keys by optional discovery criteria.
+    ///
+    /// This method is for discovery/filtering only and does not provide
+    /// cryptographic suitability guarantees.
+    pub fn find<'a>(&'a self, filter: &'a KeyFilter<'a>) -> impl Iterator<Item = &'a Key> + 'a {
+        self.keys.iter().filter(move |k| {
+            if let Some(kid) = filter.kid
+                && k.kid.as_deref() != Some(kid)
+            {
+                return false;
+            }
+
+            if let Some(kty) = filter.kty
+                && k.kty() != kty
+            {
+                return false;
+            }
+
+            if let Some(alg) = &filter.alg
+                && k.alg.as_ref() != Some(alg)
+            {
+                return false;
+            }
+
+            if let Some(key_use) = &filter.key_use
+                && k.key_use.as_ref() != Some(key_use)
+            {
+                return false;
+            }
+
+            if let Some(op) = &filter.op {
+                if let Some(key_ops) = &k.key_ops {
+                    if !key_ops.contains(op) {
+                        return false;
+                    }
+                } else if let Some(key_use) = &k.key_use {
+                    let allowed_by_use = match op {
+                        KeyOperation::Sign | KeyOperation::Verify => key_use == &KeyUse::Signature,
+                        KeyOperation::Encrypt
+                        | KeyOperation::Decrypt
+                        | KeyOperation::WrapKey
+                        | KeyOperation::UnwrapKey => key_use == &KeyUse::Encryption,
+                        _ => true,
+                    };
+
+                    if !allowed_by_use {
+                        return false;
+                    }
+                }
+            }
+
+            true
+        })
+    }
+
+    /// Creates a strict selector bound to this key set.
+    ///
+    /// Verification algorithm allowlists are enforced only when selecting for
+    /// [`KeyOperation::Verify`].
+    pub fn selector(&self, allowed_verify_algs: &[Algorithm]) -> KeySelector<'_> {
+        KeySelector {
+            keyset: self,
+            allowed_verify_algs: allowed_verify_algs.to_vec(),
+        }
     }
 }
 
@@ -668,8 +953,8 @@ mod tests {
 
         let jwks: KeySet = serde_json::from_str(json).unwrap();
         assert_eq!(jwks.len(), 1);
-        assert!(jwks.find_by_kid("bad").is_none());
-        assert!(jwks.find_by_kid("good").is_some());
+        assert!(jwks.get_by_kid("bad").is_none());
+        assert!(jwks.get_by_kid("good").is_some());
     }
 
     #[test]
@@ -683,17 +968,162 @@ mod tests {
 
         let jwks: KeySet = serde_json::from_str(json).unwrap();
         assert_eq!(jwks.len(), 1);
-        assert!(jwks.find_by_kid("unknown").is_none());
-        assert!(jwks.find_by_kid("good").is_some());
+        assert!(jwks.get_by_kid("unknown").is_none());
+        assert!(jwks.get_by_kid("good").is_some());
     }
 
     #[test]
     fn test_find_by_kid() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert!(jwks.find_by_kid("rsa-key-1").is_some());
-        assert!(jwks.find_by_kid("ec-key-1").is_some());
-        assert!(jwks.find_by_kid("unknown").is_none());
+        assert!(jwks.get_by_kid("rsa-key-1").is_some());
+        assert!(jwks.get_by_kid("rsa-key-1").is_some());
+        assert!(jwks.get_by_kid("ec-key-1").is_some());
+        assert!(jwks.get_by_kid("unknown").is_none());
+    }
+
+    #[test]
+    fn test_find_with_filter() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+
+        let by_alg = KeyFilter {
+            alg: Some(Algorithm::Rs256),
+            ..Default::default()
+        };
+        assert_eq!(jwks.find(&by_alg).count(), 1);
+
+        let by_kty = KeyFilter {
+            kty: Some(KeyType::Rsa),
+            ..Default::default()
+        };
+        assert_eq!(jwks.find(&by_kty).count(), 2);
+
+        let by_use = KeyFilter {
+            key_use: Some(KeyUse::Encryption),
+            ..Default::default()
+        };
+        assert_eq!(jwks.find(&by_use).count(), 1);
+    }
+
+    #[test]
+    fn test_selector_verify_empty_allowlist() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::EmptyVerifyAllowlist));
+    }
+
+    #[test]
+    fn test_selector_verify_algorithm_not_allowed() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[Algorithm::Es256]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::AlgorithmNotAllowed));
+    }
+
+    #[test]
+    fn test_selector_verify_selects_single_key() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[Algorithm::Rs256]);
+
+        let key = selector
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid(Some("rsa-key-1")))
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("rsa-key-1"));
+    }
+
+    #[test]
+    fn test_selector_ambiguous_selection() {
+        let json = r#"{"keys": [
+            {"kty": "EC", "kid": "ec-1", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"},
+            {"kty": "EC", "kid": "ec-2", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[Algorithm::Es256]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256))
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            SelectionError::AmbiguousSelection { count: 2 }
+        ));
+    }
+
+    #[test]
+    fn test_selector_algorithm_mismatch_for_known_kid() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa", "alg": "RS256", "use": "sig", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[Algorithm::Es256]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid(Some("rsa")))
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            SelectionError::AlgorithmMismatch {
+                requested: Algorithm::Es256,
+                declared: Algorithm::Rs256
+            }
+        ));
+    }
+
+    #[test]
+    fn test_selector_unknown_algorithm_rejected() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(
+                KeyOperation::Sign,
+                Algorithm::Unknown("CUSTOM".to_string()),
+            ))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::UnknownAlgorithm));
+    }
+
+    #[test]
+    fn test_selector_incompatible_key_type_for_known_kid() {
+        let json = r#"{"keys": [
+            {"kty": "oct", "kid": "oct-1", "k": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid(Some("oct-1")))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::IncompatibleKeyType));
+    }
+
+    #[test]
+    fn test_selector_key_validation_failed_for_known_kid() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "weak-rsa", "use": "sig", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid(Some("weak-rsa")))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
     }
 
     #[test]
@@ -1079,7 +1509,7 @@ mod tests {
         let key: Key = serde_json::from_str(r#"{"kty":"oct","kid":"k1","k":"AQAB"}"#).unwrap();
         jwks.add_key(key);
         assert_eq!(jwks.len(), 1);
-        assert!(jwks.find_by_kid("k1").is_some());
+        assert!(jwks.get_by_kid("k1").is_some());
     }
 
     #[test]
@@ -1091,7 +1521,7 @@ mod tests {
         assert!(removed.is_some());
         assert_eq!(removed.unwrap().kid.as_deref(), Some("ec-key-1"));
         assert_eq!(jwks.len(), 2);
-        assert!(jwks.find_by_kid("ec-key-1").is_none());
+        assert!(jwks.get_by_kid("ec-key-1").is_none());
 
         // Removing non-existent kid returns None
         assert!(jwks.remove_by_kid("nonexistent").is_none());
