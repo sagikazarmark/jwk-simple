@@ -37,7 +37,7 @@
 //! # Examples
 //!
 //! ```ignore
-//! use jwk_simple::{KeySet, Key};
+//! use jwk_simple::KeySet;
 //! use jwt_simple::prelude::*;
 //!
 //! // Load JWKS and find a key

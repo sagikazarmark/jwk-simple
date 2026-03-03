@@ -267,7 +267,7 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::{KeySet, Key};
+    /// use jwk_simple::KeySet;
     ///
     /// let mut jwks = KeySet::new();
     /// // jwks.add_key(some_jwk);
@@ -389,7 +389,7 @@ impl KeySet {
     /// Returns the first key matching the specified algorithm, if any.
     ///
     /// This is a convenience method that returns a single key instead of the
-    /// iterator returned by [`find_by_alg`].
+    /// iterator returned by [`KeySet::find_by_alg`].
     ///
     /// # Examples
     ///
@@ -1094,6 +1094,7 @@ mod tests {
         assert_eq!(jwks.find_by_kty(KeyType::Symmetric).count(), 0);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_jwkset_implements_store() {
         let json = r#"{"keys": [{"kty": "oct", "kid": "test-key", "k": "AQAB"}]}"#;

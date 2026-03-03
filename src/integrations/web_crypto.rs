@@ -24,7 +24,7 @@
 //! ## Converting a Key to JsonWebKey
 //!
 //! ```ignore
-//! use jwk_simple::{Key, integrations::web_crypto};
+//! use jwk_simple::Key;
 //! use std::convert::TryInto;
 //!
 //! let key: Key = serde_json::from_str(jwk_json)?;
@@ -34,7 +34,7 @@
 //! ## Importing a Key for Signature Verification
 //!
 //! ```ignore
-//! use jwk_simple::{Key, integrations::web_crypto};
+//! use jwk_simple::{Key, web_crypto};
 //! use jwk_simple::Algorithm;
 //!
 //! let key: Key = serde_json::from_str(jwk_json)?;
@@ -54,7 +54,7 @@
 //!   is not supported by WebCrypto.
 //!
 //! Attempting to convert these key types will return an
-//! [`Error::UnsupportedForWebCrypto`](crate::Error::UnsupportedForWebCrypto) error.
+//! [`Error::UnsupportedForWebCrypto`] error.
 
 use js_sys::{Array, Object, Reflect};
 use std::convert::TryFrom;
@@ -577,7 +577,7 @@ fn build_symmetric_algorithm(
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{Algorithm, integrations::web_crypto};
+/// use jwk_simple::{Algorithm, web_crypto};
 ///
 /// let alg = Algorithm::Rs256;
 /// let verify_algo = web_crypto::build_verify_algorithm(&alg)?;
@@ -681,7 +681,7 @@ pub fn build_verify_algorithm(alg: &Algorithm) -> Result<Object> {
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{KeySet, integrations::web_crypto};
+/// use jwk_simple::{KeySet, web_crypto};
 ///
 /// let jwks: KeySet = serde_json::from_str(jwks_json)?;
 /// let key = jwks.find_by_kid("my-key-id").unwrap();
@@ -827,7 +827,7 @@ pub async fn import_unwrap_key(key: &Key) -> Result<CryptoKey> {
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{Algorithm, KeySet, integrations::web_crypto};
+/// use jwk_simple::{Algorithm, KeySet, web_crypto};
 ///
 /// let jwks: KeySet = serde_json::from_str(jwks_json)?;
 /// let key = jwks.find_by_kid("my-key-id").unwrap();

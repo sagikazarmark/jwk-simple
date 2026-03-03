@@ -33,7 +33,6 @@ use futures::TryStreamExt;
 use worker::kv::KvStore;
 
 use crate::error::{Error, ParseError, Result};
-use crate::jwk::Key;
 use crate::jwks::{KeyCache, KeySet, KeyStore};
 
 /// Default TTL for KV cache entries (5 minutes).

@@ -72,7 +72,7 @@
 //! native SubtleCrypto API:
 //!
 //! ```ignore
-//! use jwk_simple::{Algorithm, KeySet, integrations::web_crypto};
+//! use jwk_simple::{Algorithm, KeySet};
 //! use std::convert::TryInto;
 //!
 //! // Parse a JWKS
@@ -119,10 +119,9 @@
 
 pub mod encoding;
 pub mod error;
+mod integrations;
 pub mod jwk;
 pub mod jwks;
-
-pub mod integrations;
 
 // Re-exports for convenience
 pub use error::{Error, Result};
