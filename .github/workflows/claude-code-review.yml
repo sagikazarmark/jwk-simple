@@ -39,6 +39,11 @@ jobs:
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          system_prompt: |
+            This is a security-sensitive Rust library for JWK/JWKS handling.
+            In addition to standard code review, apply the criteria in CLAUDE.md:
+            1. Compliance: verify RFC 7517/7518/7519/7638/8037/9864 adherence; check REVIEW.md for deferred findings being re-introduced
+            2. Security: key material handling, algorithm validation, constant-time operations, error message hygiene
+            3. UX: API consistency, typed errors, documentation, feature flags, examples
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-
