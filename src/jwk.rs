@@ -857,13 +857,12 @@ impl Key {
         // RFC 7517 Section 4.3: "The 'use' and 'key_ops' JWK members SHOULD NOT
         // be used together; however, if both are used, the information they convey
         // MUST be consistent."
-        if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops) {
-            if !is_use_consistent_with_ops(key_use, key_ops) {
+        if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops)
+            && !is_use_consistent_with_ops(key_use, key_ops) {
                 return Err(Error::Validation(ValidationError::InconsistentParameters(
                     "RFC 7517: 'use' and 'key_ops' are both present but inconsistent".to_string(),
                 )));
             }
-        }
 
         // RFC 7517 Section 4.3: key_ops values MUST be unique (no duplicates)
         if let Some(ref ops) = self.key_ops {
@@ -960,7 +959,7 @@ impl Key {
             // RFC 7517 Section 4.7: the key in the first certificate MUST match
             // the public key represented by other JWK members.
             if let Some(ref first_der) = first_cert_der {
-                self.validate_x5c_public_key_match(&first_der)?;
+                self.validate_x5c_public_key_match(first_der)?;
             }
         }
 
