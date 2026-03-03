@@ -12,6 +12,9 @@ use super::{KeySet, KeyStore};
 /// Default timeout for HTTP requests (30 seconds).
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Maximum allowed JWKS response size (1 MiB).
+pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+
 /// A key store that fetches from an HTTP endpoint on every request.
 ///
 /// This implementation does **not** cache keys. Every call to [`get_key`](KeyStore::get_key)
@@ -60,6 +63,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct RemoteKeyStore {
     url: String,
     client: reqwest::Client,
+    max_response_bytes: usize,
 }
 
 impl RemoteKeyStore {
@@ -75,6 +79,7 @@ impl RemoteKeyStore {
         Ok(Self {
             url: url.into(),
             client,
+            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         })
     }
 
@@ -102,7 +107,15 @@ impl RemoteKeyStore {
         Self {
             url: url.into(),
             client,
+            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         }
+    }
+
+    /// Sets the maximum allowed JWKS response size in bytes.
+    #[must_use]
+    pub fn with_max_response_bytes(mut self, max_response_bytes: usize) -> Self {
+        self.max_response_bytes = max_response_bytes;
+        self
     }
 
     /// Fetches the JWKS from the remote endpoint.
@@ -113,7 +126,21 @@ impl RemoteKeyStore {
             .send()
             .await?
             .error_for_status()?;
-        let json = response.text().await?;
+
+        let bytes = response.bytes().await?;
+        if bytes.len() > self.max_response_bytes {
+            return Err(crate::error::Error::PayloadTooLarge {
+                max_bytes: self.max_response_bytes,
+                actual_bytes: bytes.len(),
+            });
+        }
+
+        let json = std::str::from_utf8(&bytes).map_err(|e| {
+            crate::error::Error::Parse(crate::error::ParseError::Json(format!(
+                "invalid UTF-8 response body: {}",
+                e
+            )))
+        })?;
 
         Ok(serde_json::from_str::<KeySet>(&json)?)
     }
@@ -230,5 +257,21 @@ mod tests {
             .unwrap();
         let store = RemoteKeyStore::new_with_client(format!("http://{}", addr), client);
         assert!(store.get_keyset().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_remote_keystore_payload_too_large() {
+        let large_key = "A".repeat(DEFAULT_MAX_RESPONSE_BYTES + 1024);
+        let body = format!(r#"{{"keys":[{{"kty":"oct","k":"{}"}}]}}"#, large_key);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let url = spawn_single_response_server(response).await;
+
+        let store = RemoteKeyStore::new(url).unwrap();
+        let err = store.get_keyset().await.unwrap_err();
+        assert!(matches!(err, crate::error::Error::PayloadTooLarge { .. }));
     }
 }

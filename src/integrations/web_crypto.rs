@@ -34,9 +34,10 @@
 //!
 //! ```ignore
 //! use jwk_simple::{Key, integrations::web_crypto};
+//! use jwk_simple::Algorithm;
 //!
 //! let key: Key = serde_json::from_str(jwk_json)?;
-//! let crypto_key = web_crypto::import_verify_key(&key).await?;
+//! let crypto_key = web_crypto::import_verify_key_for_alg(&key, &Algorithm::Rs256).await?;
 //!
 //! // Use with SubtleCrypto.verify()
 //! let subtle = web_crypto::get_subtle_crypto()?;
@@ -285,6 +286,89 @@ fn build_algorithm_object_with_alg(
         KeyParams::Okp(_) => Err(Error::UnsupportedForWebCrypto {
             reason: "OKP keys are not supported by WebCrypto",
         }),
+    }
+}
+
+fn validate_usage_algorithm_compatibility(usage: KeyUsage, alg: &Algorithm) -> Result<()> {
+    let allowed = match usage {
+        KeyUsage::Verify => matches!(
+            alg,
+            Algorithm::Rs256
+                | Algorithm::Rs384
+                | Algorithm::Rs512
+                | Algorithm::Ps256
+                | Algorithm::Ps384
+                | Algorithm::Ps512
+                | Algorithm::Es256
+                | Algorithm::Es384
+                | Algorithm::Es512
+                | Algorithm::Hs256
+                | Algorithm::Hs384
+                | Algorithm::Hs512
+        ),
+        KeyUsage::Sign => matches!(
+            alg,
+            Algorithm::Rs256
+                | Algorithm::Rs384
+                | Algorithm::Rs512
+                | Algorithm::Ps256
+                | Algorithm::Ps384
+                | Algorithm::Ps512
+                | Algorithm::Es256
+                | Algorithm::Es384
+                | Algorithm::Es512
+                | Algorithm::Hs256
+                | Algorithm::Hs384
+                | Algorithm::Hs512
+        ),
+        KeyUsage::Encrypt => matches!(
+            alg,
+            Algorithm::RsaOaep
+                | Algorithm::RsaOaep256
+                | Algorithm::RsaOaep384
+                | Algorithm::RsaOaep512
+                | Algorithm::A128gcm
+                | Algorithm::A192gcm
+                | Algorithm::A256gcm
+        ),
+        KeyUsage::Decrypt => matches!(
+            alg,
+            Algorithm::RsaOaep
+                | Algorithm::RsaOaep256
+                | Algorithm::RsaOaep384
+                | Algorithm::RsaOaep512
+                | Algorithm::A128gcm
+                | Algorithm::A192gcm
+                | Algorithm::A256gcm
+        ),
+        KeyUsage::WrapKey => matches!(
+            alg,
+            Algorithm::RsaOaep
+                | Algorithm::RsaOaep256
+                | Algorithm::RsaOaep384
+                | Algorithm::RsaOaep512
+                | Algorithm::A128kw
+                | Algorithm::A192kw
+                | Algorithm::A256kw
+        ),
+        KeyUsage::UnwrapKey => matches!(
+            alg,
+            Algorithm::RsaOaep
+                | Algorithm::RsaOaep256
+                | Algorithm::RsaOaep384
+                | Algorithm::RsaOaep512
+                | Algorithm::A128kw
+                | Algorithm::A192kw
+                | Algorithm::A256kw
+        ),
+    };
+
+    if allowed {
+        Ok(())
+    } else {
+        Err(Error::UnsupportedForWebCrypto {
+            reason: "algorithm is not compatible with requested key usage",
+        })
     }
 }
 
@@ -762,6 +846,9 @@ pub async fn import_key_with_usages(
     usages: &[&str],
     usage: KeyUsage,
 ) -> Result<CryptoKey> {
+    if let Some(alg) = key.alg.as_ref() {
+        validate_usage_algorithm_compatibility(usage, alg)?;
+    }
     let jwk = to_json_web_key(key)?;
     let algorithm = build_algorithm_object(key, usage)?;
 
@@ -784,6 +871,7 @@ pub async fn import_key_with_usages_for_alg(
     usage: KeyUsage,
     alg: &Algorithm,
 ) -> Result<CryptoKey> {
+    validate_usage_algorithm_compatibility(usage, alg)?;
     let jwk = to_json_web_key(key)?;
 
     // Override the JWK's `alg` field to match the explicit algorithm.
@@ -1034,6 +1122,30 @@ mod validation_tests {
     fn test_is_web_crypto_compatible_secp256k1() {
         let key: Key = serde_json::from_str(EC_SECP256K1_KEY).unwrap();
         assert!(!key.is_web_crypto_compatible());
+    }
+
+    #[test]
+    fn test_usage_algorithm_compatibility_rejects_mismatch() {
+        let result = validate_usage_algorithm_compatibility(KeyUsage::Encrypt, &Algorithm::Rs256);
+        assert!(matches!(result, Err(Error::UnsupportedForWebCrypto { .. })));
+
+        let result =
+            validate_usage_algorithm_compatibility(KeyUsage::Verify, &Algorithm::RsaOaep256);
+        assert!(matches!(result, Err(Error::UnsupportedForWebCrypto { .. })));
+    }
+
+    #[test]
+    fn test_usage_algorithm_compatibility_accepts_valid_pairs() {
+        assert!(
+            validate_usage_algorithm_compatibility(KeyUsage::Verify, &Algorithm::Rs256).is_ok()
+        );
+        assert!(
+            validate_usage_algorithm_compatibility(KeyUsage::Encrypt, &Algorithm::RsaOaep256)
+                .is_ok()
+        );
+        assert!(
+            validate_usage_algorithm_compatibility(KeyUsage::WrapKey, &Algorithm::A128kw).is_ok()
+        );
     }
 }
 

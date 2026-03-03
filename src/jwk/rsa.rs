@@ -278,7 +278,22 @@ impl RsaParams {
     ///
     /// This is calculated from the modulus `n`.
     pub fn key_size_bits(&self) -> usize {
-        self.n.len() * 8
+        let bytes = self.n.as_bytes();
+        if bytes.is_empty() {
+            return 0;
+        }
+
+        let mut idx = 0;
+        while idx < bytes.len() && bytes[idx] == 0 {
+            idx += 1;
+        }
+        if idx == bytes.len() {
+            return 0;
+        }
+
+        let first = bytes[idx];
+        let leading_zeros = first.leading_zeros() as usize;
+        ((bytes.len() - idx - 1) * 8) + (8 - leading_zeros)
     }
 
     /// Validates the RSA parameters.
@@ -434,8 +449,10 @@ impl RsaParams {
     /// use jwk_simple::jwk::RsaParams;
     /// use jwk_simple::encoding::Base64UrlBytes;
     ///
+    /// let mut modulus = vec![0; 256];
+    /// modulus[0] = 0x80;
     /// let params = RsaParams::new_public(
-    ///     Base64UrlBytes::new(vec![0; 256]), // 2048 bits
+    ///     Base64UrlBytes::new(modulus), // 2048 bits
     ///     Base64UrlBytes::new(vec![1, 0, 1]),
     /// );
     /// assert!(params.validate_key_size(2048).is_ok());
@@ -807,16 +824,20 @@ mod tests {
     #[test]
     fn test_validate_key_size() {
         // 2048-bit key (256 bytes)
+        let mut n_2048 = vec![0; 256];
+        n_2048[0] = 0x80; // ensure exact 2048-bit length
         let params_2048 = RsaParams::new_public(
-            Base64UrlBytes::new(vec![0; 256]),
+            Base64UrlBytes::new(n_2048),
             Base64UrlBytes::new(vec![1, 0, 1]),
         );
         assert!(params_2048.validate_key_size(2048).is_ok());
         assert!(params_2048.validate_key_size(4096).is_err());
 
         // 1024-bit key (128 bytes) - too small
+        let mut n_1024 = vec![0; 128];
+        n_1024[0] = 0x80; // ensure exact 1024-bit length
         let params_1024 = RsaParams::new_public(
-            Base64UrlBytes::new(vec![0; 128]),
+            Base64UrlBytes::new(n_1024),
             Base64UrlBytes::new(vec![1, 0, 1]),
         );
         assert!(params_1024.validate_key_size(2048).is_err());

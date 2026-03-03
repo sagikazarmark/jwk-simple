@@ -47,6 +47,9 @@ let key = jwks.find_by_kid("my-key-id").expect("key not found");
 assert!(key.is_public_key_only());
 ```
 
+Note: JWKS parsing is permissive and may skip invalid keys.
+If you need visibility into dropped keys, use `KeySet::from_json_with_diagnostics`.
+
 ## Feature Flags
 
 | Feature | Default | Description |

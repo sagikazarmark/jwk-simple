@@ -80,28 +80,30 @@ impl std::fmt::Debug for InMemoryKeyCache {
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl KeyCache for InMemoryKeyCache {
-    async fn get(&self) -> Option<KeySet> {
+    async fn get(&self) -> crate::error::Result<Option<KeySet>> {
         let entry = self.entry.read().await;
-        entry.as_ref().and_then(|e| {
+        Ok(entry.as_ref().and_then(|e| {
             if e.inserted_at.elapsed() < self.ttl {
                 Some(e.keyset.clone())
             } else {
                 None
             }
-        })
+        }))
     }
 
-    async fn set(&self, keyset: KeySet) {
+    async fn set(&self, keyset: KeySet) -> crate::error::Result<()> {
         let mut entry = self.entry.write().await;
         *entry = Some(CacheEntry {
             keyset,
             inserted_at: tokio::time::Instant::now(),
         });
+        Ok(())
     }
 
-    async fn clear(&self) {
+    async fn clear(&self) -> crate::error::Result<()> {
         let mut entry = self.entry.write().await;
         *entry = None;
+        Ok(())
     }
 }
 
@@ -121,13 +123,14 @@ impl<S> InMemoryCachedKeyStore<S> {
 
     /// Invalidates the cache, forcing fresh fetches on subsequent requests.
     pub async fn invalidate(&self) {
-        self.cache().clear().await;
+        let _ = self.cache().clear().await;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::Error;
     use crate::jwks::KeyStore;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -139,17 +142,17 @@ mod tests {
         let cache = InMemoryKeyCache::new(Duration::from_secs(300));
 
         // Initially empty
-        assert!(cache.get().await.is_none());
+        assert!(cache.get().await.unwrap().is_none());
 
         // Set and get
-        cache.set(keyset.clone()).await;
-        let cached = cache.get().await;
+        cache.set(keyset.clone()).await.unwrap();
+        let cached = cache.get().await.unwrap();
         assert!(cached.is_some());
         assert_eq!(cached.unwrap().len(), 1);
 
         // Clear
-        cache.clear().await;
-        assert!(cache.get().await.is_none());
+        cache.clear().await.unwrap();
+        assert!(cache.get().await.unwrap().is_none());
     }
 
     #[tokio::test(start_paused = true)]
@@ -159,16 +162,16 @@ mod tests {
 
         let cache = InMemoryKeyCache::new(Duration::from_secs(300));
 
-        cache.set(keyset).await;
-        assert!(cache.get().await.is_some());
+        cache.set(keyset).await.unwrap();
+        assert!(cache.get().await.unwrap().is_some());
 
         // Advance time just before TTL — should still be cached
         tokio::time::advance(Duration::from_secs(299)).await;
-        assert!(cache.get().await.is_some());
+        assert!(cache.get().await.unwrap().is_some());
 
         // Advance past the TTL boundary — should be expired
         tokio::time::advance(Duration::from_secs(2)).await;
-        assert!(cache.get().await.is_none());
+        assert!(cache.get().await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -183,7 +186,7 @@ mod tests {
         assert!(key.is_some());
 
         // Verify it's cached
-        let cached_keyset = cached.cache().get().await;
+        let cached_keyset = cached.cache().get().await.unwrap();
         assert!(cached_keyset.is_some());
 
         // Second call should use cache
@@ -218,7 +221,7 @@ mod tests {
         assert_eq!(keyset.len(), 2);
 
         // Should be cached now
-        let cached_keyset = cached.cache().get().await;
+        let cached_keyset = cached.cache().get().await.unwrap();
         assert!(cached_keyset.is_some());
         assert_eq!(cached_keyset.unwrap().len(), 2);
     }
@@ -232,11 +235,11 @@ mod tests {
 
         // Populate cache
         let _ = cached.get_key("test-key").await.unwrap();
-        assert!(cached.cache().get().await.is_some());
+        assert!(cached.cache().get().await.unwrap().is_some());
 
         // Invalidate
         cached.invalidate().await;
-        assert!(cached.cache().get().await.is_none());
+        assert!(cached.cache().get().await.unwrap().is_none());
     }
 
     /// A mock KeyStore that returns different keysets on successive calls,
@@ -271,6 +274,16 @@ mod tests {
                 .get(idx)
                 .unwrap_or_else(|| self.keysets.last().unwrap());
             Ok(keyset.clone())
+        }
+    }
+
+    struct FailingKeyStore;
+
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    impl KeyStore for FailingKeyStore {
+        async fn get_keyset(&self) -> crate::error::Result<KeySet> {
+            Err(Error::Other("mock source failure".to_string()))
         }
     }
 
@@ -322,5 +335,62 @@ mod tests {
             2,
             "should not refetch for newly cached key"
         );
+    }
+
+    #[tokio::test]
+    async fn test_cached_key_store_miss_source_error_propagates() {
+        let cached = CachedKeyStore::new(
+            InMemoryKeyCache::new(Duration::from_secs(300)),
+            FailingKeyStore,
+        );
+
+        let err = cached.get_keyset().await.unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
+    #[tokio::test]
+    async fn test_cached_key_store_unknown_kid_refetch_error_propagates() {
+        let initial: KeySet =
+            serde_json::from_str(r#"{"keys": [{"kty": "oct", "kid": "old-key", "k": "AQAB"}]}"#)
+                .unwrap();
+        let cached = CachedKeyStore::new(
+            InMemoryKeyCache::new(Duration::from_secs(300)),
+            RotatingKeyStore::new(vec![initial]),
+        );
+
+        let _ = cached.get_key("old-key").await.unwrap();
+
+        struct FailingAfterCache {
+            initial: KeySet,
+            calls: AtomicUsize,
+        }
+
+        #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+        impl KeyStore for FailingAfterCache {
+            async fn get_keyset(&self) -> crate::error::Result<KeySet> {
+                let call = self.calls.fetch_add(1, Ordering::SeqCst);
+                if call == 0 {
+                    Ok(self.initial.clone())
+                } else {
+                    Err(Error::Other("refetch failed".to_string()))
+                }
+            }
+        }
+
+        let initial2: KeySet =
+            serde_json::from_str(r#"{"keys": [{"kty": "oct", "kid": "old-key", "k": "AQAB"}]}"#)
+                .unwrap();
+        let cached = CachedKeyStore::new(
+            InMemoryKeyCache::new(Duration::from_secs(300)),
+            FailingAfterCache {
+                initial: initial2,
+                calls: AtomicUsize::new(0),
+            },
+        );
+
+        let _ = cached.get_key("old-key").await.unwrap();
+        let err = cached.get_key("new-key").await.unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
     }
 }

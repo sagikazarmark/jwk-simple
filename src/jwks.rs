@@ -107,7 +107,7 @@ impl KeyStore for KeySet {
 /// > required members, or for which values are out of the supported ranges."
 ///
 /// This implementation follows this guidance by silently skipping keys with
-/// unknown `kty` values, missing required members, or invalid parameter
+/// unknown `kty` values, missing required members, or invalid key parameter
 /// values during deserialization rather than failing.
 ///
 /// # Examples
@@ -157,7 +157,7 @@ pub struct KeySet {
 /// Diagnostics for permissive JWKS parsing.
 ///
 /// When parsing via [`KeySet::from_json_with_diagnostics`], keys that fail to
-/// parse are skipped (per RFC 7517 guidance) and summarized here.
+/// parse or key-parameter validation are skipped (per RFC 7517 guidance) and summarized here.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeySetParseDiagnostics {
     /// Number of keys skipped due to parse errors.
@@ -186,10 +186,11 @@ impl<'de> Deserialize<'de> for KeySet {
         // out of the supported ranges."
         let mut keys = Vec::with_capacity(raw.keys.len());
         for value in raw.keys {
-            // Attempt to parse each key; skip any that fail.
-            // This covers unknown/missing kty values, missing required fields,
-            // invalid base64url, and other parse errors per RFC 7517 Section 5.
-            if let Ok(key) = serde_json::from_value::<Key>(value) {
+            // Attempt to parse each key, then validate key parameters.
+            // Skip any key that fails either phase.
+            if let Ok(key) = serde_json::from_value::<Key>(value)
+                && key.params.validate().is_ok()
+            {
                 keys.push(key);
             }
         }
@@ -245,7 +246,14 @@ impl KeySet {
 
         for value in raw.keys {
             match serde_json::from_value::<Key>(value) {
-                Ok(key) => keys.push(key),
+                Ok(key) => {
+                    if let Err(err) = key.params.validate() {
+                        diagnostics.skipped_keys += 1;
+                        diagnostics.skipped_errors.push(err.to_string());
+                    } else {
+                        keys.push(key);
+                    }
+                }
                 Err(err) => {
                     diagnostics.skipped_keys += 1;
                     diagnostics.skipped_errors.push(err.to_string());
@@ -398,7 +406,7 @@ impl KeySet {
     /// Returns the first key matching the specified algorithm, if any.
     ///
     /// This is a convenience method that returns a single key instead of the
-    /// vector returned by [`find_by_alg`].
+    /// iterator returned by [`find_by_alg`].
     ///
     /// # Examples
     ///
@@ -511,8 +519,9 @@ impl KeySet {
     /// - if `key_ops` is present, it must contain `sign` or `verify`
     /// - otherwise, `use` must be `"sig"` or unspecified
     ///
-    /// This is the most common lookup pattern for JWKS consumers that need to
-    /// verify JWT signatures.
+    /// Use this when you require strict `alg` equality on keys.
+    /// For JWT verification against real-world JWKS (where `alg` may be absent),
+    /// prefer [`find_compatible_signing_key`](KeySet::find_compatible_signing_key).
     ///
     /// # Examples
     ///
@@ -695,6 +704,36 @@ mod tests {
             "keys": [
                 {"kty": "UNKNOWN", "data": "ignored"},
                 {"kty": "oct", "k": "AQAB"}
+            ]
+        }"#;
+
+        let (jwks, diagnostics) = KeySet::from_json_with_diagnostics(json).unwrap();
+        assert_eq!(jwks.len(), 1);
+        assert_eq!(diagnostics.skipped_keys, 1);
+        assert_eq!(diagnostics.skipped_errors.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_skips_semantically_invalid_key() {
+        let json = r#"{
+            "keys": [
+                {"kty": "EC", "crv": "P-256", "x": "AQ", "y": "AQ", "kid": "bad"},
+                {"kty": "oct", "k": "AQAB", "kid": "good"}
+            ]
+        }"#;
+
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        assert_eq!(jwks.len(), 1);
+        assert!(jwks.find_by_kid("bad").is_none());
+        assert!(jwks.find_by_kid("good").is_some());
+    }
+
+    #[test]
+    fn test_parse_with_diagnostics_reports_validation_failures() {
+        let json = r#"{
+            "keys": [
+                {"kty": "EC", "crv": "P-256", "x": "AQ", "y": "AQ", "kid": "bad"},
+                {"kty": "oct", "k": "AQAB", "kid": "good"}
             ]
         }"#;
 

@@ -37,6 +37,9 @@ use crate::jwks::KeyStore;
 /// Default TTL for KV cache entries (5 minutes).
 pub const DEFAULT_KV_TTL_SECONDS: u64 = 300;
 
+/// Maximum allowed JWKS response size (1 MiB).
+pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+
 /// A key store that fetches from an HTTP endpoint using Cloudflare Worker's Fetch API.
 ///
 /// This implementation is designed for use in Cloudflare Workers where `reqwest` is not
@@ -60,17 +63,28 @@ pub const DEFAULT_KV_TTL_SECONDS: u64 = 300;
 #[derive(Debug, Clone)]
 pub struct RemoteKeyStore {
     url: String,
+    max_response_bytes: usize,
 }
 
 impl RemoteKeyStore {
     /// Creates a new `RemoteKeyStore` from a URL.
     pub fn new(url: impl Into<String>) -> Self {
-        Self { url: url.into() }
+        Self {
+            url: url.into(),
+            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        }
     }
 
     /// Returns the URL of the JWKS endpoint.
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    /// Sets the maximum allowed JWKS response size in bytes.
+    #[must_use]
+    pub fn with_max_response_bytes(mut self, max_response_bytes: usize) -> Self {
+        self.max_response_bytes = max_response_bytes;
+        self
     }
 
     /// Fetches the JWKS from the remote endpoint using Cloudflare Worker's Fetch API.
@@ -96,6 +110,13 @@ impl RemoteKeyStore {
         let text = response.text().await.map_err(|e| {
             crate::error::Error::Other(format!("failed to read response body: {}", e))
         })?;
+
+        if text.len() > self.max_response_bytes {
+            return Err(crate::error::Error::PayloadTooLarge {
+                max_bytes: self.max_response_bytes,
+                actual_bytes: text.len(),
+            });
+        }
 
         Ok(serde_json::from_str::<crate::jwks::KeySet>(&text)?)
     }
@@ -195,23 +216,30 @@ impl std::fmt::Debug for KeyCache {
 // Note: This module is only compiled for wasm32 targets, so we use the ?Send variant
 #[async_trait::async_trait(?Send)]
 impl crate::jwks::KeyCache for KeyCache {
-    async fn get(&self) -> Option<crate::jwks::KeySet> {
-        match self.kv.get(&self.key).text().await {
-            Ok(Some(json)) => serde_json::from_str(&json).ok(),
-            _ => None,
+    async fn get(&self) -> Result<Option<crate::jwks::KeySet>> {
+        let value = self
+            .kv
+            .get(&self.key)
+            .text()
+            .await
+            .map_err(|e| crate::error::Error::Cache(format!("read failed: {}", e)))?;
+
+        match value {
+            Some(json) => serde_json::from_str(&json)
+                .map(Some)
+                .map_err(|e| crate::error::Error::Cache(format!("deserialize failed: {}", e))),
+            None => Ok(None),
         }
     }
 
-    async fn set(&self, keyset: crate::jwks::KeySet) {
-        let json = match serde_json::to_string(&keyset) {
-            Ok(j) => j,
-            Err(_) => return,
-        };
+    async fn set(&self, keyset: crate::jwks::KeySet) -> Result<()> {
+        let json = serde_json::to_string(&keyset)
+            .map_err(|e| crate::error::Error::Cache(format!("serialize failed: {}", e)))?;
 
-        let builder = match self.kv.put(&self.key, json) {
-            Ok(b) => b,
-            Err(_) => return,
-        };
+        let builder = self
+            .kv
+            .put(&self.key, json)
+            .map_err(|e| crate::error::Error::Cache(format!("write setup failed: {}", e)))?;
 
         let builder = if let Some(ttl) = self.ttl_seconds {
             builder.expiration_ttl(ttl)
@@ -219,12 +247,19 @@ impl crate::jwks::KeyCache for KeyCache {
             builder
         };
 
-        // Silently ignore write errors (cache is best-effort)
-        let _ = builder.execute().await;
+        builder
+            .execute()
+            .await
+            .map_err(|e| crate::error::Error::Cache(format!("write failed: {}", e)))?;
+
+        Ok(())
     }
 
-    async fn clear(&self) {
-        let _ = self.kv.delete(&self.key).await;
+    async fn clear(&self) -> Result<()> {
+        self.kv
+            .delete(&self.key)
+            .await
+            .map_err(|e| crate::error::Error::Cache(format!("delete failed: {}", e)))
     }
 }
 

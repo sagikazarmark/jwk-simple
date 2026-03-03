@@ -9,7 +9,7 @@ use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
-use js_sys::Uint8Array;
+use js_sys::{Object, Reflect, Uint8Array};
 use jwk_simple::Key;
 use jwk_simple::web_crypto;
 
@@ -54,6 +54,21 @@ fn to_uint8_array(data: &[u8]) -> Uint8Array {
     let array = Uint8Array::new_with_length(data.len() as u32);
     array.copy_from(data);
     array
+}
+
+fn rsassa_verify_alg() -> Object {
+    let obj = Object::new();
+    Reflect::set(&obj, &"name".into(), &"RSASSA-PKCS1-v1_5".into()).unwrap();
+    obj
+}
+
+fn ecdsa_verify_alg(hash_name: &str) -> Object {
+    let obj = Object::new();
+    Reflect::set(&obj, &"name".into(), &"ECDSA".into()).unwrap();
+    let hash = Object::new();
+    Reflect::set(&hash, &"name".into(), &hash_name.into()).unwrap();
+    Reflect::set(&obj, &"hash".into(), &hash.into()).unwrap();
+    obj
 }
 
 #[wasm_bindgen_test]
@@ -200,4 +215,104 @@ async fn test_convenience_method_import_as_verify_key() {
     let crypto_key = key.import_as_verify_key().await.unwrap();
 
     assert_eq!(crypto_key.type_(), "public");
+}
+
+#[wasm_bindgen_test]
+async fn test_import_verify_key_rejects_usage_algorithm_mismatch() {
+    let key: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
+    let err = web_crypto::import_encrypt_key(&key).await.unwrap_err();
+    assert!(matches!(
+        err,
+        jwk_simple::Error::UnsupportedForWebCrypto { .. }
+    ));
+}
+
+#[wasm_bindgen_test]
+async fn test_rsa_verify_behavior_valid_and_tampered() {
+    let subtle = web_crypto::get_subtle_crypto().unwrap();
+    let key: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
+    let verify_key = web_crypto::import_verify_key(&key).await.unwrap();
+
+    let data = to_uint8_array(b"web-crypto-rsa-check");
+    let verify_alg = rsassa_verify_alg();
+
+    // A known-bad signature must fail verification (behavior check)
+    let bad_sig = to_uint8_array(&[0u8; 256]);
+    let verify_bad = subtle
+        .verify_with_object_and_buffer_source_and_buffer_source(
+            &verify_alg,
+            &verify_key,
+            &bad_sig,
+            &data,
+        )
+        .unwrap();
+    let ok = wasm_bindgen_futures::JsFuture::from(verify_bad)
+        .await
+        .unwrap()
+        .as_bool()
+        .unwrap_or(true);
+    assert!(!ok);
+
+    // Tampered payload with same bad signature also fails (negative path)
+    let tampered = to_uint8_array(b"web-crypto-rsa-check!");
+    let verify_tampered = subtle
+        .verify_with_object_and_buffer_source_and_buffer_source(
+            &verify_alg,
+            &verify_key,
+            &bad_sig,
+            &tampered,
+        )
+        .unwrap();
+    let tampered_ok = wasm_bindgen_futures::JsFuture::from(verify_tampered)
+        .await
+        .unwrap()
+        .as_bool()
+        .unwrap_or(true);
+    assert!(!tampered_ok);
+}
+
+#[wasm_bindgen_test]
+async fn test_ec_verify_behavior_rejects_invalid_signature() {
+    let subtle = web_crypto::get_subtle_crypto().unwrap();
+
+    let p256: Key = serde_json::from_str(EC_P256_PUBLIC_KEY).unwrap();
+    let p256_key = web_crypto::import_verify_key_for_alg(&p256, &jwk_simple::Algorithm::Es256)
+        .await
+        .unwrap();
+    let p256_alg = ecdsa_verify_alg("SHA-256");
+    let data = to_uint8_array(b"ec-p256-verify");
+    let bad_sig = to_uint8_array(&[0u8; 64]);
+    let p256_verify = subtle
+        .verify_with_object_and_buffer_source_and_buffer_source(
+            &p256_alg, &p256_key, &bad_sig, &data,
+        )
+        .unwrap();
+    let p256_ok = wasm_bindgen_futures::JsFuture::from(p256_verify)
+        .await
+        .unwrap()
+        .as_bool()
+        .unwrap_or(true);
+    assert!(!p256_ok);
+
+    let p384: Key = serde_json::from_str(EC_P384_PUBLIC_KEY).unwrap();
+    let p384_key = web_crypto::import_verify_key_for_alg(&p384, &jwk_simple::Algorithm::Es384)
+        .await
+        .unwrap();
+    let p384_alg = ecdsa_verify_alg("SHA-384");
+    let p384_data = to_uint8_array(b"ec-p384-verify");
+    let p384_bad_sig = to_uint8_array(&[0u8; 96]);
+    let p384_verify = subtle
+        .verify_with_object_and_buffer_source_and_buffer_source(
+            &p384_alg,
+            &p384_key,
+            &p384_bad_sig,
+            &p384_data,
+        )
+        .unwrap();
+    let p384_ok = wasm_bindgen_futures::JsFuture::from(p384_verify)
+        .await
+        .unwrap()
+        .as_bool()
+        .unwrap_or(true);
+    assert!(!p384_ok);
 }

@@ -12,6 +12,7 @@ categories = ["authentication", "cryptography", "web-programming", "wasm"]
 [dependencies]
 async-trait = "0.1"
 base64ct = { version = "1.8", features = ["alloc"] }
+futures = "0.3"
 js-sys = { version = "0.3", optional = true }
 jwt-simple = { version = "0.12", optional = true, default-features = false, features = ["pure-rust"] }
 reqwest = { version = "0.13", optional = true, default-features = false, features = ["json", "default-tls"] }

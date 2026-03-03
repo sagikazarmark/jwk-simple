@@ -686,6 +686,15 @@ mod tests {
         "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"
     }"#;
 
+    // Test EC P-256 private key from RFC 7517 Appendix A.2
+    const RFC_EC_P256_PRIVATE_KEY: &str = r#"{
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4",
+        "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM",
+        "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"
+    }"#;
+
     // Test symmetric key
     const SYMMETRIC_KEY: &str = r#"{
         "kty": "oct",
@@ -705,6 +714,58 @@ mod tests {
         let jwk: Key = serde_json::from_str(RFC_EC_PUBLIC_KEY).unwrap();
         let key: ES256PublicKey = (&jwk).try_into().unwrap();
         assert!(key.to_bytes().len() > 0);
+    }
+
+    #[test]
+    fn test_rsa_conversion_rejects_mismatched_token() {
+        let public_jwk: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
+        let ec_private_jwk: Key = serde_json::from_str(RFC_EC_P256_PRIVATE_KEY).unwrap();
+
+        let public_key: RS256PublicKey = (&public_jwk).try_into().unwrap();
+        let ec_key_pair: ES256KeyPair = (&ec_private_jwk).try_into().unwrap();
+
+        let claims = Claims::create(Duration::from_hours(1)).with_subject("rsa-conversion-test");
+        let token = ec_key_pair.sign(claims).unwrap();
+
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_err()
+        );
+
+        let mut tampered = token.clone();
+        tampered.push('x');
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&tampered, None)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_ec_conversion_verifies_real_token() {
+        let private_jwk: Key = serde_json::from_str(RFC_EC_P256_PRIVATE_KEY).unwrap();
+        let public_jwk: Key = serde_json::from_str(RFC_EC_PUBLIC_KEY).unwrap();
+
+        let key_pair: ES256KeyPair = (&private_jwk).try_into().unwrap();
+        let public_key: ES256PublicKey = (&public_jwk).try_into().unwrap();
+
+        let claims = Claims::create(Duration::from_hours(1)).with_subject("ec-conversion-test");
+        let token = key_pair.sign(claims).unwrap();
+
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_ok()
+        );
+
+        let mut tampered = token.clone();
+        tampered.push('x');
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&tampered, None)
+                .is_err()
+        );
     }
 
     #[test]

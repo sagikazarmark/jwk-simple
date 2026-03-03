@@ -1165,6 +1165,21 @@ impl Key {
             | (KeyParams::Symmetric(sym), Algorithm::A256gcm) => {
                 sym.validate_exact_size(256, "AES-256")
             }
+            (KeyParams::Symmetric(sym), Algorithm::A128cbcHs256) => {
+                // Per RFC 7518, this composite algorithm uses a 256-bit key
+                // (128-bit MAC key + 128-bit ENC key).
+                sym.validate_exact_size(256, "A128CBC-HS256")
+            }
+            (KeyParams::Symmetric(sym), Algorithm::A192cbcHs384) => {
+                // Per RFC 7518, this composite algorithm uses a 384-bit key
+                // (192-bit MAC key + 192-bit ENC key).
+                sym.validate_exact_size(384, "A192CBC-HS384")
+            }
+            (KeyParams::Symmetric(sym), Algorithm::A256cbcHs512) => {
+                // Per RFC 7518, this composite algorithm uses a 512-bit key
+                // (256-bit MAC key + 256-bit ENC key).
+                sym.validate_exact_size(512, "A256CBC-HS512")
+            }
             _ => Ok(()),
         }
     }
@@ -1265,6 +1280,11 @@ impl Key {
         }
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn validate_algorithm_strength_for_test(&self, alg: &Algorithm) -> Result<()> {
+        self.validate_algorithm_key_strength(alg)
     }
 
     /// Calculates the JWK thumbprint (RFC 7638).
@@ -2107,5 +2127,43 @@ mod tests {
         let public = key.to_public().unwrap();
         assert!(public.is_public_key_only());
         assert_eq!(key, public);
+    }
+
+    #[test]
+    fn test_validate_algorithm_strength_enforces_cbc_hs_sizes() {
+        let k256 = Base64UrlBytes::new(vec![0u8; 32]);
+        let k384 = Base64UrlBytes::new(vec![0u8; 48]);
+        let k512 = Base64UrlBytes::new(vec![0u8; 64]);
+
+        let key_256 = Key::new(KeyParams::Symmetric(SymmetricParams::new(k256)));
+        assert!(
+            key_256
+                .validate_algorithm_strength_for_test(&Algorithm::A128cbcHs256)
+                .is_ok()
+        );
+        assert!(
+            key_256
+                .validate_algorithm_strength_for_test(&Algorithm::A192cbcHs384)
+                .is_err()
+        );
+
+        let key_384 = Key::new(KeyParams::Symmetric(SymmetricParams::new(k384)));
+        assert!(
+            key_384
+                .validate_algorithm_strength_for_test(&Algorithm::A192cbcHs384)
+                .is_ok()
+        );
+        assert!(
+            key_384
+                .validate_algorithm_strength_for_test(&Algorithm::A256cbcHs512)
+                .is_err()
+        );
+
+        let key_512 = Key::new(KeyParams::Symmetric(SymmetricParams::new(k512)));
+        assert!(
+            key_512
+                .validate_algorithm_strength_for_test(&Algorithm::A256cbcHs512)
+                .is_ok()
+        );
     }
 }

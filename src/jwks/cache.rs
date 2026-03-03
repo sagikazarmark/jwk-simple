@@ -6,6 +6,8 @@
 //! For a ready-to-use in-memory implementation, enable the `cache-inmemory` feature
 //! and use [`InMemoryKeyCache`](super::InMemoryKeyCache).
 
+use futures::lock::Mutex;
+
 use crate::error::Result;
 use crate::jwk::Key;
 
@@ -42,13 +44,13 @@ pub trait KeyCache {
     /// Gets the cached key set.
     ///
     /// Returns `None` if the cache is empty or has expired.
-    async fn get(&self) -> Option<KeySet>;
+    async fn get(&self) -> Result<Option<KeySet>>;
 
     /// Stores a key set in the cache.
-    async fn set(&self, keyset: KeySet);
+    async fn set(&self, keyset: KeySet) -> Result<()>;
 
     /// Clears the cache.
-    async fn clear(&self);
+    async fn clear(&self) -> Result<()>;
 }
 
 /// A caching wrapper for any [`KeyStore`] implementation.
@@ -86,12 +88,17 @@ pub trait KeyCache {
 pub struct CachedKeyStore<C, S> {
     cache: C,
     source: S,
+    refresh_lock: Mutex<()>,
 }
 
 impl<C, S> CachedKeyStore<C, S> {
     /// Creates a new cached key store.
     pub fn new(cache: C, source: S) -> Self {
-        Self { cache, source }
+        Self {
+            cache,
+            source,
+            refresh_lock: Mutex::new(()),
+        }
     }
 
     /// Returns a reference to the cache.
@@ -123,29 +130,43 @@ where
 {
     async fn get_keyset(&self) -> Result<KeySet> {
         // Check cache first
-        if let Some(keyset) = self.cache.get().await {
+        if let Some(keyset) = self.cache.get().await? {
             return Ok(keyset);
         }
 
-        // Cache miss: fetch from underlying store
-        let keyset = self.source.get_keyset().await?;
-        self.cache.set(keyset.clone()).await;
-        Ok(keyset)
+        self.refresh_keyset_singleflight(false).await
     }
 
     async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
         // Try cache first
-        if let Some(keyset) = self.cache.get().await
+        if let Some(keyset) = self.cache.get().await?
             && let Some(key) = keyset.find_by_kid(kid)
         {
             return Ok(Some(key.clone()));
         }
         // Key not in cached set — could be a newly added key, refetch
 
-        // Cache miss or key not found: fetch from underlying store
-        let keyset = self.source.get_keyset().await?;
+        let keyset = self.refresh_keyset_singleflight(true).await?;
         let result = keyset.find_by_kid(kid).cloned();
-        self.cache.set(keyset).await;
         Ok(result)
+    }
+}
+
+impl<C, S> CachedKeyStore<C, S>
+where
+    C: KeyCache + Send + Sync,
+    S: KeyStore + Send + Sync,
+{
+    async fn refresh_keyset_singleflight(&self, force_refresh: bool) -> Result<KeySet> {
+        let _guard = self.refresh_lock.lock().await;
+
+        // Double-check after waiting for in-flight refresh.
+        if !force_refresh && let Some(keyset) = self.cache.get().await? {
+            return Ok(keyset);
+        }
+
+        let keyset = self.source.get_keyset().await?;
+        self.cache.set(keyset.clone()).await?;
+        Ok(keyset)
     }
 }
