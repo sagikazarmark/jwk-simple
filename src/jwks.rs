@@ -159,6 +159,13 @@ pub struct KeySelector<'a> {
 impl<'a> KeySelector<'a> {
     /// Selects exactly one key using strict cryptographic suitability checks.
     ///
+    /// When `kid` is present in the matcher, candidate-level validation failures are
+    /// surfaced with specific diagnostics (`AlgorithmMismatch`, `IntentMismatch`,
+    /// `KeyValidationFailed`, `IncompatibleKeyType`) using deterministic precedence.
+    ///
+    /// When `kid` is not present, candidates that fail per-key checks are skipped and
+    /// selection resolves by surviving cardinality (`AmbiguousSelection` / `NoMatchingKey`).
+    ///
     /// Error precedence is deterministic:
     /// 1. `UnknownAlgorithm`
     /// 2. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
@@ -213,9 +220,8 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
-            if let Err(e) = key.validate_operation_metadata(matcher.op.clone()) {
+            if key.validate_operation_metadata(matcher.op.clone()).is_err() {
                 if matcher.kid.is_some() {
-                    let _ = e;
                     saw_intent_mismatch = true;
                 }
                 continue;
@@ -229,6 +235,9 @@ impl<'a> KeySelector<'a> {
                                 saw_validation_error = Some(validation);
                             }
                         }
+                        // `validate_for_algorithm` should primarily return
+                        // `Error::Validation`. Non-validation failures are treated
+                        // conservatively as incompatibility in strict selection.
                         _ => incompatible_for_known_kid = true,
                     }
                 }
@@ -516,6 +525,8 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
+    /// # #[allow(deprecated)]
+    /// # fn main() {
     /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
@@ -523,6 +534,7 @@ impl KeySet {
     ///
     /// let rs256_keys: Vec<_> = jwks.find_by_alg(&Algorithm::Rs256).collect();
     /// assert_eq!(rs256_keys.len(), 1);
+    /// # }
     /// ```
     pub fn find_by_alg<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
         let alg = alg.clone();
@@ -602,6 +614,8 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
+    /// # #[allow(deprecated)]
+    /// # fn main() {
     /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
@@ -609,6 +623,7 @@ impl KeySet {
     ///
     /// let key = jwks.find_first_by_alg(&Algorithm::Rs256);
     /// assert!(key.is_some());
+    /// # }
     /// ```
     pub fn find_first_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
         self.keys.iter().find(|k| k.alg.as_ref() == Some(alg))
@@ -634,6 +649,8 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
+    /// # #[allow(deprecated)]
+    /// # fn main() {
     /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// // This RSA key has no "alg" field, so find_by_alg would miss it
@@ -642,6 +659,7 @@ impl KeySet {
     ///
     /// assert_eq!(jwks.find_by_alg(&Algorithm::Rs256).count(), 0);
     /// assert_eq!(jwks.find_compatible(&Algorithm::Rs256).count(), 1);
+    /// # }
     /// ```
     #[deprecated(note = "use find(&KeyFilter) for discovery or selector(...).select(...) for strict selection")]
     pub fn find_compatible<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
@@ -661,6 +679,8 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
+    /// # #[allow(deprecated)]
+    /// # fn main() {
     /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [{"kty": "RSA", "n": "AQAB", "e": "AQAB"}]}"#;
@@ -670,6 +690,7 @@ impl KeySet {
     /// assert!(jwks.find_first_by_alg(&Algorithm::Rs256).is_none());
     /// // find_first_compatible finds them
     /// assert!(jwks.find_first_compatible(&Algorithm::Rs256).is_some());
+    /// # }
     /// ```
     #[deprecated(note = "use selector(...).select(KeyMatcher::new(...)) for strict selection")]
     pub fn find_first_compatible<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
@@ -693,6 +714,8 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
+    /// # #[allow(deprecated)]
+    /// # fn main() {
     /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [
@@ -703,6 +726,7 @@ impl KeySet {
     ///
     /// let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
+    /// # }
     /// ```
     #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) or KeyOperation::Verify")]
     pub fn find_compatible_signing_key<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
@@ -1052,6 +1076,29 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(jwks.find(&by_use).count(), 1);
+
+        let by_op_use = KeyFilter {
+            op: Some(KeyOperation::Sign),
+            ..Default::default()
+        };
+        assert_eq!(jwks.find(&by_op_use).count(), 2);
+
+        let by_unknown_op = KeyFilter {
+            op: Some(KeyOperation::Unknown("custom".to_string())),
+            ..Default::default()
+        };
+        assert_eq!(jwks.find(&by_unknown_op).count(), 3);
+
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "sign", "n": "AQAB", "e": "AQAB", "key_ops": ["sign"]},
+            {"kty": "RSA", "kid": "enc", "n": "AQAB", "e": "AQAB", "key_ops": ["encrypt"]}
+        ]}"#;
+        let with_key_ops: KeySet = serde_json::from_str(json).unwrap();
+        let by_op_key_ops = KeyFilter {
+            op: Some(KeyOperation::Sign),
+            ..Default::default()
+        };
+        assert_eq!(with_key_ops.find(&by_op_key_ops).count(), 1);
     }
 
     #[test]
@@ -1229,6 +1276,54 @@ mod tests {
                 declared: Algorithm::Es256
             }
         ));
+    }
+
+    #[test]
+    fn test_selector_error_precedence_intent_over_validation() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "dup", "use": "enc", "n": "AQAB", "e": "AQAB"},
+            {"kty": "RSA", "kid": "dup", "use": "sig", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("dup"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::IntentMismatch));
+    }
+
+    #[test]
+    fn test_selector_error_precedence_intent_over_incompatible() {
+        let json = r#"{"keys": [
+            {"kty": "oct", "kid": "dup", "k": "AQAB"},
+            {"kty": "RSA", "kid": "dup", "use": "enc", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("dup"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::IntentMismatch));
+    }
+
+    #[test]
+    fn test_selector_error_precedence_validation_over_incompatible() {
+        let json = r#"{"keys": [
+            {"kty": "oct", "kid": "dup", "k": "AQAB"},
+            {"kty": "RSA", "kid": "dup", "use": "sig", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("dup"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
     }
 
     #[test]
