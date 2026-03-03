@@ -681,7 +681,7 @@ pub fn build_verify_algorithm(alg: &Algorithm) -> Result<Object> {
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{KeySet, web_crypto};
+/// use jwk_simple::{web_crypto, KeySet};
 ///
 /// let jwks: KeySet = serde_json::from_str(jwks_json)?;
 /// let key = jwks.find_by_kid("my-key-id").unwrap();
@@ -827,7 +827,7 @@ pub async fn import_unwrap_key(key: &Key) -> Result<CryptoKey> {
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{Algorithm, KeySet, web_crypto};
+/// use jwk_simple::{Algorithm, web_crypto, KeySet};
 ///
 /// let jwks: KeySet = serde_json::from_str(jwks_json)?;
 /// let key = jwks.find_by_kid("my-key-id").unwrap();

@@ -5,12 +5,9 @@
 //!
 //! Run with: `cargo run --example jwt_verify --features jwt-simple`
 
-#[cfg(feature = "jwt-simple")]
 use jwk_simple::KeySet;
-#[cfg(feature = "jwt-simple")]
 use jwt_simple::prelude::*;
 
-#[cfg(feature = "jwt-simple")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example JWKS (in production, this would come from an identity provider)
     let jwks_json = r#"{
@@ -77,10 +74,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Token expires at: {:?}", verified_claims.expires_at);
 
     Ok(())
-}
-
-#[cfg(not(feature = "jwt-simple"))]
-fn main() {
-    eprintln!("This example requires the 'jwt-simple' feature.");
-    eprintln!("Run with: cargo run --example jwt_verify --features jwt-simple");
 }

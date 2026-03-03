@@ -2,13 +2,12 @@
 //!
 //! This module provides [`HttpKeyStore`], which fetches keys from an HTTP endpoint
 //! on every request. For production use, consider wrapping with
-//! [`CachedKeyStore`](crate::CachedKeyStore).
+//! [`CachedKeyStore`](crate::jwks::CachedKeyStore).
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use crate::error::{Error, ParseError, Result};
-
 use crate::jwks::{KeySet, KeyStore};
 
 /// Default timeout for HTTP requests (30 seconds).
@@ -21,10 +20,10 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// or [`get_keyset`](KeyStore::get_keyset) will make an HTTP request.
 ///
 /// For production use with high request volumes, wrap this in
-/// [`CachedKeyStore`](crate::CachedKeyStore) with [`MokaKeyCache`](crate::MokaKeyCache):
+/// [`CachedKeyStore`](crate::jwks::CachedKeyStore) with [`MokaKeyCache`](crate::jwks::MokaKeyCache):
 ///
 /// ```ignore
-/// use jwk_simple::{CachedKeyStore, HttpKeyStore, MokaKeyCache};
+/// use jwk_simple::jwks::{CachedKeyStore, HttpKeyStore, MokaKeyCache};
 /// use std::time::Duration;
 ///
 /// let remote = HttpKeyStore::new("https://example.com/.well-known/jwks.json")?;
@@ -35,7 +34,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{HttpKeyStore, KeyStore};
+/// use jwk_simple::jwks::{HttpKeyStore, KeyStore};
 ///
 /// let store = HttpKeyStore::new("https://example.com/.well-known/jwks.json")?;
 /// let key = store.get_key("my-key-id").await?;
@@ -46,7 +45,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// You can provide a custom [`reqwest::Client`] for full control over HTTP behavior:
 ///
 /// ```ignore
-/// use jwk_simple::HttpKeyStore;
+/// use jwk_simple::jwks::HttpKeyStore;
 /// use std::time::Duration;
 ///
 /// let client = reqwest::Client::builder()
@@ -72,13 +71,10 @@ impl HttpKeyStore {
     /// Uses a default HTTP client with a 30-second timeout. To customize the client,
     /// use [`new_with_client`](Self::new_with_client).
     pub fn new(url: impl Into<String>) -> Result<Self> {
+        let builder = reqwest::Client::builder();
         #[cfg(not(target_arch = "wasm32"))]
-        let client = reqwest::Client::builder()
-            .timeout(DEFAULT_TIMEOUT)
-            .build()?;
-
-        #[cfg(target_arch = "wasm32")]
-        let client = reqwest::Client::builder().build()?;
+        let builder = builder.timeout(DEFAULT_TIMEOUT);
+        let client = builder.build()?;
 
         Ok(Self {
             url: url.into(),
@@ -88,12 +84,16 @@ impl HttpKeyStore {
 
     /// Creates a new `HttpKeyStore` with a custom HTTP client.
     ///
-    /// Use this to configure custom timeouts, headers, proxies, TLS settings, etc.
+    /// Use this to configure custom headers, proxies, TLS settings, and (on native
+    /// targets) custom timeouts.
+    ///
+    /// On `wasm32`, reqwest uses the browser/Fetch backend where client-level
+    /// timeout configuration is not available.
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// use jwk_simple::HttpKeyStore;
+    /// use jwk_simple::jwks::HttpKeyStore;
     /// use std::time::Duration;
     ///
     /// let client = reqwest::Client::builder()

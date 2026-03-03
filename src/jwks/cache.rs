@@ -58,7 +58,7 @@ pub trait KeyCache {
 /// # Examples
 ///
 /// ```ignore
-/// use jwk_simple::{CachedKeyStore, HttpKeyStore, MokaKeyCache, KeyStore};
+/// use jwk_simple::jwks::{CachedKeyStore, HttpKeyStore, KeyStore, MokaKeyCache};
 /// use std::time::Duration;
 ///
 /// // Create a cached remote key store

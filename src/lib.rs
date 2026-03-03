@@ -40,13 +40,19 @@
 //!
 //! ## Feature Flags
 //!
-//! | Feature | Description |
-//! |---------|-------------|
-//! | `jwt-simple` | Integration with the jwt-simple crate |
-//! | `web-crypto` | WebCrypto integration for browser/WASM environments |
-//! | `http` | Async HTTP fetching with `HttpKeyStore` |
-//! | `moka` | In-memory `KeyCache` implementation using Moka |
-//! | `cloudflare` | Cloudflare Workers support (Fetch API + KV cache) |
+//! Feature definitions live in `Cargo.toml` (`[features]`), while this section
+//! documents expected usage and platform constraints.
+//!
+//! | Feature | Platform | Description |
+//! |---------|----------|-------------|
+//! | `jwt-simple` | all targets | Integration with the jwt-simple crate |
+//! | `http` | all targets | Async HTTP fetching with `HttpKeyStore` |
+//! | `web-crypto` | `wasm32` only | WebCrypto integration for browser/WASM environments |
+//! | `cloudflare` | `wasm32` only | Cloudflare Workers support (Fetch API + KV cache) |
+//! | `moka` | non-`wasm32` only | In-memory `KeyCache` implementation using Moka |
+//!
+//! Invalid platform/feature combinations fail at compile time with clear
+//! `compile_error!` messages.
 //!
 //! ## Converting to jwt-simple keys
 //!
@@ -72,7 +78,8 @@
 //! native SubtleCrypto API:
 //!
 //! ```ignore
-//! use jwk_simple::{Algorithm, KeySet};
+//! use jwk_simple::{Algorithm};
+//! use jwk_simple::KeySet;
 //! use std::convert::TryInto;
 //!
 //! // Parse a JWKS
@@ -117,6 +124,21 @@
 #![forbid(unsafe_code)]
 #![warn(clippy::all)]
 
+// ---------------------------------------------------------------------------
+// Feature/target compatibility guards
+// ---------------------------------------------------------------------------
+//
+// docs.rs builds with all features enabled on a native target to render API docs.
+// We skip hard errors there so docs can still be generated for feature-gated APIs.
+#[cfg(all(feature = "web-crypto", not(target_arch = "wasm32"), not(docsrs)))]
+compile_error!("feature `web-crypto` is only supported on `wasm32` targets");
+
+#[cfg(all(feature = "cloudflare", not(target_arch = "wasm32"), not(docsrs)))]
+compile_error!("feature `cloudflare` is only supported on `wasm32` targets");
+
+#[cfg(all(feature = "moka", target_arch = "wasm32", not(docsrs)))]
+compile_error!("feature `moka` is not supported on `wasm32` targets");
+
 pub mod encoding;
 pub mod error;
 mod integrations;
@@ -129,20 +151,8 @@ pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
     OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,
 };
-pub use jwks::{CachedKeyStore, KeyCache, KeySet, KeySetParseDiagnostics, KeyStore};
+pub use jwks::{KeySet, KeySetParseDiagnostics};
 
-#[cfg(feature = "http")]
-#[cfg_attr(docsrs, doc(cfg(feature = "http")))]
-pub use jwks::HttpKeyStore;
-
-#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-#[cfg_attr(docsrs, doc(cfg(all(feature = "http", not(target_arch = "wasm32")))))]
-pub use jwks::DEFAULT_TIMEOUT;
-
-#[cfg(all(feature = "moka", not(target_arch = "wasm32")))]
-#[cfg_attr(docsrs, doc(cfg(all(feature = "moka", not(target_arch = "wasm32")))))]
-pub use jwks::{DEFAULT_MOKA_CACHE_TTL, MokaKeyCache};
-
-#[cfg(feature = "web-crypto")]
-#[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
+#[cfg(all(feature = "web-crypto", any(target_arch = "wasm32", docsrs)))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "web-crypto", target_arch = "wasm32"))))]
 pub use integrations::web_crypto;

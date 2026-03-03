@@ -59,6 +59,6 @@
 #[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
 mod jwt_simple;
 
-#[cfg(feature = "web-crypto")]
-#[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
+#[cfg(all(feature = "web-crypto", any(target_arch = "wasm32", docsrs)))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "web-crypto", target_arch = "wasm32"))))]
 pub mod web_crypto;

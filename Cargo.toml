@@ -14,9 +14,9 @@ async-trait = "0.1"
 base64ct = { version = "1.8", features = ["alloc"] }
 futures = "0.3"
 js-sys = { version = "0.3", optional = true }
-jwt-simple = { version = "0.12", optional = true, default-features = false, features = ["pure-rust"] }
+jwt-simple = { version = "0.12", optional = true, default-features = false }
 moka = { version = "0.12", optional = true, features = ["future"] }
-reqwest = { version = "0.13", optional = true, default-features = false, features = ["json", "default-tls"] }
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
@@ -53,9 +53,23 @@ serde_json = "1.0"
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "test-util", "net", "io-util", "time"] }
 criterion = "0.8"
+reqwest = { version = "0.13", default-features = false, features = ["json", "default-tls"] }
+jwt-simple = { version = "0.12", default-features = false, features = ["pure-rust"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+
+[[example]]
+name = "http_fetch"
+required-features = ["http"]
+
+[[example]]
+name = "http_fetch_wasm"
+required-features = ["http"]
+
+[[example]]
+name = "jwt_verify"
+required-features = ["jwt-simple", "jwt-simple/pure-rust"]
 
 [[example]]
 name = "webcrypto_jwt_verify"

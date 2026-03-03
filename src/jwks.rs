@@ -14,15 +14,15 @@ mod cache;
 pub mod cloudflare;
 mod store;
 
-#[cfg(feature = "moka")]
+#[cfg(all(feature = "moka", not(target_arch = "wasm32")))]
 pub use cache::moka::{DEFAULT_MOKA_CACHE_TTL, MokaKeyCache};
 pub use cache::{CachedKeyStore, KeyCache};
 
 #[cfg(feature = "http")]
-pub use store::HttpKeyStore;
+pub use store::http::HttpKeyStore;
 
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-pub use store::DEFAULT_TIMEOUT;
+pub use store::http::DEFAULT_TIMEOUT;
 
 /// A trait for types that can provide JWK keys.
 ///
@@ -43,7 +43,8 @@ pub use store::DEFAULT_TIMEOUT;
 /// Using a static key set:
 ///
 /// ```
-/// use jwk_simple::{KeyStore, KeySet};
+/// use jwk_simple::KeySet;
+/// use jwk_simple::jwks::KeyStore;
 ///
 /// # async fn example() -> jwk_simple::Result<()> {
 /// let store: KeySet = serde_json::from_str(r#"{"keys": []}"#)?;
@@ -314,7 +315,7 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::{KeySet, Algorithm};
+    /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
     /// let jwks: KeySet = serde_json::from_str(json).unwrap();
@@ -339,7 +340,7 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::{KeySet, KeyUse};
+    /// use jwk_simple::{KeyUse, KeySet};
     ///
     /// let json = r#"{"keys": [{"kty": "RSA", "use": "sig", "n": "AQAB", "e": "AQAB"}]}"#;
     /// let jwks: KeySet = serde_json::from_str(json).unwrap();
@@ -399,7 +400,7 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::{KeySet, Algorithm};
+    /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
     /// let jwks: KeySet = serde_json::from_str(json).unwrap();
@@ -429,7 +430,7 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::{KeySet, Algorithm};
+    /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// // This RSA key has no "alg" field, so find_by_alg would miss it
     /// let json = r#"{"keys": [{"kty": "RSA", "n": "AQAB", "e": "AQAB"}]}"#;
@@ -454,7 +455,7 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::{KeySet, Algorithm};
+    /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [{"kty": "RSA", "n": "AQAB", "e": "AQAB"}]}"#;
     /// let jwks: KeySet = serde_json::from_str(json).unwrap();
@@ -485,7 +486,7 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::{KeySet, Algorithm};
+    /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [
     ///     {"kty": "RSA", "use": "enc", "n": "AQAB", "e": "AQAB"},
@@ -515,7 +516,7 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::{KeySet, Algorithm};
+    /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [
     ///     {"kty": "RSA", "alg": "RS256", "use": "enc", "n": "AQAB", "e": "AQAB"},

@@ -10,8 +10,18 @@ permissions:
 
 jobs:
   build:
-    name: Build
+    name: Build (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: native
+            target: ""
+            features: http,jwt-simple,jwt-simple/pure-rust,moka
+          - name: wasm
+            target: wasm32-unknown-unknown
+            features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     steps:
       - name: Checkout repository
@@ -27,11 +37,26 @@ jobs:
 
       - name: Build
         shell: devenv shell bash -- -e {0}
-        run: cargo build --all-features
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo build --target "${{ matrix.target }}" --features "${{ matrix.features }}"
+          else
+            cargo build --features "${{ matrix.features }}"
+          fi
 
   test:
-    name: Test
+    name: Test (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: native
+            target: ""
+            features: http,jwt-simple,jwt-simple/pure-rust,moka
+          - name: wasm
+            target: wasm32-unknown-unknown
+            features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     steps:
       - name: Checkout repository
@@ -45,13 +70,28 @@ jobs:
       - name: Set up Rust
         uses: ./.github/actions/rust/
 
-      - name: Run tests
+      - name: Test
         shell: devenv shell bash -- -e {0}
-        run: cargo test --all-features
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo check --target "${{ matrix.target }}" --features "${{ matrix.features }}"
+          else
+            cargo test --features "${{ matrix.features }}"
+          fi
 
   lint:
-    name: Lint
+    name: Lint (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: native
+            target: ""
+            features: http,jwt-simple,jwt-simple/pure-rust,moka
+          - name: wasm
+            target: wasm32-unknown-unknown
+            features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     steps:
       - name: Checkout repository
@@ -65,14 +105,51 @@ jobs:
       - name: Set up Rust
         uses: ./.github/actions/rust/
 
-      - name: Run fmt
+      - name: fmt
+        if: matrix.target == ''
         shell: devenv shell bash -- -e {0}
         run: cargo fmt -- --check
 
-      - name: Run clippy
+      - name: Clippy
         shell: devenv shell bash -- -e {0}
-        run: cargo clippy --all-features
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo clippy --target "${{ matrix.target }}" --features "${{ matrix.features }}"
+          else
+            cargo clippy --features "${{ matrix.features }}"
+          fi
 
-      - name: Run check
+  examples:
+    name: Examples (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: native
+            target: ""
+            features: http,jwt-simple,jwt-simple/pure-rust
+          - name: wasm
+            target: wasm32-unknown-unknown
+            features: http,jwt-simple,jwt-simple/pure-rust,web-crypto
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up environment
+        uses: ./.github/actions/devenv/
+        with:
+          build: "true"
+
+      - name: Set up Rust
+        uses: ./.github/actions/rust/
+
+      - name: Check examples
         shell: devenv shell bash -- -e {0}
-        run: cargo check --all-features
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo check --examples --target "${{ matrix.target }}" --features "${{ matrix.features }}"
+          else
+            cargo check --examples --features "${{ matrix.features }}"
+          fi

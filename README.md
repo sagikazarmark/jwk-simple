@@ -53,13 +53,19 @@ If you need visibility into dropped keys, use `KeySet::from_json_with_diagnostic
 
 ## Feature Flags
 
+Feature definitions live in `Cargo.toml` (`[features]`). This table documents
+expected usage and platform constraints.
+
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `jwt-simple` | ❌ | Integration with the jwt-simple crate |
-| `http` | ❌ | Async HTTP fetching (reqwest) |
-| `moka` | ❌ | In-memory TTL-based key caching (moka) |
-| `cloudflare` | ❌ | Cloudflare Workers support (KV cache + fetch), wasm32 targets only |
-| `web-crypto` | ❌ | WebCrypto API integration for WASM |
+| `jwt-simple` | ❌ | Integration with the jwt-simple crate (all targets) |
+| `http` | ❌ | Async HTTP fetching (reqwest, all targets) |
+| `web-crypto` | ❌ | WebCrypto API integration (`wasm32` only) |
+| `cloudflare` | ❌ | Cloudflare Workers support (KV cache + fetch, `wasm32` only) |
+| `moka` | ❌ | In-memory TTL-based key caching (non-`wasm32` only) |
+
+Invalid platform/feature combinations intentionally fail at compile time with
+clear `compile_error!` messages.
 
 ## Usage Examples
 
@@ -68,7 +74,8 @@ Note: snippets below are focused examples and may omit surrounding async/runtime
 ### Basic JWKS Parsing
 
 ```rust
-use jwk_simple::{KeySet, KeyType, KeyUse};
+use jwk_simple::{KeyType, KeyUse};
+use jwk_simple::KeySet;
 
 // Parse from JSON string
 let jwks: KeySet = serde_json::from_str(json)?;
@@ -118,7 +125,7 @@ let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 With the `http` feature enabled:
 
 ```rust
-use jwk_simple::{HttpKeyStore, KeyStore};
+use jwk_simple::jwks::{HttpKeyStore, KeyStore};
 use std::time::Duration;
 
 // Create remote key store (uses default 30s timeout)
@@ -144,7 +151,7 @@ let jwks = remote.get_keyset().await?;
 With the `http` and `moka` features enabled:
 
 ```rust
-use jwk_simple::{CachedKeyStore, HttpKeyStore, KeyCache, KeyStore, MokaKeyCache};
+use jwk_simple::jwks::{CachedKeyStore, HttpKeyStore, KeyCache, KeyStore, MokaKeyCache};
 use std::time::Duration;
 
 // For production, wrap a remote store with caching (5 minute TTL)
@@ -257,10 +264,11 @@ This crate prioritizes security:
 
 ## WASM Usage
 
-Core JWKS parsing works in WebAssembly environments. The following features are NOT available in WASM:
+Core JWKS parsing works in WebAssembly environments.
 
-- `http` - reqwest is not available in browser WASM (use browser fetch and pass JSON string); for Cloudflare Workers, use the `cloudflare` feature instead
-- File-based sources - No filesystem access
+- `http` is available on `wasm32` via reqwest's Fetch backend
+- `web-crypto` and `cloudflare` are `wasm32`-only features
+- `moka` is not available on `wasm32`
 
 Example for WASM:
 

@@ -10,7 +10,7 @@
 //!
 //! ```ignore
 //! use jwk_simple::jwks::cloudflare;
-//! use jwk_simple::KeyStore;
+//! use jwk_simple::jwks::KeyStore;
 //!
 //! let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json");
 //! let key = store.get_key("my-key-id").await?;
@@ -20,7 +20,7 @@
 //!
 //! ```ignore
 //! use jwk_simple::jwks::cloudflare;
-//! use jwk_simple::CachedKeyStore;
+//! use jwk_simple::jwks::CachedKeyStore;
 //! use worker::kv::KvStore;
 //!
 //! let kv: KvStore = env.kv("JWKS_CACHE")?;
@@ -43,18 +43,18 @@ pub const DEFAULT_KV_TTL_SECONDS: u64 = 300;
 /// This implementation is designed for use in Cloudflare Workers where `reqwest` is not
 /// available. It uses the Worker's built-in Fetch API to make HTTP requests.
 ///
-/// Like [`crate::FetchKeyStore`], this does **not** cache keys. Every call
+/// Like [`crate::jwks::HttpKeyStore`], this does **not** cache keys. Every call
 /// to [`get_key`](KeyStore::get_key) or [`get_keyset`](KeyStore::get_keyset) will make
 /// an HTTP request.
 ///
-/// For production use, wrap this in [`crate::CachedKeyStore`] with a [`KvKeyCache`] for
+/// For production use, wrap this in [`crate::jwks::CachedKeyStore`] with a [`KvKeyCache`] for
 /// KV-backed caching.
 ///
 /// # Examples
 ///
 /// ```ignore
 /// use jwk_simple::jwks::cloudflare;
-/// use jwk_simple::KeyStore;
+/// use jwk_simple::jwks::KeyStore;
 ///
 /// let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json");
 /// let key = store.get_key("my-key-id").await?;

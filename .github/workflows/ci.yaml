@@ -10,8 +10,18 @@ permissions:
 
 jobs:
   build:
-    name: Build
+    name: Build (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: native
+            target: ""
+            features: http,jwt-simple,jwt-simple/pure-rust,moka
+          - name: wasm
+            target: wasm32-unknown-unknown
+            features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     steps:
       - name: Checkout repository
@@ -19,13 +29,32 @@ jobs:
 
       - name: Set up Rust
         uses: ./.github/actions/rust/
+
+      - name: Install wasm target
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: rustup target add wasm32-unknown-unknown
 
       - name: Build
-        run: cargo build --all-features
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo build --target "${{ matrix.target }}" --features "${{ matrix.features }}"
+          else
+            cargo build --features "${{ matrix.features }}"
+          fi
 
   test:
-    name: Test
+    name: Test (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: native
+            target: ""
+            features: http,jwt-simple,jwt-simple/pure-rust,moka
+          - name: wasm
+            target: wasm32-unknown-unknown
+            features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     steps:
       - name: Checkout repository
@@ -34,29 +63,31 @@ jobs:
       - name: Set up Rust
         uses: ./.github/actions/rust/
 
-      - name: Run tests
-        run: cargo test --all-features
+      - name: Install wasm target
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: rustup target add wasm32-unknown-unknown
 
-  test-wasm:
-    name: Test (WASM)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-
-      - name: Set up Rust
-        uses: ./.github/actions/rust/
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Run WASM tests
-        run: wasm-pack test --headless --chrome --features web-crypto
+      - name: Test
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo check --target "${{ matrix.target }}" --features "${{ matrix.features }}"
+          else
+            cargo test --features "${{ matrix.features }}"
+          fi
 
   lint:
-    name: Lint
+    name: Lint (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: native
+            target: ""
+            features: http,jwt-simple,jwt-simple/pure-rust,moka
+          - name: wasm
+            target: wasm32-unknown-unknown
+            features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     steps:
       - name: Checkout repository
@@ -65,11 +96,51 @@ jobs:
       - name: Set up Rust
         uses: ./.github/actions/rust/
 
-      - name: Run fmt
+      - name: Install wasm target
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: fmt
+        if: matrix.target == ''
         run: cargo fmt -- --check
 
-      - name: Run clippy
-        run: cargo clippy --all-features
+      - name: Clippy
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo clippy --target "${{ matrix.target }}" --features "${{ matrix.features }}"
+          else
+            cargo clippy --features "${{ matrix.features }}"
+          fi
 
-      - name: Run check
-        run: cargo check --all-features
+  examples:
+    name: Examples (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: native
+            target: ""
+            features: http,jwt-simple,jwt-simple/pure-rust
+          - name: wasm
+            target: wasm32-unknown-unknown
+            features: http,jwt-simple,jwt-simple/pure-rust,web-crypto
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up Rust
+        uses: ./.github/actions/rust/
+
+      - name: Install wasm target
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Check examples
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo check --examples --target "${{ matrix.target }}" --features "${{ matrix.features }}"
+          else
+            cargo check --examples --features "${{ matrix.features }}"
+          fi

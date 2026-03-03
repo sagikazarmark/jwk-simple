@@ -525,7 +525,6 @@ impl Key {
     /// # Errors
     ///
     /// Returns an error if the key is not an RSA key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_rs256_public_key(&self) -> Result<RS256PublicKey> {
         self.try_into()
     }
@@ -535,133 +534,111 @@ impl Key {
     /// # Errors
     ///
     /// Returns an error if the key is not an RSA private key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_rs256_key_pair(&self) -> Result<RS256KeyPair> {
         self.try_into()
     }
 
     /// Converts to an RS384 public key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_rs384_public_key(&self) -> Result<RS384PublicKey> {
         self.try_into()
     }
 
     /// Converts to an RS384 key pair.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_rs384_key_pair(&self) -> Result<RS384KeyPair> {
         self.try_into()
     }
 
     /// Converts to an RS512 public key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_rs512_public_key(&self) -> Result<RS512PublicKey> {
         self.try_into()
     }
 
     /// Converts to an RS512 key pair.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_rs512_key_pair(&self) -> Result<RS512KeyPair> {
         self.try_into()
     }
 
     /// Converts to a PS256 public key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_ps256_public_key(&self) -> Result<PS256PublicKey> {
         self.try_into()
     }
 
     /// Converts to a PS256 key pair.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_ps256_key_pair(&self) -> Result<PS256KeyPair> {
         self.try_into()
     }
 
     /// Converts to a PS384 public key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_ps384_public_key(&self) -> Result<PS384PublicKey> {
         self.try_into()
     }
 
     /// Converts to a PS384 key pair.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_ps384_key_pair(&self) -> Result<PS384KeyPair> {
         self.try_into()
     }
 
     /// Converts to a PS512 public key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_ps512_public_key(&self) -> Result<PS512PublicKey> {
         self.try_into()
     }
 
     /// Converts to a PS512 key pair.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_ps512_key_pair(&self) -> Result<PS512KeyPair> {
         self.try_into()
     }
 
     /// Converts to an ES256 public key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_es256_public_key(&self) -> Result<ES256PublicKey> {
         self.try_into()
     }
 
     /// Converts to an ES256 key pair.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_es256_key_pair(&self) -> Result<ES256KeyPair> {
         self.try_into()
     }
 
     /// Converts to an ES384 public key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_es384_public_key(&self) -> Result<ES384PublicKey> {
         self.try_into()
     }
 
     /// Converts to an ES384 key pair.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_es384_key_pair(&self) -> Result<ES384KeyPair> {
         self.try_into()
     }
 
     /// Converts to an ES256k public key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_es256k_public_key(&self) -> Result<ES256kPublicKey> {
         self.try_into()
     }
 
     /// Converts to an ES256k key pair.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_es256k_key_pair(&self) -> Result<ES256kKeyPair> {
         self.try_into()
     }
 
     /// Converts to an Ed25519 public key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_ed25519_public_key(&self) -> Result<Ed25519PublicKey> {
         self.try_into()
     }
 
     /// Converts to an Ed25519 key pair.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_ed25519_key_pair(&self) -> Result<Ed25519KeyPair> {
         self.try_into()
     }
 
     /// Converts to an HS256 key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_hs256_key(&self) -> Result<HS256Key> {
         self.try_into()
     }
 
     /// Converts to an HS384 key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_hs384_key(&self) -> Result<HS384Key> {
         self.try_into()
     }
 
     /// Converts to an HS512 key.
-    #[cfg(feature = "jwt-simple")]
     pub fn to_hs512_key(&self) -> Result<HS512Key> {
         self.try_into()
     }
