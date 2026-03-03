@@ -135,6 +135,8 @@ impl TryFrom<&Key> for web_sys::JsonWebKey {
     type Error = Error;
 
     fn try_from(key: &Key) -> Result<Self> {
+        key.validate()?;
+
         // Validate that the key type is supported
         validate_webcrypto_support(key)?;
 
@@ -374,6 +376,16 @@ fn validate_usage_algorithm_compatibility(usage: KeyUsage, alg: &Algorithm) -> R
             reason: "algorithm is not compatible with requested key usage",
         })
     }
+}
+
+fn validate_key_for_webcrypto_usage_with_alg(
+    key: &Key,
+    usage: KeyUsage,
+    alg: &Algorithm,
+) -> Result<()> {
+    validate_usage_algorithm_compatibility(usage, alg)?;
+    key.validate_for_algorithm(alg)?;
+    validate_webcrypto_support(key)
 }
 
 /// Key usage category for determining the appropriate algorithm.
@@ -870,8 +882,11 @@ pub async fn import_key_with_usages(
     usage: KeyUsage,
 ) -> Result<CryptoKey> {
     if let Some(alg) = key.alg.as_ref() {
-        validate_usage_algorithm_compatibility(usage, alg)?;
+        validate_key_for_webcrypto_usage_with_alg(key, usage, alg)?;
+    } else {
+        key.validate()?;
     }
+
     let jwk = web_sys::JsonWebKey::try_from(key)?;
     let algorithm = build_algorithm_object(key, usage)?;
 
@@ -894,7 +909,7 @@ pub async fn import_key_with_usages_for_alg(
     usage: KeyUsage,
     alg: &Algorithm,
 ) -> Result<CryptoKey> {
-    validate_usage_algorithm_compatibility(usage, alg)?;
+    validate_key_for_webcrypto_usage_with_alg(key, usage, alg)?;
     let jwk = web_sys::JsonWebKey::try_from(key)?;
 
     // Override the JWK's `alg` field to match the explicit algorithm.

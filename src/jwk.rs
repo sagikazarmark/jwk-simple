@@ -1003,14 +1003,28 @@ impl Key {
             }
         }
 
-        // Validate algorithm matches key type if specified
+        // Validate algorithm-aware compatibility if specified.
+        // Otherwise, perform structural parameter validation.
         if let Some(ref alg) = self.alg {
-            self.validate_algorithm_key_type_match(alg)?;
-            self.validate_algorithm_key_strength(alg)?;
+            self.validate_for_algorithm(alg)
+        } else {
+            self.params.validate()
         }
+    }
 
-        // Validate key parameters
-        self.params.validate()
+    /// Validates this key for a specific algorithm before key usage.
+    ///
+    /// This is the canonical algorithm-aware validation gate and should be
+    /// used by integrations before converting/importing key material.
+    ///
+    /// Validation order:
+    /// 1. Structural/key-material validation (`params.validate()`)
+    /// 2. Algorithm/key-type compatibility (`validate_algorithm_key_type_match`)
+    /// 3. Algorithm-specific key strength checks (`validate_algorithm_key_strength`)
+    pub fn validate_for_algorithm(&self, alg: &Algorithm) -> Result<()> {
+        self.params.validate()?;
+        self.validate_algorithm_key_type_match(alg)?;
+        self.validate_algorithm_key_strength(alg)
     }
 
     /// Returns `true` if this key's type (and curve, where applicable) is
@@ -2170,6 +2184,23 @@ mod tests {
             key_512
                 .validate_algorithm_strength_for_test(&Algorithm::A256cbcHs512)
                 .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_validate_for_algorithm_enforces_strength_without_key_alg() {
+        let weak_hmac_key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+            Base64UrlBytes::new(vec![0u8; 31]),
+        )));
+
+        // Structural validation is still fine when `alg` is absent.
+        assert!(weak_hmac_key.validate().is_ok());
+
+        // Algorithm-aware validation enforces HS256 minimum key strength.
+        assert!(
+            weak_hmac_key
+                .validate_for_algorithm(&Algorithm::Hs256)
+                .is_err()
         );
     }
 }

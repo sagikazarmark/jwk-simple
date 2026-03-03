@@ -11,6 +11,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 
 use js_sys::{Object, Reflect, Uint8Array};
 use jwk_simple::Key;
+use jwk_simple::error::ValidationError;
 use jwk_simple::web_crypto;
 use std::convert::TryFrom;
 
@@ -252,6 +253,25 @@ async fn test_import_verify_key_rejects_usage_algorithm_mismatch() {
     assert!(matches!(
         err,
         jwk_simple::Error::UnsupportedForWebCrypto { .. }
+    ));
+}
+
+#[wasm_bindgen_test]
+async fn test_import_verify_key_for_alg_rejects_weak_hs256_key_without_alg() {
+    // 31 bytes (248 bits): structurally valid oct key, but too weak for HS256.
+    let weak_hmac_key = r#"{
+        "kty": "oct",
+        "k": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }"#;
+
+    let key: Key = serde_json::from_str(weak_hmac_key).unwrap();
+    let err = web_crypto::import_verify_key_for_alg(&key, &jwk_simple::Algorithm::Hs256)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(
+        err,
+        jwk_simple::Error::Validation(ValidationError::InvalidKeySize { .. })
     ));
 }
 
