@@ -156,18 +156,6 @@ pub struct KeySet {
     keys: Vec<Key>,
 }
 
-/// Diagnostics for permissive JWKS parsing.
-///
-/// When parsing via [`KeySet::from_json_with_diagnostics`], keys that fail to
-/// parse or key-parameter validation are skipped (per RFC 7517 guidance) and summarized here.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct KeySetParseDiagnostics {
-    /// Number of keys skipped due to parse errors.
-    pub skipped_keys: usize,
-    /// Human-readable parse errors for skipped keys.
-    pub skipped_errors: Vec<String>,
-}
-
 impl<'de> Deserialize<'de> for KeySet {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -214,42 +202,6 @@ impl KeySet {
     /// ```
     pub fn new() -> Self {
         Self { keys: Vec::new() }
-    }
-
-    /// Parses a JWKS JSON document and returns parse diagnostics for skipped keys.
-    ///
-    /// This behaves like normal [`serde_json`] parsing for top-level structure
-    /// errors (e.g. invalid JSON or missing `keys` member), but preserves the
-    /// RFC 7517 Section 5 behavior of ignoring malformed individual JWK entries.
-    pub fn from_json_with_diagnostics(json: &str) -> Result<(Self, KeySetParseDiagnostics)> {
-        #[derive(Deserialize)]
-        struct RawJwkSet {
-            keys: Vec<serde_json::Value>,
-        }
-
-        let raw: RawJwkSet = serde_json::from_str(json)?;
-
-        let mut keys = Vec::with_capacity(raw.keys.len());
-        let mut diagnostics = KeySetParseDiagnostics::default();
-
-        for value in raw.keys {
-            match serde_json::from_value::<Key>(value) {
-                Ok(key) => {
-                    if let Err(err) = key.params.validate() {
-                        diagnostics.skipped_keys += 1;
-                        diagnostics.skipped_errors.push(err.to_string());
-                    } else {
-                        keys.push(key);
-                    }
-                }
-                Err(err) => {
-                    diagnostics.skipped_keys += 1;
-                    diagnostics.skipped_errors.push(err.to_string());
-                }
-            }
-        }
-
-        Ok((Self { keys }, diagnostics))
     }
 
     /// Returns a slice of all keys in the set.
@@ -696,21 +648,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_with_diagnostics_reports_skipped_keys() {
-        let json = r#"{
-            "keys": [
-                {"kty": "UNKNOWN", "data": "ignored"},
-                {"kty": "oct", "k": "AQAB"}
-            ]
-        }"#;
-
-        let (jwks, diagnostics) = KeySet::from_json_with_diagnostics(json).unwrap();
-        assert_eq!(jwks.len(), 1);
-        assert_eq!(diagnostics.skipped_keys, 1);
-        assert_eq!(diagnostics.skipped_errors.len(), 1);
-    }
-
-    #[test]
     fn test_parse_skips_semantically_invalid_key() {
         let json = r#"{
             "keys": [
@@ -723,21 +660,6 @@ mod tests {
         assert_eq!(jwks.len(), 1);
         assert!(jwks.find_by_kid("bad").is_none());
         assert!(jwks.find_by_kid("good").is_some());
-    }
-
-    #[test]
-    fn test_parse_with_diagnostics_reports_validation_failures() {
-        let json = r#"{
-            "keys": [
-                {"kty": "EC", "crv": "P-256", "x": "AQ", "y": "AQ", "kid": "bad"},
-                {"kty": "oct", "k": "AQAB", "kid": "good"}
-            ]
-        }"#;
-
-        let (jwks, diagnostics) = KeySet::from_json_with_diagnostics(json).unwrap();
-        assert_eq!(jwks.len(), 1);
-        assert_eq!(diagnostics.skipped_keys, 1);
-        assert_eq!(diagnostics.skipped_errors.len(), 1);
     }
 
     #[test]
