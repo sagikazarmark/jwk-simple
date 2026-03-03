@@ -6,7 +6,7 @@
 //!
 //! ## Features
 //!
-//! - **Full RFC compliance**: Supports RFC 7517 (JWK), RFC 7518 (algorithms),
+//! - **RFC coverage (JOSE/JWK)**: Supports RFC 7517 (JWK), RFC 7518 (algorithms),
 //!   RFC 8037 (OKP), RFC 9864 (Ed25519/Ed448 JOSE algorithms), and RFC 7638
 //!   (thumbprints)
 //! - **Multiple key types**: RSA, EC (P-256, P-384, P-521, secp256k1),
@@ -118,6 +118,10 @@
 //! - All fallible operations return `Result` types — the crate avoids panics,
 //!   though standard trait implementations like `Index` follow normal Rust
 //!   semantics and may panic on invalid input (e.g., out-of-bounds indexing)
+//! - `Key::validate` / `Key::validate_structure` perform structural and
+//!   consistency checks only. PKIX trust validation for `x5c` chains is
+//!   application-defined and can be integrated via
+//!   `Key::validate_with_certificate_validator`.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
@@ -148,8 +152,8 @@ pub mod jwks;
 // Re-exports for convenience
 pub use error::{Error, Result};
 pub use jwk::{
-    Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
-    OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,
+    Algorithm, CertificateValidator, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType,
+    KeyUse, OkpCurve, OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,
 };
 pub use jwks::KeySet;
 

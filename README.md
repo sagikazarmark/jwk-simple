@@ -10,7 +10,7 @@ A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defin
 
 ## Features
 
-- **Full RFC compliance**: Supports RFC 7517 (JWK), RFC 7518 (algorithms), RFC 8037 (OKP), RFC 9864 (Ed25519/Ed448 JOSE algorithms), and RFC 7638 (thumbprints)
+- **RFC coverage (JOSE/JWK)**: Supports RFC 7517 (JWK), RFC 7518 (algorithms), RFC 8037 (OKP), RFC 9864 (Ed25519/Ed448 JOSE algorithms), and RFC 7638 (thumbprints)
 - **Multiple key types**: RSA, EC (P-256, P-384, P-521, secp256k1), Symmetric (HMAC), and OKP (Ed25519, Ed448, X25519, X448)
 - **WASM compatible**: Core functionality works in WebAssembly environments
 - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
@@ -242,7 +242,7 @@ Legend for partial support (`⚠️`):
 - **You need jwt-simple integration** - Direct conversion to jwt-simple key types
 - **You're building Cloudflare Workers** - Native KV cache support
 - **You need WASM support** - Core parsing works in browser
-- **You want full spec compliance** - All key types including OKP
+- **You want broad JOSE/JWK RFC coverage** - All key types including OKP
 
 ### When to use alternatives
 
@@ -260,6 +260,7 @@ This crate prioritizes security:
 - **Debug redaction**: Debug output redacts sensitive key material
 - **Panic-free APIs**: All fallible operations return `Result` types — standard trait implementations like `Index` follow normal Rust semantics and may panic on invalid input (e.g., out-of-bounds indexing)
 - **Input validation**: Key parameters are validated for correct sizes
+- **Trust boundary clarity**: `Key::validate` / `Key::validate_structure` perform structural and metadata consistency checks only; PKIX trust validation (chain path, trust anchors, validity, EKU/KU, revocation) must be provided by your application, e.g. via `Key::validate_with_certificate_validator`
 
 When enabling the optional `jwt-simple` integration, note that some `jwt-simple`
 dependency chains may pull in `rsa` versions affected by
