@@ -858,11 +858,12 @@ impl Key {
         // be used together; however, if both are used, the information they convey
         // MUST be consistent."
         if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops)
-            && !is_use_consistent_with_ops(key_use, key_ops) {
-                return Err(Error::Validation(ValidationError::InconsistentParameters(
-                    "RFC 7517: 'use' and 'key_ops' are both present but inconsistent".to_string(),
-                )));
-            }
+            && !is_use_consistent_with_ops(key_use, key_ops)
+        {
+            return Err(Error::Validation(ValidationError::InconsistentParameters(
+                "RFC 7517: 'use' and 'key_ops' are both present but inconsistent".to_string(),
+            )));
+        }
 
         // RFC 7517 Section 4.3: key_ops values MUST be unique (no duplicates)
         if let Some(ref ops) = self.key_ops {
