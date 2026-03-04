@@ -570,8 +570,6 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// # #[allow(deprecated)]
-    /// # fn main() {
     /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
@@ -579,7 +577,6 @@ impl KeySet {
     ///
     /// let rs256_keys: Vec<_> = jwks.find_by_alg(&Algorithm::Rs256).collect();
     /// assert_eq!(rs256_keys.len(), 1);
-    /// # }
     /// ```
     pub fn find_by_alg<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
         let alg = alg.clone();
@@ -659,8 +656,6 @@ impl KeySet {
     /// # Examples
     ///
     /// ```
-    /// # #[allow(deprecated)]
-    /// # fn main() {
     /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
@@ -668,7 +663,6 @@ impl KeySet {
     ///
     /// let key = jwks.find_first_by_alg(&Algorithm::Rs256);
     /// assert!(key.is_some());
-    /// # }
     /// ```
     pub fn find_first_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
         self.keys.iter().find(|k| k.alg.as_ref() == Some(alg))
@@ -794,12 +788,14 @@ impl KeySet {
     /// - otherwise, `use` must be `"sig"` or unspecified
     ///
     /// Use this when you require strict `alg` equality on keys.
-    /// For JWT verification against real-world JWKS (where `alg` may be absent),
-    /// prefer [`find_compatible_signing_key`](KeySet::find_compatible_signing_key).
+    /// For strict security-sensitive selection, use
+    /// [`KeySet::selector`] with [`KeyMatcher`] instead.
     ///
     /// # Examples
     ///
     /// ```
+    /// # #[allow(deprecated)]
+    /// # fn main() {
     /// use jwk_simple::{Algorithm, KeySet};
     ///
     /// let json = r#"{"keys": [
@@ -810,6 +806,7 @@ impl KeySet {
     ///
     /// let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
+    /// # }
     /// ```
     #[deprecated(
         note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) for signing-key selection"
@@ -1495,6 +1492,18 @@ mod tests {
 
         let err = selector
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::NoMatchingKey));
+    }
+
+    #[test]
+    fn test_selector_no_matching_key_for_unknown_kid() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("ghost"))
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::NoMatchingKey));

@@ -53,10 +53,7 @@ fn main() {
     let allowed_verify_algs = [Algorithm::Rs256, Algorithm::Es256];
     let selected = jwks
         .selector(&allowed_verify_algs)
-        .select(
-            KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256)
-                .with_optional_kid(Some("rsa-signing-key")),
-        )
+        .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-signing-key"))
         .expect("strict key selection failed");
     println!(
         "\nStrictly selected verify key: {}",
