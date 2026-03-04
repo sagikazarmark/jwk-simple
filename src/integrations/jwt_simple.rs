@@ -644,19 +644,15 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("rsa-conversion-test");
         let token = ec_key_pair.sign(claims).unwrap();
 
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&token, None)
-                .is_err()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&token, None)
+            .is_err());
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&tampered, None)
-                .is_err()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&tampered, None)
+            .is_err());
     }
 
     #[test]
@@ -670,19 +666,15 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("ec-conversion-test");
         let token = key_pair.sign(claims).unwrap();
 
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&token, None)
-                .is_ok()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&token, None)
+            .is_ok());
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&tampered, None)
-                .is_err()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&tampered, None)
+            .is_err());
     }
 
     #[test]
@@ -696,25 +688,19 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("conversion-test");
 
         let token_256 = hs256_key.authenticate(claims.clone()).unwrap();
-        assert!(
-            hs256_key
-                .verify_token::<NoCustomClaims>(&token_256, None)
-                .is_ok()
-        );
+        assert!(hs256_key
+            .verify_token::<NoCustomClaims>(&token_256, None)
+            .is_ok());
 
         let token_384 = hs384_key.authenticate(claims.clone()).unwrap();
-        assert!(
-            hs384_key
-                .verify_token::<NoCustomClaims>(&token_384, None)
-                .is_ok()
-        );
+        assert!(hs384_key
+            .verify_token::<NoCustomClaims>(&token_384, None)
+            .is_ok());
 
         let token_512 = hs512_key.authenticate(claims).unwrap();
-        assert!(
-            hs512_key
-                .verify_token::<NoCustomClaims>(&token_512, None)
-                .is_ok()
-        );
+        assert!(hs512_key
+            .verify_token::<NoCustomClaims>(&token_512, None)
+            .is_ok());
 
         assert!(
             hs256_key
@@ -846,15 +832,15 @@ mod tests {
     #[test]
     fn test_select_jwt_simple_signing_key_strict() {
         let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "rsa-sign", "use": "sig", "alg": "RS256", "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw", "e": "AQAB", "d": "X4cTteJY_gn4FYPsXB8rd5Qw9Y8Q8fN4EuM4fM9x2s8", "p": "2BfINuWQfM4R4qf4k7yY3kQ_6f9E1y2v3w4x5y6z7A", "q": "3CkJxvXRgN5S7f6h8j9k0l1m2n3o4p5q6r7s8t9u0B", "dp": "1A2B3C4D5E6F7G8H9I0J", "dq": "0J9I8H7G6F5E4D3C2B1A", "qi": "QWERTYUIOPASDFGHJKLZ"}
+            {"kty": "EC", "kid": "ec-sign", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM", "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"}
         ]}"#;
 
         let jwks: KeySet = serde_json::from_str(json).unwrap();
         let key = jwks
-            .select_jwt_simple_signing_key(&Algorithm::Rs256, Some("rsa-sign"))
+            .select_jwt_simple_signing_key(&Algorithm::Es256, Some("ec-sign"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("rsa-sign"));
+        assert_eq!(key.kid.as_deref(), Some("ec-sign"));
     }
 
     #[test]
