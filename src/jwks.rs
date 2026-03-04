@@ -216,6 +216,9 @@ impl<'a> KeySelector<'a> {
     /// 4. If no candidate survives: `AlgorithmMismatch` -> `IntentMismatch`
     ///    -> `KeyValidationFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`
     /// 5. If multiple candidates survive: `AmbiguousSelection`
+    ///
+    /// If `kid` is omitted and selection returns `NoMatchingKey`, use
+    /// [`KeySet::find`] for discovery diagnostics to inspect broad candidates.
     pub fn select(&self, matcher: KeyMatcher<'_>) -> std::result::Result<&'a Key, SelectionError> {
         if matcher.alg.is_unknown() {
             return Err(SelectionError::UnknownAlgorithm);
@@ -771,7 +774,7 @@ impl KeySet {
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// # }
     /// ```
-    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) or KeyOperation::Verify")]
+    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) for signing-key selection")]
     pub fn find_compatible_signing_key<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
         self.find_compatible(alg).find(|k| is_signing_key(k))
     }
@@ -805,7 +808,7 @@ impl KeySet {
     /// let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
-    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) or KeyOperation::Verify")]
+    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) for signing-key selection")]
     pub fn find_signing_key_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
         let is_unknown_alg = alg.is_unknown();
         self.keys.iter().find(|k| {
@@ -955,6 +958,8 @@ impl KeySet {
     ///
     /// Verification algorithm allowlists are enforced only when selecting for
     /// [`KeyOperation::Verify`].
+    /// For non-verify operations (for example [`KeyOperation::Sign`]),
+    /// `allowed_verify_algs` is not consulted.
     ///
     /// # Errors
     ///
@@ -1480,6 +1485,53 @@ mod tests {
         let keys: Vec<_> = jwks.find(&filter).collect();
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].kid.as_deref(), Some("rsa-key-1"));
+    }
+
+    #[test]
+    fn test_selector_no_matching_key_for_empty_keyset() {
+        let jwks = KeySet::new();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::NoMatchingKey));
+    }
+
+    #[test]
+    fn test_selection_error_display_messages() {
+        assert_eq!(
+            SelectionError::EmptyVerifyAllowlist.to_string(),
+            "verification allowlist is empty"
+        );
+        assert_eq!(
+            SelectionError::UnknownAlgorithm.to_string(),
+            "unknown or unsupported algorithm"
+        );
+        assert_eq!(
+            SelectionError::AlgorithmNotAllowed.to_string(),
+            "algorithm is not allowed for verification"
+        );
+
+        let mismatch = SelectionError::AlgorithmMismatch {
+            requested: Algorithm::Rs256,
+            declared: Algorithm::Es256,
+        };
+        assert_eq!(
+            mismatch.to_string(),
+            "algorithm mismatch: requested RS256, key declares ES256"
+        );
+
+        let ambiguous = SelectionError::AmbiguousSelection { count: 2 };
+        assert_eq!(
+            ambiguous.to_string(),
+            "selection is ambiguous: 2 matching keys"
+        );
+        assert_eq!(
+            SelectionError::NoMatchingKey.to_string(),
+            "no matching key found"
+        );
     }
 
     #[test]

@@ -144,14 +144,9 @@ impl KeySet {
 
 impl<'a> KeySelector<'a> {
     pub fn select(&self, matcher: KeyMatcher<'_>) -> Result<&'a Key, SelectionError> {
-        // Deterministic precedence (example):
-        // 1) Unknown algorithm
-        // 2) Verify allowlist checks (if op == Verify)
-        // 3) Candidate filtering (kid/type/intent)
-        // 4) alg mismatch checks against jwk.alg
-        // 5) validate_for_algorithm -> KeyValidationFailed
-        // 6) terminal cardinality checks: 0 => NoMatchingKey, >1 => AmbiguousSelection
-        unimplemented!()
+        // Implemented in src/jwks.rs.
+        // Deterministic precedence and strict semantics are enforced there.
+        # unimplemented!()
     }
 }
 ```

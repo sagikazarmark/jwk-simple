@@ -44,7 +44,9 @@ Implement deterministic validation/check order in `KeySelector::select`:
    - algorithm not in allowlist -> `SelectionError::AlgorithmNotAllowed`
 3. Candidate filtering (`kid`, optional `kty`/`use` from matcher context if any).
 4. JWK algorithm consistency (`jwk.alg` mismatch -> `AlgorithmMismatch { requested, declared }`).
-5. Operation intent validation via existing `Key::validate_for_operation`.
+5. Operation intent validation via existing key metadata checks
+   (`Key::validate_operation_metadata`; equivalent intent semantics used by
+   `validate_for_operation`).
 6. Algorithm suitability validation via existing `Key::validate_for_algorithm`.
 7. Cardinality resolution:
    - 0 candidates -> `NoMatchingKey`
@@ -53,6 +55,7 @@ Implement deterministic validation/check order in `KeySelector::select`:
 
 Reuse existing validation logic in `src/jwk.rs`:
 
+- `validate_operation_metadata` (`src/jwk.rs:1048`)
 - `validate_for_operation` (`src/jwk.rs:1058`)
 - `validate_for_algorithm` (`src/jwk.rs:1419`)
 - Keep `is_algorithm_compatible` as discovery helper only (`src/jwk.rs:1151`)
