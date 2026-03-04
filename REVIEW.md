@@ -24,19 +24,6 @@ Copy this block for new items:
 
 ## Deferred Findings
 
-## Integration-level strict selector migration pending for jwt-simple/web-crypto
-- Date added: 2026-03-04
-- Source: PR #38 review thread
-- Validity: DUPLICATE
-- Trigger likelihood: COMMON
-- Severity: MEDIUM -> RESOLVED
-- Decision: IGNORE
-- Rationale: Migration implemented in PR #38 by adding strict selection helpers on `KeySet` in both integrations and corresponding tests.
-- Preconditions/Trigger: N/A
-- Risk if not fixed: N/A
-- Revisit signal: N/A
-- Suggested future action: None.
-
 ## ECDH-ES compatibility accepts secp256k1 EC keys
 - Date added: 2026-03-03
 - Source: second-opinion review
