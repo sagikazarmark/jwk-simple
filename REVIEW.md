@@ -27,15 +27,15 @@ Copy this block for new items:
 ## Integration-level strict selector migration pending for jwt-simple/web-crypto
 - Date added: 2026-03-04
 - Source: PR #38 review thread
-- Validity: CONFIRMED
+- Validity: DUPLICATE
 - Trigger likelihood: COMMON
-- Severity: MEDIUM -> LOW/MEDIUM
-- Decision: DEFER
-- Rationale: Strict selector API is landing first; integration migration is tracked as immediate follow-up to keep PR scope manageable.
-- Preconditions/Trigger: Security-sensitive integration code paths continue using direct per-key validation without `KeySelector` orchestration.
-- Risk if not fixed: Trust-boundary improvements are available but not uniformly enforced by all integrations.
-- Revisit signal: Next integration update touching `jwt-simple`/`web_crypto` selection paths.
-- Suggested future action: Migrate security-sensitive selection in `src/integrations/jwt_simple.rs` and `src/integrations/web_crypto.rs` to `selector(...).select(...)` and add integration tests.
+- Severity: MEDIUM -> RESOLVED
+- Decision: IGNORE
+- Rationale: Migration implemented in PR #38 by adding strict selection helpers on `KeySet` in both integrations and corresponding tests.
+- Preconditions/Trigger: N/A
+- Risk if not fixed: N/A
+- Revisit signal: N/A
+- Suggested future action: None.
 
 ## ECDH-ES compatibility accepts secp256k1 EC keys
 - Date added: 2026-03-03

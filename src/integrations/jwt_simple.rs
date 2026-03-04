@@ -4,6 +4,36 @@ use jwt_simple::prelude::*;
 
 use crate::error::{Error, Result};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams, OkpCurve, RsaParams};
+use crate::jwks::{KeyMatcher, KeySet, SelectionError};
+
+impl KeySet {
+    /// Selects a verification key from this set for jwt-simple workflows.
+    ///
+    /// This helper uses strict selection (`selector(...).select(...)`) to enforce
+    /// algorithm allowlist and key suitability before conversion to jwt-simple key types.
+    pub fn select_jwt_simple_verify_key<'a>(
+        &'a self,
+        alg: &Algorithm,
+        kid: Option<&str>,
+        allowed_verify_algs: &[Algorithm],
+    ) -> std::result::Result<&'a Key, SelectionError> {
+        self.selector(allowed_verify_algs)
+            .select(KeyMatcher::new(KeyOperation::Verify, alg.clone()).with_optional_kid(kid))
+    }
+
+    /// Selects a signing key from this set for jwt-simple workflows.
+    ///
+    /// This helper uses strict selection (`selector(...).select(...)`) with
+    /// `KeyOperation::Sign` semantics.
+    pub fn select_jwt_simple_signing_key<'a>(
+        &'a self,
+        alg: &Algorithm,
+        kid: Option<&str>,
+    ) -> std::result::Result<&'a Key, SelectionError> {
+        self.selector(&[])
+            .select(KeyMatcher::new(KeyOperation::Sign, alg.clone()).with_optional_kid(kid))
+    }
+}
 
 // ============================================================================
 // RSA Key Conversions
@@ -555,6 +585,7 @@ impl TryFrom<Key> for HS512Key {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jwks::KeySet;
 
     // Test RSA public key from RFC 7517 Appendix A.1
     const RFC_RSA_PUBLIC_KEY: &str = r#"{
@@ -612,19 +643,15 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("rsa-conversion-test");
         let token = ec_key_pair.sign(claims).unwrap();
 
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&token, None)
-                .is_err()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&token, None)
+            .is_err());
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&tampered, None)
-                .is_err()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&tampered, None)
+            .is_err());
     }
 
     #[test]
@@ -638,19 +665,15 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("ec-conversion-test");
         let token = key_pair.sign(claims).unwrap();
 
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&token, None)
-                .is_ok()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&token, None)
+            .is_ok());
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(
-            public_key
-                .verify_token::<NoCustomClaims>(&tampered, None)
-                .is_err()
-        );
+        assert!(public_key
+            .verify_token::<NoCustomClaims>(&tampered, None)
+            .is_err());
     }
 
     #[test]
@@ -664,25 +687,19 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("conversion-test");
 
         let token_256 = hs256_key.authenticate(claims.clone()).unwrap();
-        assert!(
-            hs256_key
-                .verify_token::<NoCustomClaims>(&token_256, None)
-                .is_ok()
-        );
+        assert!(hs256_key
+            .verify_token::<NoCustomClaims>(&token_256, None)
+            .is_ok());
 
         let token_384 = hs384_key.authenticate(claims.clone()).unwrap();
-        assert!(
-            hs384_key
-                .verify_token::<NoCustomClaims>(&token_384, None)
-                .is_ok()
-        );
+        assert!(hs384_key
+            .verify_token::<NoCustomClaims>(&token_384, None)
+            .is_ok());
 
         let token_512 = hs512_key.authenticate(claims).unwrap();
-        assert!(
-            hs512_key
-                .verify_token::<NoCustomClaims>(&token_512, None)
-                .is_ok()
-        );
+        assert!(hs512_key
+            .verify_token::<NoCustomClaims>(&token_512, None)
+            .is_ok());
 
         assert!(
             hs256_key
@@ -790,6 +807,39 @@ mod tests {
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<RS256PublicKey> = (&jwk).try_into();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_select_jwt_simple_verify_key_strict() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa-verify", "use": "sig", "alg": "RS256", "n": "AQAB", "e": "AQAB"},
+            {"kty": "EC", "kid": "ec-verify", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
+        ]}"#;
+
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let key = jwks
+            .select_jwt_simple_verify_key(
+                &Algorithm::Rs256,
+                Some("rsa-verify"),
+                &[Algorithm::Rs256],
+            )
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("rsa-verify"));
+    }
+
+    #[test]
+    fn test_select_jwt_simple_signing_key_strict() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa-sign", "use": "sig", "alg": "RS256", "n": "AQAB", "e": "AQAB", "d": "AQAB", "p": "AQAB", "q": "AQAB", "dp": "AQAB", "dq": "AQAB", "qi": "AQAB"}
+        ]}"#;
+
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let key = jwks
+            .select_jwt_simple_signing_key(&Algorithm::Rs256, Some("rsa-sign"))
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("rsa-sign"));
     }
 
     #[test]

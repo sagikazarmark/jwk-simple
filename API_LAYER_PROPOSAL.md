@@ -247,7 +247,7 @@ let key = keyset
 ```rust
 let key = keyset
     .selector(&[])
-    .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid(Some("my-key")))?;
+    .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("my-key"))?;
 ```
 
 ---

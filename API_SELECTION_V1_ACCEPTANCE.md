@@ -82,8 +82,8 @@ The following work is intentionally tracked after this strict-selection API land
 - [ ] Verify allowlist enforced at verify selection time
 - [ ] Typed contextual errors implemented and tested
 - [ ] Error precedence documented and tested
-- [ ] `jwt-simple` integration migrated to strict path
-- [ ] `web_crypto` integration migrated to strict path
+- [x] `jwt-simple` integration migrated to strict path
+- [x] `web_crypto` integration migrated to strict path
 - [ ] Ambiguity and no-`kid` integration tests added
 - [ ] Proposal and review-notes docs synchronized
 
