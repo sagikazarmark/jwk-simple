@@ -1514,6 +1514,14 @@ mod tests {
             SelectionError::AlgorithmNotAllowed.to_string(),
             "algorithm is not allowed for verification"
         );
+        assert_eq!(
+            SelectionError::IntentMismatch.to_string(),
+            "key metadata does not permit requested operation"
+        );
+        assert_eq!(
+            SelectionError::IncompatibleKeyType.to_string(),
+            "key type/curve is incompatible with requested algorithm"
+        );
 
         let mismatch = SelectionError::AlgorithmMismatch {
             requested: Algorithm::Rs256,
@@ -1529,6 +1537,17 @@ mod tests {
             ambiguous.to_string(),
             "selection is ambiguous: 2 matching keys"
         );
+
+        let validation = SelectionError::KeyValidationFailed(ValidationError::InvalidKeySize {
+            expected: 32,
+            actual: 16,
+            context: "HS256",
+        });
+        assert_eq!(
+            validation.to_string(),
+            "key validation failed: invalid key size for HS256: expected 32 bytes, got 16"
+        );
+
         assert_eq!(
             SelectionError::NoMatchingKey.to_string(),
             "no matching key found"

@@ -68,6 +68,14 @@ This document defines the non-negotiable scope for v1 so the security boundary f
 2. Do not require global type-system split (`Loose/Strict` keyset types).
 3. Do not block v1 on broad cosmetic renames.
 
+## Follow-up tracking
+
+The following work is intentionally tracked after this strict-selection API landing:
+
+- Integration-level migration in `jwt-simple` / `web_crypto` to route all
+  security-sensitive selection through `selector(...).select(...)`.
+  - Tracking note: `REVIEW.md` entry "Integration-level strict selector migration pending for jwt-simple/web-crypto".
+
 ## Exit criteria checklist
 
 - [ ] Strict selector API implemented and documented
