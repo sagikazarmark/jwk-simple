@@ -5,7 +5,6 @@
 //! over different sources of JWK keys.
 
 use serde::{Deserialize, Deserializer, Serialize};
-use subtle::ConstantTimeEq;
 
 use crate::error::{Error, Result, ValidationError};
 use crate::jwk::{Algorithm, Key, KeyOperation, KeyType, KeyUse};
@@ -229,6 +228,8 @@ impl<'a> KeySelector<'a> {
                 return Err(SelectionError::EmptyVerifyAllowlist);
             }
 
+            // Linear scan is acceptable for small verification allowlists.
+            // Revisit with set-backed lookup if large allowlists become common.
             if !self.allowed_verify_algs.contains(&matcher.alg) {
                 return Err(SelectionError::AlgorithmNotAllowed);
             }
@@ -265,6 +266,8 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
+            // validate_operation_metadata currently takes KeyOperation by value.
+            // Cloning here may allocate for KeyOperation::Unknown(String).
             if key.validate_operation_metadata(matcher.op.clone()).is_err() {
                 if matcher.kid.is_some() {
                     saw_intent_mismatch = true;
@@ -861,12 +864,10 @@ impl KeySet {
     /// (e.g., verifying JWTs in a web server), consider caching thumbprints
     /// externally or using [`get_by_kid`](KeySet::get_by_kid) instead.
     ///
-    /// Note: each candidate comparison is constant-time, but the iterator scan
-    /// still short-circuits once a match is found.
+    /// Thumbprints are derived from public key parameters (RFC 7638), so this
+    /// uses standard equality. The iterator scan short-circuits on first match.
     pub fn get_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
-        self.keys
-            .iter()
-            .find(|k| bool::from(k.thumbprint().as_bytes().ct_eq(thumbprint.as_bytes())))
+        self.keys.iter().find(|k| k.thumbprint() == thumbprint)
     }
 
     /// Finds a key by its JWK thumbprint (RFC 7638).
@@ -903,33 +904,39 @@ impl KeySet {
     ///
     /// assert_eq!(jwks.find(&rsa_rs256).count(), 1);
     /// ```
-    pub fn find<'a>(&'a self, filter: &'a KeyFilter<'a>) -> impl Iterator<Item = &'a Key> + 'a {
+    pub fn find<'a, 'f>(&'a self, filter: &'f KeyFilter<'f>) -> impl Iterator<Item = &'a Key> + 'a {
+        let kid = filter.kid.map(ToOwned::to_owned);
+        let alg = filter.alg.clone();
+        let kty = filter.kty;
+        let key_use = filter.key_use.clone();
+        let op = filter.op.clone();
+
         self.keys.iter().filter(move |k| {
-            if let Some(kid) = filter.kid
+            if let Some(kid) = kid.as_deref()
                 && k.kid.as_deref() != Some(kid)
             {
                 return false;
             }
 
-            if let Some(kty) = filter.kty
+            if let Some(kty) = kty
                 && k.kty() != kty
             {
                 return false;
             }
 
-            if let Some(alg) = &filter.alg
+            if let Some(alg) = &alg
                 && k.alg.as_ref() != Some(alg)
             {
                 return false;
             }
 
-            if let Some(key_use) = &filter.key_use
+            if let Some(key_use) = &key_use
                 && k.key_use.as_ref() != Some(key_use)
             {
                 return false;
             }
 
-            if let Some(op) = &filter.op {
+            if let Some(op) = &op {
                 if let Some(key_ops) = &k.key_ops {
                     if !key_ops.contains(op) {
                         return false;
@@ -1409,6 +1416,22 @@ mod tests {
             .unwrap();
 
         assert_eq!(key.kid.as_deref(), Some("ec-key-1"));
+    }
+
+    #[test]
+    fn test_selector_no_kid_all_declared_algs_mismatch_returns_no_match() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "r1", "alg": "RS256", "use": "sig", "n": "AQAB", "e": "AQAB"},
+            {"kty": "EC", "kid": "e1", "alg": "ES256", "use": "sig", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Ps256))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::NoMatchingKey));
     }
 
     #[test]

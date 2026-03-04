@@ -64,34 +64,7 @@ use web_sys::{CryptoKey, SubtleCrypto};
 
 use crate::error::{Error, Result};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams};
-use crate::jwks::{KeyMatcher, KeySet, SelectionError};
-
-#[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
-impl KeySet {
-    /// Selects a verification key from this set for WebCrypto flows.
-    ///
-    /// This helper uses strict selection (`selector(...).select(...)`) before
-    /// import in WebCrypto-based verification paths.
-    pub fn select_web_crypto_verify_key<'a>(
-        &'a self,
-        alg: &Algorithm,
-        kid: Option<&str>,
-        allowed_verify_algs: &[Algorithm],
-    ) -> std::result::Result<&'a Key, SelectionError> {
-        self.selector(allowed_verify_algs)
-            .select(KeyMatcher::new(KeyOperation::Verify, alg.clone()).with_optional_kid(kid))
-    }
-
-    /// Selects a signing key from this set for WebCrypto flows.
-    pub fn select_web_crypto_signing_key<'a>(
-        &'a self,
-        alg: &Algorithm,
-        kid: Option<&str>,
-    ) -> std::result::Result<&'a Key, SelectionError> {
-        self.selector(&[])
-            .select(KeyMatcher::new(KeyOperation::Sign, alg.clone()).with_optional_kid(kid))
-    }
-}
+use crate::jwks::{KeyMatcher, KeySet};
 
 // ============================================================================
 // SubtleCrypto Access
@@ -1279,32 +1252,30 @@ mod validation_tests {
     }
 
     #[test]
-    fn test_select_web_crypto_verify_key_strict() {
+    fn test_select_verify_key_strict_for_web_crypto_flow() {
         let json = r#"{"keys": [
             {"kty": "RSA", "kid": "rsa-verify", "use": "sig", "alg": "RS256", "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw", "e": "AQAB"}
         ]}"#;
 
         let jwks: KeySet = serde_json::from_str(json).unwrap();
         let key = jwks
-            .select_web_crypto_verify_key(
-                &Algorithm::Rs256,
-                Some("rsa-verify"),
-                &[Algorithm::Rs256],
-            )
+            .selector(&[Algorithm::Rs256])
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-verify"))
             .unwrap();
 
         assert_eq!(key.kid.as_deref(), Some("rsa-verify"));
     }
 
     #[test]
-    fn test_select_web_crypto_signing_key_strict() {
+    fn test_select_signing_key_strict_for_web_crypto_flow() {
         let json = r#"{"keys": [
             {"kty": "EC", "kid": "ec-sign", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM", "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"}
         ]}"#;
 
         let jwks: KeySet = serde_json::from_str(json).unwrap();
         let key = jwks
-            .select_web_crypto_signing_key(&Algorithm::Es256, Some("ec-sign"))
+            .selector(&[])
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-sign"))
             .unwrap();
 
         assert_eq!(key.kid.as_deref(), Some("ec-sign"));

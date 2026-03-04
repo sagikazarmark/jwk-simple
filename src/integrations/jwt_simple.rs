@@ -4,37 +4,6 @@ use jwt_simple::prelude::*;
 
 use crate::error::{Error, Result};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams, OkpCurve, RsaParams};
-use crate::jwks::{KeyMatcher, KeySet, SelectionError};
-
-#[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
-impl KeySet {
-    /// Selects a verification key from this set for jwt-simple workflows.
-    ///
-    /// This helper uses strict selection (`selector(...).select(...)`) to enforce
-    /// algorithm allowlist and key suitability before conversion to jwt-simple key types.
-    pub fn select_jwt_simple_verify_key<'a>(
-        &'a self,
-        alg: &Algorithm,
-        kid: Option<&str>,
-        allowed_verify_algs: &[Algorithm],
-    ) -> std::result::Result<&'a Key, SelectionError> {
-        self.selector(allowed_verify_algs)
-            .select(KeyMatcher::new(KeyOperation::Verify, alg.clone()).with_optional_kid(kid))
-    }
-
-    /// Selects a signing key from this set for jwt-simple workflows.
-    ///
-    /// This helper uses strict selection (`selector(...).select(...)`) with
-    /// `KeyOperation::Sign` semantics.
-    pub fn select_jwt_simple_signing_key<'a>(
-        &'a self,
-        alg: &Algorithm,
-        kid: Option<&str>,
-    ) -> std::result::Result<&'a Key, SelectionError> {
-        self.selector(&[])
-            .select(KeyMatcher::new(KeyOperation::Sign, alg.clone()).with_optional_kid(kid))
-    }
-}
 
 // ============================================================================
 // RSA Key Conversions
@@ -644,15 +613,19 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("rsa-conversion-test");
         let token = ec_key_pair.sign(claims).unwrap();
 
-        assert!(public_key
-            .verify_token::<NoCustomClaims>(&token, None)
-            .is_err());
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_err()
+        );
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(public_key
-            .verify_token::<NoCustomClaims>(&tampered, None)
-            .is_err());
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&tampered, None)
+                .is_err()
+        );
     }
 
     #[test]
@@ -666,15 +639,19 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("ec-conversion-test");
         let token = key_pair.sign(claims).unwrap();
 
-        assert!(public_key
-            .verify_token::<NoCustomClaims>(&token, None)
-            .is_ok());
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_ok()
+        );
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(public_key
-            .verify_token::<NoCustomClaims>(&tampered, None)
-            .is_err());
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&tampered, None)
+                .is_err()
+        );
     }
 
     #[test]
@@ -688,19 +665,25 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("conversion-test");
 
         let token_256 = hs256_key.authenticate(claims.clone()).unwrap();
-        assert!(hs256_key
-            .verify_token::<NoCustomClaims>(&token_256, None)
-            .is_ok());
+        assert!(
+            hs256_key
+                .verify_token::<NoCustomClaims>(&token_256, None)
+                .is_ok()
+        );
 
         let token_384 = hs384_key.authenticate(claims.clone()).unwrap();
-        assert!(hs384_key
-            .verify_token::<NoCustomClaims>(&token_384, None)
-            .is_ok());
+        assert!(
+            hs384_key
+                .verify_token::<NoCustomClaims>(&token_384, None)
+                .is_ok()
+        );
 
         let token_512 = hs512_key.authenticate(claims).unwrap();
-        assert!(hs512_key
-            .verify_token::<NoCustomClaims>(&token_512, None)
-            .is_ok());
+        assert!(
+            hs512_key
+                .verify_token::<NoCustomClaims>(&token_512, None)
+                .is_ok()
+        );
 
         assert!(
             hs256_key
@@ -811,7 +794,7 @@ mod tests {
     }
 
     #[test]
-    fn test_select_jwt_simple_verify_key_strict() {
+    fn test_select_verify_key_strict_for_jwt_simple_flow() {
         let json = r#"{"keys": [
             {"kty": "RSA", "kid": "rsa-verify", "use": "sig", "alg": "RS256", "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw", "e": "AQAB"},
             {"kty": "EC", "kid": "ec-verify", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
@@ -819,25 +802,23 @@ mod tests {
 
         let jwks: KeySet = serde_json::from_str(json).unwrap();
         let key = jwks
-            .select_jwt_simple_verify_key(
-                &Algorithm::Rs256,
-                Some("rsa-verify"),
-                &[Algorithm::Rs256],
-            )
+            .selector(&[Algorithm::Rs256])
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-verify"))
             .unwrap();
 
         assert_eq!(key.kid.as_deref(), Some("rsa-verify"));
     }
 
     #[test]
-    fn test_select_jwt_simple_signing_key_strict() {
+    fn test_select_signing_key_strict_for_jwt_simple_flow() {
         let json = r#"{"keys": [
             {"kty": "EC", "kid": "ec-sign", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM", "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"}
         ]}"#;
 
         let jwks: KeySet = serde_json::from_str(json).unwrap();
         let key = jwks
-            .select_jwt_simple_signing_key(&Algorithm::Es256, Some("ec-sign"))
+            .selector(&[])
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-sign"))
             .unwrap();
 
         assert_eq!(key.kid.as_deref(), Some("ec-sign"));

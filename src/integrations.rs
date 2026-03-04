@@ -37,12 +37,14 @@
 //! # Examples
 //!
 //! ```ignore
-//! use jwk_simple::KeySet;
+//! use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 //! use jwt_simple::prelude::*;
 //!
-//! // Load JWKS and find a key
+//! // Load JWKS and strictly select a verification key
 //! let jwks = serde_json::from_str::<KeySet>(json)?;
-//! let jwk = jwks.get_by_kid("my-key").unwrap();
+//! let jwk = jwks
+//!     .selector(&[Algorithm::Rs256])
+//!     .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-key"))?;
 //!
 //! // Convert to jwt-simple key using TryFrom
 //! let key: RS256PublicKey = jwk.try_into()?;

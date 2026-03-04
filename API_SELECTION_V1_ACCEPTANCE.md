@@ -58,10 +58,9 @@ This document defines the non-negotiable scope for v1 so the security boundary f
 ## Should-haves (not required for v1 ship)
 
 1. Operation-specific convenience wrappers over `select(...)`.
-   - Status: implemented for integration convenience in feature-gated modules:
-     - `select_jwt_simple_verify_key` / `select_jwt_simple_signing_key`
-     - `select_web_crypto_verify_key` / `select_web_crypto_signing_key`
-   - Follow-up: evaluate consolidation into a generic helper in `src/jwks.rs`.
+   - Status: deferred.
+   - Rationale: direct `selector(...).select(...)` usage is now shown in integration
+     tests/examples and avoids API duplication with no integration-specific behavior.
 2. Optional deterministic tie-break API as a separate explicit mode.
 3. Custom policy trait/pluggable policy engine.
 4. Large naming cleanup beyond security-critical ambiguity removals.
