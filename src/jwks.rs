@@ -251,8 +251,7 @@ impl<'a> KeySelector<'a> {
                 if declared_alg != &matcher.alg {
                     if matcher.kid.is_some() {
                         if saw_alg_mismatch.is_none() {
-                            saw_alg_mismatch =
-                                Some((matcher.alg.clone(), declared_alg.clone()));
+                            saw_alg_mismatch = Some((matcher.alg.clone(), declared_alg.clone()));
                         }
                     }
                     continue;
@@ -707,7 +706,9 @@ impl KeySet {
     /// assert_eq!(jwks.find_compatible(&Algorithm::Rs256).count(), 1);
     /// # }
     /// ```
-    #[deprecated(note = "use find(&KeyFilter) for discovery or selector(...).select(...) for strict selection")]
+    #[deprecated(
+        note = "use find(&KeyFilter) for discovery or selector(...).select(...) for strict selection"
+    )]
     pub fn find_compatible<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
         let alg = alg.clone();
         let is_unknown_alg = alg.is_unknown();
@@ -774,7 +775,9 @@ impl KeySet {
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// # }
     /// ```
-    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) for signing-key selection")]
+    #[deprecated(
+        note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) for signing-key selection"
+    )]
     pub fn find_compatible_signing_key<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
         self.find_compatible(alg).find(|k| is_signing_key(k))
     }
@@ -808,7 +811,9 @@ impl KeySet {
     /// let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
     /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
     /// ```
-    #[deprecated(note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) for signing-key selection")]
+    #[deprecated(
+        note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) for signing-key selection"
+    )]
     pub fn find_signing_key_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
         let is_unknown_alg = alg.is_unknown();
         self.keys.iter().find(|k| {
@@ -862,9 +867,9 @@ impl KeySet {
     /// Note: each candidate comparison is constant-time, but the iterator scan
     /// still short-circuits once a match is found.
     pub fn get_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
-        self.keys.iter().find(|k| {
-            bool::from(k.thumbprint().as_bytes().ct_eq(thumbprint.as_bytes()))
-        })
+        self.keys
+            .iter()
+            .find(|k| bool::from(k.thumbprint().as_bytes().ct_eq(thumbprint.as_bytes())))
     }
 
     /// Finds a key by its JWK thumbprint (RFC 7638).
@@ -1206,9 +1211,7 @@ mod tests {
         let selector = jwks.selector(&[Algorithm::Rs256]);
 
         let key = selector
-            .select(
-                KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-key-1"),
-            )
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-key-1"))
             .unwrap();
 
         assert_eq!(key.kid.as_deref(), Some("rsa-key-1"));
@@ -1293,9 +1296,7 @@ mod tests {
         let selector = jwks.selector(&[]);
 
         let err = selector
-            .select(
-                KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("weak-rsa"),
-            )
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("weak-rsa"))
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
