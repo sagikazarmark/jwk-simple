@@ -6,6 +6,7 @@ use crate::error::{Error, Result};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams, OkpCurve, RsaParams};
 use crate::jwks::{KeyMatcher, KeySet, SelectionError};
 
+#[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
 impl KeySet {
     /// Selects a verification key from this set for jwt-simple workflows.
     ///
@@ -643,15 +644,19 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("rsa-conversion-test");
         let token = ec_key_pair.sign(claims).unwrap();
 
-        assert!(public_key
-            .verify_token::<NoCustomClaims>(&token, None)
-            .is_err());
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_err()
+        );
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(public_key
-            .verify_token::<NoCustomClaims>(&tampered, None)
-            .is_err());
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&tampered, None)
+                .is_err()
+        );
     }
 
     #[test]
@@ -665,15 +670,19 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("ec-conversion-test");
         let token = key_pair.sign(claims).unwrap();
 
-        assert!(public_key
-            .verify_token::<NoCustomClaims>(&token, None)
-            .is_ok());
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_ok()
+        );
 
         let mut tampered = token.clone();
         tampered.push('x');
-        assert!(public_key
-            .verify_token::<NoCustomClaims>(&tampered, None)
-            .is_err());
+        assert!(
+            public_key
+                .verify_token::<NoCustomClaims>(&tampered, None)
+                .is_err()
+        );
     }
 
     #[test]
@@ -687,19 +696,25 @@ mod tests {
         let claims = Claims::create(Duration::from_hours(1)).with_subject("conversion-test");
 
         let token_256 = hs256_key.authenticate(claims.clone()).unwrap();
-        assert!(hs256_key
-            .verify_token::<NoCustomClaims>(&token_256, None)
-            .is_ok());
+        assert!(
+            hs256_key
+                .verify_token::<NoCustomClaims>(&token_256, None)
+                .is_ok()
+        );
 
         let token_384 = hs384_key.authenticate(claims.clone()).unwrap();
-        assert!(hs384_key
-            .verify_token::<NoCustomClaims>(&token_384, None)
-            .is_ok());
+        assert!(
+            hs384_key
+                .verify_token::<NoCustomClaims>(&token_384, None)
+                .is_ok()
+        );
 
         let token_512 = hs512_key.authenticate(claims).unwrap();
-        assert!(hs512_key
-            .verify_token::<NoCustomClaims>(&token_512, None)
-            .is_ok());
+        assert!(
+            hs512_key
+                .verify_token::<NoCustomClaims>(&token_512, None)
+                .is_ok()
+        );
 
         assert!(
             hs256_key

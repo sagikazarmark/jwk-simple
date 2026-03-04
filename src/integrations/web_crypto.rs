@@ -66,6 +66,7 @@ use crate::error::{Error, Result};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams};
 use crate::jwks::{KeyMatcher, KeySet, SelectionError};
 
+#[cfg_attr(docsrs, doc(cfg(feature = "web-crypto")))]
 impl KeySet {
     /// Selects a verification key from this set for WebCrypto flows.
     ///
@@ -1280,7 +1281,7 @@ mod validation_tests {
     #[test]
     fn test_select_web_crypto_verify_key_strict() {
         let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "rsa-verify", "use": "sig", "alg": "RS256", "n": "AQAB", "e": "AQAB"}
+            {"kty": "RSA", "kid": "rsa-verify", "use": "sig", "alg": "RS256", "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw", "e": "AQAB"}
         ]}"#;
 
         let jwks: KeySet = serde_json::from_str(json).unwrap();
