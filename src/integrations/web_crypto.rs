@@ -77,9 +77,8 @@ impl KeySet {
         kid: Option<&str>,
         allowed_verify_algs: &[Algorithm],
     ) -> std::result::Result<&'a Key, SelectionError> {
-        self.selector(allowed_verify_algs).select(
-            KeyMatcher::new(KeyOperation::Verify, alg.clone()).with_optional_kid(kid),
-        )
+        self.selector(allowed_verify_algs)
+            .select(KeyMatcher::new(KeyOperation::Verify, alg.clone()).with_optional_kid(kid))
     }
 
     /// Selects a signing key from this set for WebCrypto flows.
