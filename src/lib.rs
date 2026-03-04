@@ -15,6 +15,7 @@
 //! - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
 //! - **jwt-simple integration**: Optional feature for converting JWKs to jwt-simple key types
 //! - **Remote fetching**: Load JWKS from HTTP endpoints with caching support
+//! - **Strict selection API**: `KeySet::selector(...).select(...)` with typed errors
 //!
 //! ## Quick Start
 //!
@@ -42,6 +43,11 @@
 //!
 //! Feature definitions live in `Cargo.toml` (`[features]`), while this section
 //! documents expected usage and platform constraints.
+//!
+//! ## Public API notes
+//!
+//! - [`ValidationError`] is re-exported at crate root for matching
+//!   [`SelectionError::KeyValidationFailed`] payloads.
 //!
 //! | Feature | Platform | Description |
 //! |---------|----------|-------------|

@@ -384,3 +384,8 @@ This proposal fixes the root cause (API boundary ambiguity) without sacrificing 
 - strict selection is explicit and fail-closed (`selector(...).select(...)`),
 - integrations use strict selection by default,
 - migration is explicit and time-bound.
+
+## Repository organization note
+
+Design artifacts currently live at repository root for review visibility.
+After landing, they may be moved into `docs/design/` to reduce root-level clutter.
