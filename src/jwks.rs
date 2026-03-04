@@ -147,6 +147,49 @@ pub struct KeyFilter<'a> {
     pub key_use: Option<KeyUse>,
 }
 
+impl<'a> KeyFilter<'a> {
+    /// Creates an empty discovery filter.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adds an operation filter.
+    pub fn with_op(mut self, op: KeyOperation) -> Self {
+        self.op = Some(op);
+        self
+    }
+
+    /// Adds an exact algorithm filter.
+    pub fn with_alg(mut self, alg: Algorithm) -> Self {
+        self.alg = Some(alg);
+        self
+    }
+
+    /// Adds a key identifier (`kid`) filter.
+    pub fn with_kid(mut self, kid: &'a str) -> Self {
+        self.kid = Some(kid);
+        self
+    }
+
+    /// Adds an optional key identifier (`kid`) filter.
+    pub fn with_optional_kid(mut self, kid: Option<&'a str>) -> Self {
+        self.kid = kid;
+        self
+    }
+
+    /// Adds a key type filter.
+    pub fn with_kty(mut self, kty: KeyType) -> Self {
+        self.kty = Some(kty);
+        self
+    }
+
+    /// Adds a key use filter.
+    pub fn with_key_use(mut self, key_use: KeyUse) -> Self {
+        self.key_use = Some(key_use);
+        self
+    }
+}
+
 /// Policy-bound strict selector for a [`KeySet`].
 #[derive(Debug, Clone)]
 pub struct KeySelector<'a> {
@@ -837,6 +880,24 @@ impl KeySet {
     /// - otherwise, keys with `use` must be compatible with the operation,
     /// - keys with neither `key_ops` nor `use` are treated as discovery
     ///   candidates and pass through.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::{Algorithm, KeyFilter, KeySet, KeyType};
+    ///
+    /// let json = r#"{"keys": [
+    ///     {"kty": "RSA", "kid": "r1", "alg": "RS256", "n": "AQAB", "e": "AQAB"},
+    ///     {"kty": "EC", "kid": "e1", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
+    /// ]}"#;
+    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
+    ///
+    /// let rsa_rs256 = KeyFilter::new()
+    ///     .with_kty(KeyType::Rsa)
+    ///     .with_alg(Algorithm::Rs256);
+    ///
+    /// assert_eq!(jwks.find(&rsa_rs256).count(), 1);
+    /// ```
     pub fn find<'a>(&'a self, filter: &'a KeyFilter<'a>) -> impl Iterator<Item = &'a Key> + 'a {
         self.keys.iter().filter(move |k| {
             if let Some(kid) = filter.kid
@@ -1405,6 +1466,20 @@ mod tests {
 
         // Keys without key_ops/use pass through in discovery mode by design.
         assert_eq!(jwks.find(&by_sign).count(), 2);
+    }
+
+    #[test]
+    fn test_find_with_filter_builder_api() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+
+        let filter = KeyFilter::new()
+            .with_kty(KeyType::Rsa)
+            .with_alg(Algorithm::Rs256)
+            .with_kid("rsa-key-1");
+
+        let keys: Vec<_> = jwks.find(&filter).collect();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].kid.as_deref(), Some("rsa-key-1"));
     }
 
     #[test]
