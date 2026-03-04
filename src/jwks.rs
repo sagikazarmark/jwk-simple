@@ -812,6 +812,9 @@ impl KeySet {
     /// every call, making it O(n) hash computations per lookup. For hot paths
     /// (e.g., verifying JWTs in a web server), consider caching thumbprints
     /// externally or using [`get_by_kid`](KeySet::get_by_kid) instead.
+    ///
+    /// Note: each candidate comparison is constant-time, but the iterator scan
+    /// still short-circuits once a match is found.
     pub fn get_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
         self.keys.iter().find(|k| {
             bool::from(k.thumbprint().as_bytes().ct_eq(thumbprint.as_bytes()))
@@ -828,6 +831,12 @@ impl KeySet {
     ///
     /// This method is for discovery/filtering only and does not provide
     /// cryptographic suitability guarantees.
+    ///
+    /// When `filter.op` is set:
+    /// - keys with explicit `key_ops` must contain that operation,
+    /// - otherwise, keys with `use` must be compatible with the operation,
+    /// - keys with neither `key_ops` nor `use` are treated as discovery
+    ///   candidates and pass through.
     pub fn find<'a>(&'a self, filter: &'a KeyFilter<'a>) -> impl Iterator<Item = &'a Key> + 'a {
         self.keys.iter().filter(move |k| {
             if let Some(kid) = filter.kid
@@ -1336,6 +1345,66 @@ mod tests {
             .unwrap();
 
         assert_eq!(key.kid.as_deref(), Some("ec-key-1"));
+    }
+
+    #[test]
+    fn test_selector_sign_selects_single_key() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let key = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("rsa-key-1"))
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("rsa-key-1"));
+    }
+
+    #[test]
+    fn test_selector_empty_verify_allowlist_does_not_block_signing() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let key = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-key-1"))
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("ec-key-1"));
+    }
+
+    #[test]
+    fn test_find_with_filter_op_and_use_combination() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+
+        let compatible = KeyFilter {
+            op: Some(KeyOperation::Sign),
+            key_use: Some(KeyUse::Signature),
+            ..Default::default()
+        };
+        assert_eq!(jwks.find(&compatible).count(), 2);
+
+        let conflicting = KeyFilter {
+            op: Some(KeyOperation::Sign),
+            key_use: Some(KeyUse::Encryption),
+            ..Default::default()
+        };
+        assert_eq!(jwks.find(&conflicting).count(), 0);
+    }
+
+    #[test]
+    fn test_find_with_filter_op_passthrough_without_metadata() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "meta-less", "n": "AQAB", "e": "AQAB"},
+            {"kty": "RSA", "kid": "sig-use", "use": "sig", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        let by_sign = KeyFilter {
+            op: Some(KeyOperation::Sign),
+            ..Default::default()
+        };
+
+        // Keys without key_ops/use pass through in discovery mode by design.
+        assert_eq!(jwks.find(&by_sign).count(), 2);
     }
 
     #[test]
