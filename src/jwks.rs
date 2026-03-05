@@ -83,6 +83,13 @@ impl std::fmt::Display for SelectionError {
                 requested,
                 declared,
             } => {
+                let requested_display = match requested {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => requested.to_string(),
+                };
+
                 let declared_display = match declared {
                     Algorithm::Unknown(value) => {
                         format!("unknown({})", sanitize_for_display(value))
@@ -93,7 +100,7 @@ impl std::fmt::Display for SelectionError {
                 write!(
                     f,
                     "algorithm mismatch: requested {}, key declares {}",
-                    requested, declared_display
+                    requested_display, declared_display
                 )
             }
             SelectionError::IntentMismatch => {
@@ -158,6 +165,9 @@ impl<'a> KeyMatcher<'a> {
 /// This type is `#[non_exhaustive]`. External callers must use [`KeyFilter::new`]
 /// and the builder methods; struct-literal syntax will not compile outside
 /// this crate.
+///
+/// Public fields remain readable for inspection/pattern-matching, but builder
+/// methods are the only supported external construction path.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct KeyFilter<'a> {
@@ -341,7 +351,10 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
-            if key.validate_operation_metadata_ref(&matcher.op).is_err() {
+            if key
+                .validate_operation_intent_for_all(std::slice::from_ref(&matcher.op))
+                .is_err()
+            {
                 if matcher.kid.is_some() {
                     saw_intent_mismatch = true;
                 }
@@ -801,6 +814,10 @@ impl KeySet {
     /// - keys with neither `key_ops` nor `use` are treated as discovery
     ///   candidates and pass through.
     ///
+    /// Unknown operations in discovery mode are passthrough for `use`-only keys:
+    /// they only filter keys that declare explicit `key_ops` and include the
+    /// unknown operation.
+    ///
     /// # Examples
     ///
     /// ```
@@ -1054,34 +1071,19 @@ mod tests {
     fn test_find_with_filter() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        let by_alg = KeyFilter {
-            alg: Some(Algorithm::Rs256),
-            ..Default::default()
-        };
+        let by_alg = KeyFilter::new().with_alg(Algorithm::Rs256);
         assert_eq!(jwks.find(&by_alg).count(), 1);
 
-        let by_kty = KeyFilter {
-            kty: Some(KeyType::Rsa),
-            ..Default::default()
-        };
+        let by_kty = KeyFilter::new().with_kty(KeyType::Rsa);
         assert_eq!(jwks.find(&by_kty).count(), 2);
 
-        let by_use = KeyFilter {
-            key_use: Some(KeyUse::Encryption),
-            ..Default::default()
-        };
+        let by_use = KeyFilter::new().with_key_use(KeyUse::Encryption);
         assert_eq!(jwks.find(&by_use).count(), 1);
 
-        let by_op_use = KeyFilter {
-            op: Some(KeyOperation::Sign),
-            ..Default::default()
-        };
+        let by_op_use = KeyFilter::new().with_op(KeyOperation::Sign);
         assert_eq!(jwks.find(&by_op_use).count(), 2);
 
-        let by_unknown_op = KeyFilter {
-            op: Some(KeyOperation::Unknown("custom".to_string())),
-            ..Default::default()
-        };
+        let by_unknown_op = KeyFilter::new().with_op(KeyOperation::Unknown("custom".to_string()));
         assert_eq!(jwks.find(&by_unknown_op).count(), 3);
 
         let json = r#"{"keys": [
@@ -1089,10 +1091,7 @@ mod tests {
             {"kty": "RSA", "kid": "enc", "n": "AQAB", "e": "AQAB", "key_ops": ["encrypt"]}
         ]}"#;
         let with_key_ops: KeySet = serde_json::from_str(json).unwrap();
-        let by_op_key_ops = KeyFilter {
-            op: Some(KeyOperation::Sign),
-            ..Default::default()
-        };
+        let by_op_key_ops = KeyFilter::new().with_op(KeyOperation::Sign);
         assert_eq!(with_key_ops.find(&by_op_key_ops).count(), 1);
     }
 
@@ -1439,18 +1438,14 @@ mod tests {
     fn test_find_with_filter_op_and_use_combination() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        let compatible = KeyFilter {
-            op: Some(KeyOperation::Sign),
-            key_use: Some(KeyUse::Signature),
-            ..Default::default()
-        };
+        let compatible = KeyFilter::new()
+            .with_op(KeyOperation::Sign)
+            .with_key_use(KeyUse::Signature);
         assert_eq!(jwks.find(&compatible).count(), 2);
 
-        let conflicting = KeyFilter {
-            op: Some(KeyOperation::Sign),
-            key_use: Some(KeyUse::Encryption),
-            ..Default::default()
-        };
+        let conflicting = KeyFilter::new()
+            .with_op(KeyOperation::Sign)
+            .with_key_use(KeyUse::Encryption);
         assert_eq!(jwks.find(&conflicting).count(), 0);
     }
 
@@ -1462,10 +1457,7 @@ mod tests {
         ]}"#;
         let jwks: KeySet = serde_json::from_str(json).unwrap();
 
-        let by_sign = KeyFilter {
-            op: Some(KeyOperation::Sign),
-            ..Default::default()
-        };
+        let by_sign = KeyFilter::new().with_op(KeyOperation::Sign);
 
         // Keys without key_ops/use pass through in discovery mode by design.
         assert_eq!(jwks.find(&by_sign).count(), 2);

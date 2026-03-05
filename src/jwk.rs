@@ -1054,6 +1054,11 @@ impl Key {
         self.validate_operation_metadata_ref(&operation)
     }
 
+    /// Borrowing variant of [`Key::validate_operation_metadata`].
+    ///
+    /// This applies identical validation semantics while taking the operation
+    /// by reference, so call sites that already hold a borrowed operation can
+    /// avoid cloning.
     pub(crate) fn validate_operation_metadata_ref(&self, operation: &KeyOperation) -> Result<()> {
         self.validate_use_key_ops_consistency()?;
         self.validate_key_ops_unique()?;
@@ -1094,6 +1099,10 @@ impl Key {
         self.validate_operation_intent_for_all(operations)
     }
 
+    /// Validates only operation-intent compatibility for all requested operations.
+    ///
+    /// Unlike [`Key::validate_operation_metadata`], this does not run
+    /// `use`/`key_ops` structural consistency or uniqueness pre-checks.
     pub(crate) fn validate_operation_intent_for_all(
         &self,
         operations: &[KeyOperation],
