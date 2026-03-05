@@ -359,10 +359,7 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
-            if key
-                .validate_operation_intent_for_all(std::slice::from_ref(&matcher.op))
-                .is_err()
-            {
+            if key.validate_operation_metadata_ref(&matcher.op).is_err() {
                 if matcher.kid.is_some() {
                     saw_intent_mismatch = true;
                 }
@@ -707,6 +704,12 @@ impl KeySet {
     /// - It has `key_ops` containing `sign` or `verify`, OR (when `key_ops` is absent)
     /// - It has `use: "sig"`, OR
     /// - It has neither `use` nor `key_ops` specified
+    ///
+    /// # Security
+    ///
+    /// This is a discovery helper. Do not use it as a cryptographic trust gate.
+    /// For security-sensitive selection, use [`KeySet::selector`] and
+    /// [`KeySelector::select`].
     pub fn signing_keys(&self) -> impl Iterator<Item = &Key> {
         self.keys.iter().filter(|k| is_signing_key(k))
     }
@@ -717,6 +720,12 @@ impl KeySet {
     /// - It has `key_ops` containing `encrypt`, `decrypt`, `wrapKey`, or `unwrapKey`,
     ///   OR (when `key_ops` is absent)
     /// - It has `use: "enc"`
+    ///
+    /// # Security
+    ///
+    /// This is a discovery helper. Do not use it as a cryptographic trust gate.
+    /// For security-sensitive selection, use [`KeySet::selector`] and
+    /// [`KeySelector::select`].
     pub fn encryption_keys(&self) -> impl Iterator<Item = &Key> {
         self.keys.iter().filter(|k| is_encryption_key(k))
     }
@@ -724,6 +733,12 @@ impl KeySet {
     /// Returns the first signing key, if any.
     ///
     /// This is a convenience method for cases where only one signing key is expected.
+    ///
+    /// # Security
+    ///
+    /// This is a discovery helper. Do not use it as a cryptographic trust gate.
+    /// For security-sensitive selection, use [`KeySet::selector`] and
+    /// [`KeySelector::select`].
     ///
     /// # Examples
     ///
