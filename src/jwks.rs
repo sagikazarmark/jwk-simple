@@ -254,9 +254,14 @@ impl<'a> KeySelector<'a> {
     /// 2. `UnknownOperation`
     /// 3. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
     /// 4. Candidate evaluation
-    /// 5. If no candidate survives: `AlgorithmMismatch` -> `IntentMismatch`
-    ///    -> `KeyValidationFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`
-    /// 6. If multiple candidates survive: `AmbiguousSelection`
+    /// 5. If multiple candidates survive: `AmbiguousSelection`
+    ///
+    /// If `kid` is present and no candidate survives, the most specific error
+    /// is returned in this order: `AlgorithmMismatch` -> `IntentMismatch`
+    /// -> `KeyValidationFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`.
+    ///
+    /// If `kid` is absent and no candidate survives, candidate-level
+    /// diagnostics are suppressed and selection returns `NoMatchingKey`.
     ///
     /// Note: `IncompatibleKeyType` also covers unexpected non-validation
     /// failures from `validate_for_algorithm`, conservatively mapped to
