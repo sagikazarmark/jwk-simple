@@ -245,6 +245,10 @@ impl<'a> KeySelector<'a> {
     /// When `kid` is not present, candidates that fail per-key checks are skipped and
     /// selection resolves by surviving cardinality (`AmbiguousSelection` / `NoMatchingKey`).
     ///
+    /// In kid-less mode, candidate-level mismatch diagnostics are intentionally
+    /// suppressed. Early policy errors still surface (`UnknownAlgorithm`,
+    /// `UnknownOperation`, allowlist failures).
+    ///
     /// Error precedence is deterministic:
     /// 1. `UnknownAlgorithm`
     /// 2. `UnknownOperation`
@@ -817,6 +821,7 @@ impl KeySet {
     /// Unknown operations in discovery mode are passthrough for `use`-only keys:
     /// they only filter keys that declare explicit `key_ops` and include the
     /// unknown operation.
+    /// Keys that declare neither `key_ops` nor `use` also pass through.
     ///
     /// # Examples
     ///
@@ -1247,6 +1252,36 @@ mod tests {
     }
 
     #[test]
+    fn test_selector_intent_mismatch_sign_only_key_for_verify() {
+        let json = r#"{"keys": [
+            {"kty": "EC", "kid": "sign-only", "key_ops": ["sign"], "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM", "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[Algorithm::Es256]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256).with_kid("sign-only"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::IntentMismatch));
+    }
+
+    #[test]
+    fn test_selector_intent_mismatch_verify_only_key_for_sign() {
+        let json = r#"{"keys": [
+            {"kty": "EC", "kid": "verify-only", "key_ops": ["verify"], "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("verify-only"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::IntentMismatch));
+    }
+
+    #[test]
     fn test_selector_no_kid_all_candidates_invalid_returns_no_match() {
         let json = r#"{"keys": [
             {"kty": "RSA", "kid": "weak-1", "use": "sig", "n": "AQAB", "e": "AQAB"},
@@ -1614,8 +1649,9 @@ mod tests {
     }
 
     #[test]
-    fn test_signing_keys_respects_key_ops_verify() {
-        // A key with key_ops=["verify"] should be considered a signing key
+    fn test_signing_keys_includes_verify_key_ops() {
+        // A key with key_ops=["verify"] is a signature-operation key and is
+        // included in signing_keys(), which covers sign/verify roles.
         let json = r#"{"keys": [
             {"kty": "RSA", "kid": "verify-key", "key_ops": ["verify"], "n": "AQAB", "e": "AQAB"}
         ]}"#;
