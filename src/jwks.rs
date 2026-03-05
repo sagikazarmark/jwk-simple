@@ -375,9 +375,12 @@ impl<'a> KeySelector<'a> {
                                 saw_suitability_error = Some(suitability);
                             }
                         }
-                        // `check_algorithm_suitability` should only return
-                        // `Error::IncompatibleKey`. Other failures are treated
-                        // conservatively as incompatibility in strict selection.
+                        // `check_algorithm_suitability` normally returns
+                        // `Error::IncompatibleKey` for algorithm/strength mismatches,
+                        // but can also return `Error::InvalidKey` from `params.validate()`
+                        // for structurally malformed keys added programmatically.
+                        // Both non-`IncompatibleKey` cases are treated conservatively
+                        // as incompatibility in strict selection.
                         _ => incompatible_for_known_kid = true,
                     }
                 }
@@ -1279,8 +1282,8 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256).with_kid("bad-ec"))
             .unwrap_err();
 
-        // check_algorithm_suitability should reject due to structural invalidity.
-        assert!(!matches!(err, SelectionError::NoMatchingKey));
+        // Structurally invalid keys fall through to the generic IncompatibleKeyType path.
+        assert!(matches!(err, SelectionError::IncompatibleKeyType));
     }
 
     #[test]

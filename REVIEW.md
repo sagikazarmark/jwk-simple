@@ -349,6 +349,32 @@ Copy this block for new items:
 - Revisit signal: Error taxonomy refactor or security audit of error message contents.
 - Suggested future action: Change `OperationNotPermitted.reason` to `&'static str`; evaluate structured variants for `InconsistentParameters`.
 
+## `OperationNotPermitted` may embed unsanitized `KeyOperation::Unknown` values
+- Date added: 2026-03-05
+- Source: PR #43 review (second round)
+- Validity: CONFIRMED
+- Trigger likelihood: RARE
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: `KeyOperation::Unknown(String)` can carry arbitrary strings from untrusted JWK `key_ops`. These are joined unsanitized into `OperationNotPermitted.operations` and rendered in error `Display`. Risk is theoretical — real JWKS sources use short RFC-defined strings — but log injection is possible in adversarial inputs.
+- Preconditions/Trigger: Untrusted JWKS contains `key_ops` with control characters or very long values, and errors are logged/displayed.
+- Risk if not fixed: Potential log injection or noisy error output from adversarial inputs.
+- Revisit signal: Security audit of error output paths or adoption in environments processing untrusted JWKS.
+- Suggested future action: Truncate/escape operation strings in `Display` impl, or sanitize before storing in the error.
+
+## `SelectionError::IncompatibleKeyType` used for structurally invalid keys
+- Date added: 2026-03-05
+- Source: PR #43 review (second round)
+- Validity: CONFIRMED
+- Trigger likelihood: RARE
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: When `check_algorithm_suitability` returns `Error::InvalidKey` (from `params.validate()` on programmatically added keys), the `KeySelector` maps it to `SelectionError::IncompatibleKeyType` via the catch-all arm. This makes structurally invalid keys indistinguishable from type/curve incompatibility. The behavior is safe but not maximally informative.
+- Preconditions/Trigger: Programmatically constructed keys with malformed params added via `add_key()` and selected via `KeySelector`.
+- Risk if not fixed: Callers cannot distinguish structural invalidity from type incompatibility in selector errors.
+- Revisit signal: Need for finer-grained selector error handling or addition of `SelectionError::InvalidKey` variant.
+- Suggested future action: Add `SelectionError::InvalidKey(InvalidKeyError)` variant and handle `Error::InvalidKey` explicitly in the selector loop.
+
 ## Ignored Findings
 
 (No active ignored findings.)

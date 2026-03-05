@@ -1081,8 +1081,11 @@ impl Key {
     /// Metadata members are optional in RFC 7517. If both `use` and `key_ops`
     /// are absent, this check succeeds.
     ///
-    /// This does **not** perform structural validation or algorithm suitability
-    /// checks. Use [`Key::validate_for_use`] for the full pre-use gate.
+    /// This does **not** perform key-material or algorithm-suitability checks.
+    /// It does enforce `use`/`key_ops` metadata consistency (RFC 7517 §4.3),
+    /// which may return [`Error::InvalidKey`] if the key's own metadata is
+    /// self-contradictory. Use [`Key::validate_for_use`] for the full pre-use
+    /// gate.
     ///
     /// # Examples
     ///
@@ -1114,8 +1117,9 @@ impl Key {
     /// compatibility, and key strength.
     ///
     /// This does **not** perform operation-intent checks. It is intended for
-    /// internal use by [`Key::validate_for_use`] and
-    /// [`KeySelector`](crate::KeySelector).
+    /// internal use by [`KeySelector`](crate::KeySelector).
+    /// [`Key::validate_for_use`] calls the underlying helpers directly to
+    /// avoid redundant structural validation.
     pub(crate) fn check_algorithm_suitability(&self, alg: &Algorithm) -> Result<()> {
         // Structural validation first: reject malformed key material before
         // checking algorithm-specific constraints.
@@ -1134,9 +1138,11 @@ impl Key {
     /// Metadata members are optional in RFC 7517. If both are absent, this
     /// check succeeds.
     ///
-    /// This does **not** perform structural validation or algorithm suitability
-    /// checks. It is intended for internal use by [`Key::validate_for_use`]
-    /// and [`KeySelector`](crate::KeySelector).
+    /// This does **not** perform key-material or algorithm-suitability checks.
+    /// It does enforce `use`/`key_ops` metadata consistency (RFC 7517 §4.3),
+    /// which may return [`Error::InvalidKey`] if the key's own metadata is
+    /// self-contradictory. It is intended for internal use by
+    /// [`KeySelector`](crate::KeySelector).
     pub(crate) fn check_operation_intent(&self, operations: &[KeyOperation]) -> Result<()> {
         debug_assert!(!operations.is_empty());
         self.validate_use_key_ops_consistency()?;
@@ -1332,9 +1338,9 @@ impl Key {
                 | Algorithm::RsaOaep384
                 | Algorithm::RsaOaep512,
             ) => rsa.validate_key_size(2048),
-            (KeyParams::Symmetric(sym), Algorithm::Hs256) => sym.validate_min_size(256),
-            (KeyParams::Symmetric(sym), Algorithm::Hs384) => sym.validate_min_size(384),
-            (KeyParams::Symmetric(sym), Algorithm::Hs512) => sym.validate_min_size(512),
+            (KeyParams::Symmetric(sym), Algorithm::Hs256) => sym.validate_min_size(256, "HS256"),
+            (KeyParams::Symmetric(sym), Algorithm::Hs384) => sym.validate_min_size(384, "HS384"),
+            (KeyParams::Symmetric(sym), Algorithm::Hs512) => sym.validate_min_size(512, "HS512"),
             (KeyParams::Symmetric(sym), Algorithm::A128kw)
             | (KeyParams::Symmetric(sym), Algorithm::A128gcmkw)
             | (KeyParams::Symmetric(sym), Algorithm::A128gcm) => {

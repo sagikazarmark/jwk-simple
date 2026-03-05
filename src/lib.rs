@@ -87,9 +87,12 @@
 //! With the `web-crypto` feature enabled, you can use JWKs with the browser's
 //! native SubtleCrypto API:
 //!
-#![cfg_attr(all(feature = "web-crypto", target_arch = "wasm32"), doc = "```no_run")]
 #![cfg_attr(
-    not(all(feature = "web-crypto", target_arch = "wasm32")),
+    all(feature = "web-crypto", any(target_arch = "wasm32", docsrs)),
+    doc = "```no_run"
+)]
+#![cfg_attr(
+    not(all(feature = "web-crypto", any(target_arch = "wasm32", docsrs))),
     doc = "```ignore"
 )]
 //! use jwk_simple::{Algorithm, KeySet};
