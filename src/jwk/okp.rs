@@ -4,7 +4,6 @@
 //! Edwards-curve and Montgomery-curve keys (Ed25519, Ed448, X25519, X448).
 
 use std::fmt::{self, Display};
-use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -113,7 +112,7 @@ impl Display for OkpCurve {
 /// assert_eq!(params.crv, OkpCurve::Ed25519);
 /// assert!(params.is_public_key_only());
 /// ```
-#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct OkpParams {
     /// The OKP curve.
     #[zeroize(skip)]
@@ -222,22 +221,6 @@ impl fmt::Debug for OkpParams {
             .field("x", &format!("[{} bytes]", self.x.len()))
             .field("has_private_key", &self.has_private_key())
             .finish()
-    }
-}
-
-impl PartialEq for OkpParams {
-    fn eq(&self, other: &Self) -> bool {
-        self.crv == other.crv && self.x == other.x && self.d == other.d
-    }
-}
-
-impl Eq for OkpParams {}
-
-impl Hash for OkpParams {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.crv.hash(state);
-        self.x.hash(state);
-        self.d.hash(state);
     }
 }
 

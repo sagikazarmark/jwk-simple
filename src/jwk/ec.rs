@@ -4,7 +4,6 @@
 //! private key components.
 
 use std::fmt::{self, Display};
-use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -96,7 +95,7 @@ impl Display for EcCurve {
 /// assert_eq!(params.crv, EcCurve::P256);
 /// assert!(params.is_public_key_only());
 /// ```
-#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct EcParams {
     /// The elliptic curve.
     #[zeroize(skip)]
@@ -219,23 +218,6 @@ impl fmt::Debug for EcParams {
             .field("y", &format!("[{} bytes]", self.y.len()))
             .field("has_private_key", &self.has_private_key())
             .finish()
-    }
-}
-
-impl PartialEq for EcParams {
-    fn eq(&self, other: &Self) -> bool {
-        self.crv == other.crv && self.x == other.x && self.y == other.y && self.d == other.d
-    }
-}
-
-impl Eq for EcParams {}
-
-impl Hash for EcParams {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.crv.hash(state);
-        self.x.hash(state);
-        self.y.hash(state);
-        self.d.hash(state);
     }
 }
 

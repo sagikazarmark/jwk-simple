@@ -4,7 +4,6 @@
 //! key material for algorithms like HMAC and AES.
 
 use std::fmt::{self, Debug};
-use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -32,7 +31,7 @@ use crate::error::{Error, Result, ValidationError};
 /// let params: SymmetricParams = serde_json::from_str(json).unwrap();
 /// assert_eq!(params.key_size_bits(), 128);
 /// ```
-#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct SymmetricParams {
     /// The symmetric key value.
     pub k: Base64UrlBytes,
@@ -151,20 +150,6 @@ impl Debug for SymmetricParams {
         f.debug_struct("SymmetricParams")
             .field("key_size_bits", &self.key_size_bits())
             .finish()
-    }
-}
-
-impl PartialEq for SymmetricParams {
-    fn eq(&self, other: &Self) -> bool {
-        self.k == other.k
-    }
-}
-
-impl Eq for SymmetricParams {}
-
-impl Hash for SymmetricParams {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.k.hash(state);
     }
 }
 

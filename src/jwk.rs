@@ -15,8 +15,9 @@
 //! Parse a JWK from JSON:
 //!
 //! ```
-//! use jwk_simple::jwk::Key;
+//! use jwk_simple::Key;
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let json = r#"{
 //!     "kty": "RSA",
 //!     "kid": "my-key-id",
@@ -26,8 +27,10 @@
 //!     "e": "AQAB"
 //! }"#;
 //!
-//! let jwk: Key = serde_json::from_str(json).unwrap();
+//! let jwk: Key = serde_json::from_str(json)?;
 //! assert_eq!(jwk.kid.as_deref(), Some("my-key-id"));
+//! # Ok(())
+//! # }
 //! ```
 
 mod ec;
@@ -116,8 +119,9 @@ impl<'de> Deserialize<'de> for KeyType {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        s.parse().map_err(serde::de::Error::custom)
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -187,10 +191,8 @@ impl<'de> Deserialize<'de> for KeyUse {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-
         // Infallible, so unwrap is safe
-        Ok(s.parse().unwrap())
+        Ok(String::deserialize(deserializer)?.parse().unwrap())
     }
 }
 
@@ -287,10 +289,8 @@ impl<'de> Deserialize<'de> for KeyOperation {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-
         // Infallible, so unwrap is safe
-        Ok(s.parse().unwrap())
+        Ok(String::deserialize(deserializer)?.parse().unwrap())
     }
 }
 
@@ -556,13 +556,14 @@ impl<'de> Deserialize<'de> for Algorithm {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        s.parse().map_err(serde::de::Error::custom)
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
     }
 }
 
 /// Key-type-specific parameters.
-#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Zeroize, ZeroizeOnDrop)]
 pub enum KeyParams {
     /// RSA key parameters.
     Rsa(RsaParams),
@@ -644,32 +645,6 @@ impl From<SymmetricParams> for KeyParams {
 impl From<OkpParams> for KeyParams {
     fn from(p: OkpParams) -> Self {
         KeyParams::Okp(p)
-    }
-}
-
-impl PartialEq for KeyParams {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (KeyParams::Rsa(a), KeyParams::Rsa(b)) => a == b,
-            (KeyParams::Ec(a), KeyParams::Ec(b)) => a == b,
-            (KeyParams::Symmetric(a), KeyParams::Symmetric(b)) => a == b,
-            (KeyParams::Okp(a), KeyParams::Okp(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for KeyParams {}
-
-impl Hash for KeyParams {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        match self {
-            KeyParams::Rsa(p) => p.hash(state),
-            KeyParams::Ec(p) => p.hash(state),
-            KeyParams::Symmetric(p) => p.hash(state),
-            KeyParams::Okp(p) => p.hash(state),
-        }
     }
 }
 

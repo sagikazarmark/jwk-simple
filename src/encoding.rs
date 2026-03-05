@@ -5,7 +5,6 @@
 //! zeroing for sensitive data.
 
 use std::fmt::{self, Debug};
-use std::hash::{Hash, Hasher};
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -44,7 +43,7 @@ use crate::error::Result;
 /// let decoded: Base64UrlBytes = serde_json::from_str(&json).unwrap();
 /// assert_eq!(decoded.as_bytes(), &[1, 2, 3, 4]);
 /// ```
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Eq, Hash, Zeroize, ZeroizeOnDrop)]
 pub struct Base64UrlBytes(Vec<u8>);
 
 impl Base64UrlBytes {
@@ -182,24 +181,10 @@ impl Debug for Base64UrlBytes {
     }
 }
 
-impl PartialEq for Base64UrlBytes {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl Eq for Base64UrlBytes {}
-
 impl ConstantTimeEq for Base64UrlBytes {
     #[inline]
     fn ct_eq(&self, other: &Self) -> Choice {
         self.0.as_slice().ct_eq(other.0.as_slice())
-    }
-}
-
-impl Hash for Base64UrlBytes {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
     }
 }
 

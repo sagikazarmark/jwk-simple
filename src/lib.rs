@@ -22,6 +22,7 @@
 //! Parse a JWKS and find a key:
 //!
 //! ```
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use jwk_simple::KeySet;
 //!
 //! let json = r#"{
@@ -34,25 +35,17 @@
 //!     }]
 //! }"#;
 //!
-//! let jwks = serde_json::from_str::<KeySet>(json).unwrap();
+//! let jwks = serde_json::from_str::<KeySet>(json)?;
 //! let key = jwks.get_by_kid("my-key-id").expect("key not found");
 //! assert!(key.is_public_key_only());
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Feature Flags
 //!
 //! Feature definitions live in `Cargo.toml` (`[features]`), while this section
 //! documents expected usage and platform constraints.
-//!
-//! ## Public API notes
-//!
-//! - [`ValidationError`] is re-exported at crate root for matching
-//!   [`SelectionError::KeyValidationFailed`] payloads.
-//! - `Error` is now `#[non_exhaustive]`; external exhaustive matches should
-//!   include a wildcard branch.
-//! - `SelectionError` intentionally does not implement `From` into [`Error`].
-//!   Bridge explicitly with `.map_err(...)` when integrating strict selection
-//!   into `Result<_, Error>` flows.
 //!
 //! | Feature | Platform | Description |
 //! |---------|----------|-------------|
@@ -73,14 +66,14 @@
 //! use jwk_simple::KeySet;
 //! use jwt_simple::prelude::*;
 //!
-//! let keyset = serde_json::from_str::<KeySet>(json)?;
-//! let jwk = keyset.get_by_kid("my-key-id").unwrap();
+//! let keyset: KeySet = serde_json::from_str(json)?;
+//! let jwk = keyset.get_by_kid("my-key-id")?;
 //!
 //! // Convert to jwt-simple key
 //! let key: RS256PublicKey = jwk.try_into()?;
 //!
 //! // Use for JWT verification
-//! let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
+//! let claims: NoCustomClaims = key.verify_token(&token, None)?;
 //! ```
 //!
 //! ## Using with WebCrypto (Browser/WASM)
@@ -89,8 +82,7 @@
 //! native SubtleCrypto API:
 //!
 //! ```ignore
-//! use jwk_simple::{Algorithm};
-//! use jwk_simple::KeySet;
+//! use jwk_simple::{Algorithm, KeySet};
 //! use std::convert::TryInto;
 //!
 //! // Parse a JWKS
@@ -126,7 +118,7 @@
 //! - Private key parameters are zeroed from memory on drop via `zeroize`
 //! - Base64 encoding uses constant-time operations via `base64ct`
 //! - Debug output redacts sensitive key material
-//! - All fallible operations return `Result` types — the crate avoids panics,
+//! - All fallible operations return `Result` types. The crate avoids panics,
 //!   though standard trait implementations like `Index` follow normal Rust
 //!   semantics and may panic on invalid input (e.g., out-of-bounds indexing)
 //! - `Key::validate_structure` performs structural and consistency checks

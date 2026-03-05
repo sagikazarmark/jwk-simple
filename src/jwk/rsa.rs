@@ -4,7 +4,6 @@
 //! private key components, including support for multi-prime RSA keys.
 
 use std::fmt::{self, Debug};
-use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -45,7 +44,7 @@ fn validate_base64url_uint(value: &Base64UrlBytes, name: &str) -> Result<()> {
 ///
 /// When more than two prime factors are used, this structure holds the
 /// additional prime factor information.
-#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct RsaOtherPrime {
     /// Prime factor.
     pub r: Base64UrlBytes,
@@ -97,22 +96,6 @@ impl Debug for RsaOtherPrime {
     }
 }
 
-impl PartialEq for RsaOtherPrime {
-    fn eq(&self, other: &Self) -> bool {
-        self.r == other.r && self.d == other.d && self.t == other.t
-    }
-}
-
-impl Eq for RsaOtherPrime {}
-
-impl Hash for RsaOtherPrime {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.r.hash(state);
-        self.d.hash(state);
-        self.t.hash(state);
-    }
-}
-
 /// RSA key parameters (RFC 7518 Section 6.3).
 ///
 /// Contains the public key parameters `n` (modulus) and `e` (exponent),
@@ -132,7 +115,7 @@ impl Hash for RsaOtherPrime {
 /// let params: RsaParams = serde_json::from_str(json).unwrap();
 /// assert!(params.is_public_key_only());
 /// ```
-#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct RsaParams {
     /// The modulus value for the RSA key.
     pub n: Base64UrlBytes,
@@ -636,36 +619,6 @@ impl Debug for RsaParams {
             .field("e", &self.e)
             .field("has_private_key", &self.has_private_key())
             .finish()
-    }
-}
-
-impl PartialEq for RsaParams {
-    fn eq(&self, other: &Self) -> bool {
-        self.n == other.n
-            && self.e == other.e
-            && self.d == other.d
-            && self.p == other.p
-            && self.q == other.q
-            && self.dp == other.dp
-            && self.dq == other.dq
-            && self.qi == other.qi
-            && self.oth == other.oth
-    }
-}
-
-impl Eq for RsaParams {}
-
-impl Hash for RsaParams {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.n.hash(state);
-        self.e.hash(state);
-        self.d.hash(state);
-        self.p.hash(state);
-        self.q.hash(state);
-        self.dp.hash(state);
-        self.dq.hash(state);
-        self.qi.hash(state);
-        self.oth.hash(state);
     }
 }
 
