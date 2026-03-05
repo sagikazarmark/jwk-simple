@@ -1026,6 +1026,9 @@ impl Key {
     /// (type compatibility, key strength) and operation-intent enforcement
     /// (metadata permits the requested operations).
     ///
+    /// At least one operation must be provided. Passing an empty iterator
+    /// returns an error (this is a caller precondition, not a key problem).
+    ///
     /// This method calls [`Key::validate`] internally, so callers do not
     /// need to call it separately.
     ///
@@ -1047,10 +1050,11 @@ impl Key {
         ops: impl IntoIterator<Item = KeyOperation>,
     ) -> Result<()> {
         let ops: Vec<KeyOperation> = ops.into_iter().collect();
-        debug_assert!(
-            !ops.is_empty(),
-            "at least one requested operation is required"
-        );
+        if ops.is_empty() {
+            return Err(Error::Other(
+                "at least one requested operation is required".to_string(),
+            ));
+        }
 
         // Structural validation first (belt-and-suspenders).
         self.validate()?;
@@ -1078,6 +1082,9 @@ impl Key {
     /// Metadata members are optional in RFC 7517. If both `use` and `key_ops`
     /// are absent, this check succeeds.
     ///
+    /// At least one operation must be provided. Passing an empty slice
+    /// returns an error (this is a caller precondition, not a key problem).
+    ///
     /// This does **not** perform key-material or algorithm-suitability checks.
     /// It does enforce `use`/`key_ops` metadata consistency (RFC 7517 §4.3),
     /// which may return [`Error::InvalidKey`] if the key's own metadata is
@@ -1100,18 +1107,20 @@ impl Key {
     /// assert!(key.check_operations_permitted(&[KeyOperation::Encrypt]).is_err());
     /// ```
     pub fn check_operations_permitted(&self, operations: &[KeyOperation]) -> Result<()> {
-        debug_assert!(
-            !operations.is_empty(),
-            "at least one requested operation is required"
-        );
+        if operations.is_empty() {
+            return Err(Error::Other(
+                "at least one requested operation is required".to_string(),
+            ));
+        }
         self.check_operation_intent(operations)
     }
 
     /// Checks algorithm suitability: structural validity, key-type
     /// compatibility, and key strength.
     ///
-    /// This does **not** perform operation-intent checks. It is intended for
-    /// internal use by [`KeySelector`](crate::KeySelector).
+    /// This does **not** perform operation-intent checks (`use`/`key_ops`)
+    /// or certificate metadata checks (`x5c`/`x5u`/`x5t`). It is intended
+    /// for internal use by [`KeySelector`](crate::KeySelector).
     /// [`Key::validate_for_use`] calls the underlying helpers directly to
     /// avoid redundant structural validation.
     pub(crate) fn check_algorithm_suitability(&self, alg: &Algorithm) -> Result<()> {
@@ -2442,15 +2451,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "at least one requested operation is required")]
-    fn test_validate_for_use_panics_on_empty_operation_set() {
+    fn test_validate_for_use_rejects_empty_operation_set() {
         let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
             Base64UrlBytes::new(vec![1, 2, 3]),
             Base64UrlBytes::new(vec![1, 0, 1]),
         )));
 
-        let _ = key.validate_for_use(&Algorithm::Rs256, vec![]);
+        let result = key.validate_for_use(&Algorithm::Rs256, vec![]);
+        assert!(result.is_err());
     }
 
     #[test]

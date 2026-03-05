@@ -388,6 +388,19 @@ Copy this block for new items:
 - Revisit signal: Need for finer-grained selector error handling or addition of `SelectionError::InvalidKey` variant.
 - Suggested future action: Add `SelectionError::InvalidKey(InvalidKeyError)` variant and handle `Error::InvalidKey` explicitly in the selector loop.
 
+## `oth` prime validation `map_err` erases typed error variants
+- Date added: 2026-03-05
+- Source: PR #43 review (third round)
+- Validity: CONFIRMED
+- Trigger likelihood: RARE
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: `prime.validate()` returns typed `InvalidKeyError` variants (`MissingParameter`, `InvalidParameter`), but the call site wraps them via `map_err(|e| InvalidKeyError::InconsistentParameters(format!("Invalid oth[{}]: {}", i, e)))`, collapsing the original variant into a formatted string. This is the same pattern as before the error type refactor (no regression). Fixing it requires either a dedicated `InvalidKeyError::InvalidOtherPrime { index, source }` variant or adding `source: Option<Box<dyn Error>>` to `InconsistentParameters`, both adding complexity for a narrow case.
+- Preconditions/Trigger: Caller matches on specific `InvalidKeyError` variants from RSA `oth` validation (e.g., `MissingParameter("oth.r")`) and gets `InconsistentParameters` instead.
+- Risk if not fixed: Less precise programmatic error handling for multi-prime RSA validation failures.
+- Revisit signal: Error taxonomy refactor or need for structured `oth` validation errors.
+- Suggested future action: Add `InvalidKeyError::InvalidOtherPrime { index: usize, source: Box<InvalidKeyError> }` variant, or preserve the source chain via `InconsistentParameters` with a `source` field.
+
 ## Ignored Findings
 
 (No active ignored findings.)
