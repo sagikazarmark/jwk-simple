@@ -62,10 +62,11 @@
 //!
 //! With the `jwt-simple` feature enabled, you can convert JWKs to jwt-simple key types:
 //!
-//! ```ignore
+//! ```
 //! use jwk_simple::KeySet;
 //! use jwt_simple::prelude::*;
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let keyset: KeySet = serde_json::from_str(json)?;
 //! let jwk = keyset.get_by_kid("my-key-id")?;
 //!
@@ -74,6 +75,8 @@
 //!
 //! // Use for JWT verification
 //! let claims: NoCustomClaims = key.verify_token(&token, None)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Using with WebCrypto (Browser/WASM)
