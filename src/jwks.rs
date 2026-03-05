@@ -341,15 +341,13 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
-            if let Some(declared_alg) = &key.alg {
-                if declared_alg != &matcher.alg {
-                    if matcher.kid.is_some() {
-                        if saw_alg_mismatch.is_none() {
-                            saw_alg_mismatch = Some((matcher.alg.clone(), declared_alg.clone()));
-                        }
-                    }
-                    continue;
+            if let Some(declared_alg) = &key.alg
+                && declared_alg != &matcher.alg
+            {
+                if matcher.kid.is_some() && saw_alg_mismatch.is_none() {
+                    saw_alg_mismatch = Some((matcher.alg.clone(), declared_alg.clone()));
                 }
+                continue;
             }
 
             if !key.is_algorithm_compatible(&matcher.alg) {
