@@ -2468,7 +2468,7 @@ mod tests {
         )));
 
         let result = key.validate_for_use(&Algorithm::Rs256, vec![]);
-        assert!(result.is_err());
+        assert!(matches!(result, Err(Error::Other(_))));
     }
 
     #[test]
