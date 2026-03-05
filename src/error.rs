@@ -9,6 +9,7 @@ use std::fmt;
 ///
 /// All fallible operations return `Result<T, Error>`.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// Failed to parse JSON.
     Parse(ParseError),
@@ -175,7 +176,8 @@ impl fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 /// Errors that occur during key validation.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
+#[non_exhaustive]
 pub enum ValidationError {
     /// Invalid key size for the specified algorithm.
     InvalidKeySize {

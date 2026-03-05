@@ -38,7 +38,7 @@ mod public_keys {
     #[test]
     fn test_ec_key_properties() {
         let jwks = serde_json::from_str::<KeySet>(EXAMPLE_JWKS).unwrap();
-        let ec_key = jwks.find_by_kid("1").unwrap();
+        let ec_key = jwks.get_by_kid("1").unwrap();
 
         assert_eq!(ec_key.kty(), KeyType::Ec);
         assert_eq!(ec_key.key_use, Some(KeyUse::Encryption));
@@ -53,7 +53,7 @@ mod public_keys {
     #[test]
     fn test_rsa_key_properties() {
         let jwks = serde_json::from_str::<KeySet>(EXAMPLE_JWKS).unwrap();
-        let rsa_key = jwks.find_by_kid("2011-04-29").unwrap();
+        let rsa_key = jwks.get_by_kid("2011-04-29").unwrap();
 
         assert_eq!(rsa_key.kty(), KeyType::Rsa);
         assert_eq!(rsa_key.alg, Some(Algorithm::Rs256));
@@ -107,7 +107,7 @@ mod private_keys {
     #[test]
     fn test_ec_private_key() {
         let jwks = serde_json::from_str::<KeySet>(EXAMPLE_PRIVATE_JWKS).unwrap();
-        let ec_key = jwks.find_by_kid("1").unwrap();
+        let ec_key = jwks.get_by_kid("1").unwrap();
 
         assert!(!ec_key.is_public_key_only());
         assert!(ec_key.has_private_key());
@@ -120,7 +120,7 @@ mod private_keys {
     #[test]
     fn test_rsa_private_key() {
         let jwks = serde_json::from_str::<KeySet>(EXAMPLE_PRIVATE_JWKS).unwrap();
-        let rsa_key = jwks.find_by_kid("2011-04-29").unwrap();
+        let rsa_key = jwks.get_by_kid("2011-04-29").unwrap();
 
         assert!(!rsa_key.is_public_key_only());
         assert!(rsa_key.has_private_key());
@@ -173,9 +173,7 @@ mod symmetric_keys {
         assert_eq!(params.key_size_bits(), 128); // 16 bytes * 8
 
         // Second key (HMAC)
-        let hmac_key = jwks
-            .find_by_kid("HMAC key used in JWS A.1 example")
-            .unwrap();
+        let hmac_key = jwks.get_by_kid("HMAC key used in JWS A.1 example").unwrap();
         assert_eq!(hmac_key.kty(), KeyType::Symmetric);
 
         let hmac_params = hmac_key.as_symmetric().unwrap();

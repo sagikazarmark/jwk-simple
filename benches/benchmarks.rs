@@ -80,9 +80,9 @@ fn bench_serialization(c: &mut Criterion) {
 
 fn bench_thumbprint(c: &mut Criterion) {
     let jwks = serde_json::from_str::<KeySet>(SAMPLE_JWKS).unwrap();
-    let rsa_key = jwks.find_by_kid("rsa-key-1").unwrap();
-    let ec_key = jwks.find_by_kid("ec-key-1").unwrap();
-    let okp_key = jwks.find_by_kid("ed-key-1").unwrap();
+    let rsa_key = jwks.get_by_kid("rsa-key-1").unwrap();
+    let ec_key = jwks.get_by_kid("ec-key-1").unwrap();
+    let okp_key = jwks.get_by_kid("ed-key-1").unwrap();
 
     let mut group = c.benchmark_group("thumbprint");
 
@@ -115,9 +115,9 @@ fn bench_lookup(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("lookup");
 
-    group.bench_function("find_by_kid", |b| {
+    group.bench_function("get_by_kid", |b| {
         b.iter(|| {
-            let key = jwks.find_by_kid(black_box("rsa-key-1"));
+            let key = jwks.get_by_kid(black_box("rsa-key-1"));
             black_box(key)
         })
     });
@@ -143,10 +143,10 @@ fn bench_lookup(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("find_by_thumbprint", |b| {
-        let thumbprint = jwks.find_by_kid("rsa-key-1").unwrap().thumbprint();
+    group.bench_function("get_by_thumbprint", |b| {
+        let thumbprint = jwks.get_by_kid("rsa-key-1").unwrap().thumbprint();
         b.iter(|| {
-            let key = jwks.find_by_thumbprint(black_box(&thumbprint));
+            let key = jwks.get_by_thumbprint(black_box(&thumbprint));
             black_box(key)
         })
     });
@@ -167,7 +167,7 @@ fn bench_validation(c: &mut Criterion) {
     });
 
     group.bench_function("validate_single_key", |b| {
-        let key = jwks.find_by_kid("rsa-key-1").unwrap();
+        let key = jwks.get_by_kid("rsa-key-1").unwrap();
         b.iter(|| {
             let result = key.validate_structure();
             black_box(result)

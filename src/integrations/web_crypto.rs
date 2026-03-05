@@ -64,6 +64,7 @@ use web_sys::{CryptoKey, SubtleCrypto};
 
 use crate::error::{Error, Result};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams};
+use crate::jwks::{KeyMatcher, KeySet};
 
 // ============================================================================
 // SubtleCrypto Access
@@ -726,7 +727,7 @@ pub fn build_verify_algorithm(alg: &Algorithm) -> Result<Object> {
 /// use jwk_simple::{web_crypto, KeySet};
 ///
 /// let jwks: KeySet = serde_json::from_str(jwks_json)?;
-/// let key = jwks.find_by_kid("my-key-id").unwrap();
+/// let key = jwks.get_by_kid("my-key-id").unwrap();
 ///
 /// // Works when the key has an `alg` field set
 /// let crypto_key = web_crypto::import_verify_key(key).await?;
@@ -872,7 +873,7 @@ pub async fn import_unwrap_key(key: &Key) -> Result<CryptoKey> {
 /// use jwk_simple::{Algorithm, web_crypto, KeySet};
 ///
 /// let jwks: KeySet = serde_json::from_str(jwks_json)?;
-/// let key = jwks.find_by_kid("my-key-id").unwrap();
+/// let key = jwks.get_by_kid("my-key-id").unwrap();
 /// // Use the algorithm from the JWT header, not the key
 /// let crypto_key = web_crypto::import_verify_key_for_alg(key, &Algorithm::Rs384).await?;
 /// ```
@@ -1088,6 +1089,7 @@ impl Key {
 #[cfg(test)]
 mod validation_tests {
     use super::*;
+    use crate::jwks::KeySet;
 
     const RFC_RSA_PUBLIC_KEY: &str = r#"{
         "kty": "RSA",
@@ -1247,6 +1249,36 @@ mod validation_tests {
         let key: Key = serde_json::from_str(json).unwrap();
         let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Verify);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_select_verify_key_strict_for_web_crypto_flow() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa-verify", "use": "sig", "alg": "RS256", "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw", "e": "AQAB"}
+        ]}"#;
+
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let key = jwks
+            .selector(&[Algorithm::Rs256])
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-verify"))
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("rsa-verify"));
+    }
+
+    #[test]
+    fn test_select_signing_key_strict_for_web_crypto_flow() {
+        let json = r#"{"keys": [
+            {"kty": "EC", "kid": "ec-sign", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM", "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"}
+        ]}"#;
+
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let key = jwks
+            .selector(&[])
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-sign"))
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("ec-sign"));
     }
 }
 

@@ -118,7 +118,7 @@ where
     async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
         // Try cache first
         if let Some(keyset) = self.cache.get().await?
-            && let Some(key) = keyset.find_by_kid(kid)
+            && let Some(key) = keyset.get_by_kid(kid)
         {
             return Ok(Some(key.clone()));
         }
@@ -127,6 +127,6 @@ where
         let keyset = self.store.get_keyset().await?;
         self.cache.set(keyset.clone()).await?;
 
-        Ok(keyset.find_by_kid(kid).cloned())
+        Ok(keyset.get_by_kid(kid).cloned())
     }
 }

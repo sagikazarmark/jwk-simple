@@ -1137,11 +1137,11 @@ mod permissive_parsing {
         assert_eq!(jwks.len(), 2, "JWKS should skip keys with unknown kty");
 
         // Verify the known keys are present
-        assert!(jwks.find_by_kid("known-key").is_some());
-        assert!(jwks.find_by_kid("symmetric-key").is_some());
+        assert!(jwks.get_by_kid("known-key").is_some());
+        assert!(jwks.get_by_kid("symmetric-key").is_some());
 
         // The unknown key should be skipped
-        assert!(jwks.find_by_kid("unknown-key").is_none());
+        assert!(jwks.get_by_kid("unknown-key").is_none());
     }
 
     #[test]
@@ -1174,11 +1174,11 @@ mod permissive_parsing {
         let jwks = serde_json::from_str::<KeySet>(json).unwrap();
         assert_eq!(jwks.len(), 1, "Only the valid RSA key should be included");
         assert!(
-            jwks.find_by_kid("valid").is_some(),
+            jwks.get_by_kid("valid").is_some(),
             "Valid key should be present"
         );
         assert!(
-            jwks.find_by_kid("missing-params").is_none(),
+            jwks.get_by_kid("missing-params").is_none(),
             "Malformed key should be skipped"
         );
 

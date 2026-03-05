@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates parsing a JWKS and looking up keys.
 
-use jwk_simple::{KeySet, KeyType};
+use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet, KeyType};
 
 fn main() {
     // Example JWKS with multiple keys
@@ -41,13 +41,24 @@ fn main() {
     println!("Loaded {} keys from JWKS", jwks.len());
 
     // Find a key by its ID
-    if let Some(key) = jwks.find_by_kid("rsa-signing-key") {
+    if let Some(key) = jwks.get_by_kid("rsa-signing-key") {
         println!("\nFound RSA key:");
         println!("  Key type: {:?}", key.kty());
         println!("  Key use: {:?}", key.key_use);
         println!("  Algorithm: {:?}", key.alg);
         println!("  Is public key only: {}", key.is_public_key_only());
     }
+
+    // Strict selection for security-sensitive verification paths
+    let allowed_verify_algs = [Algorithm::Rs256, Algorithm::Es256];
+    let selected = jwks
+        .selector(&allowed_verify_algs)
+        .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-signing-key"))
+        .expect("strict key selection failed");
+    println!(
+        "\nStrictly selected verify key: {}",
+        selected.kid.as_deref().unwrap_or("no kid")
+    );
 
     // Find all signing keys
     let signing_keys: Vec<_> = jwks.signing_keys().collect();

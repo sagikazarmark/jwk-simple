@@ -6,6 +6,17 @@ This file provides structured review criteria for Claude Code when reviewing pul
 
 `jwk-simple` is a security-sensitive Rust library for JWK/JWKS handling targeting RFC 7517, 7518, 7638, 8037, and 9864. It also supports WebCrypto and integrates with `jwt-simple` for JWT workflows. The library runs on both native (x86/arm) and WASM (via `wasm-bindgen`) targets.
 
+## Making changes
+
+After making changes, always run:
+
+- `cargo build` to ensure the library builds without errors
+- `cargo test` to verify the library still passes all tests
+- `cargo fmt` to ensure code is formatted consistently
+- `cargo clippy` to catch any lint warnings
+
+If the crate targets multiple platforms, ensure tests pass on all supported platforms.
+
 ## Review Process
 
 See `AGENTS.md` for general review conventions. In particular:

@@ -555,6 +555,9 @@ impl TryFrom<Key> for HS512Key {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::KeyMatcher;
+    use crate::SelectionError;
+    use crate::jwks::KeySet;
 
     // Test RSA public key from RFC 7517 Appendix A.1
     const RFC_RSA_PUBLIC_KEY: &str = r#"{
@@ -790,6 +793,43 @@ mod tests {
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<RS256PublicKey> = (&jwk).try_into();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_select_verify_key_strict_for_jwt_simple_flow() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa-verify", "use": "sig", "alg": "RS256", "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw", "e": "AQAB"},
+            {"kty": "EC", "kid": "ec-verify", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
+        ]}"#;
+
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let key = jwks
+            .selector(&[Algorithm::Rs256])
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-verify"))
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("rsa-verify"));
+
+        let err = jwks
+            .selector(&[Algorithm::Rs256])
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256).with_kid("rsa-verify"))
+            .unwrap_err();
+        assert!(matches!(err, SelectionError::AlgorithmNotAllowed));
+    }
+
+    #[test]
+    fn test_select_signing_key_strict_for_jwt_simple_flow() {
+        let json = r#"{"keys": [
+            {"kty": "EC", "kid": "ec-sign", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM", "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"}
+        ]}"#;
+
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let key = jwks
+            .selector(&[])
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-sign"))
+            .unwrap();
+
+        assert_eq!(key.kid.as_deref(), Some("ec-sign"));
     }
 
     #[test]

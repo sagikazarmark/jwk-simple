@@ -15,6 +15,7 @@
 //! - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
 //! - **jwt-simple integration**: Optional feature for converting JWKs to jwt-simple key types
 //! - **Remote fetching**: Load JWKS from HTTP endpoints with caching support
+//! - **Strict selection API**: `KeySet::selector(...).select(...)` with typed errors
 //!
 //! ## Quick Start
 //!
@@ -34,7 +35,7 @@
 //! }"#;
 //!
 //! let jwks = serde_json::from_str::<KeySet>(json).unwrap();
-//! let key = jwks.find_by_kid("my-key-id").expect("key not found");
+//! let key = jwks.get_by_kid("my-key-id").expect("key not found");
 //! assert!(key.is_public_key_only());
 //! ```
 //!
@@ -42,6 +43,16 @@
 //!
 //! Feature definitions live in `Cargo.toml` (`[features]`), while this section
 //! documents expected usage and platform constraints.
+//!
+//! ## Public API notes
+//!
+//! - [`ValidationError`] is re-exported at crate root for matching
+//!   [`SelectionError::KeyValidationFailed`] payloads.
+//! - `Error` is now `#[non_exhaustive]`; external exhaustive matches should
+//!   include a wildcard branch.
+//! - `SelectionError` intentionally does not implement `From` into [`Error`].
+//!   Bridge explicitly with `.map_err(...)` when integrating strict selection
+//!   into `Result<_, Error>` flows.
 //!
 //! | Feature | Platform | Description |
 //! |---------|----------|-------------|
@@ -63,7 +74,7 @@
 //! use jwt_simple::prelude::*;
 //!
 //! let keyset = serde_json::from_str::<KeySet>(json)?;
-//! let jwk = keyset.find_by_kid("my-key-id").unwrap();
+//! let jwk = keyset.get_by_kid("my-key-id").unwrap();
 //!
 //! // Convert to jwt-simple key
 //! let key: RS256PublicKey = jwk.try_into()?;
@@ -84,7 +95,7 @@
 //!
 //! // Parse a JWKS
 //! let keyset: KeySet = serde_json::from_str(json)?;
-//! let key = keyset.find_by_kid("my-key-id").unwrap();
+//! let key = keyset.get_by_kid("my-key-id").unwrap();
 //!
 //! // Check if the key is WebCrypto compatible
 //! if key.is_web_crypto_compatible() {
@@ -149,12 +160,12 @@ pub mod jwk;
 pub mod jwks;
 
 // Re-exports for convenience
-pub use error::{Error, Result};
+pub use error::{Error, Result, ValidationError};
 pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
     OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,
 };
-pub use jwks::KeySet;
+pub use jwks::{KeyFilter, KeyMatcher, KeySelector, KeySet, SelectionError};
 
 #[cfg(all(feature = "web-crypto", any(target_arch = "wasm32", docsrs)))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "web-crypto", target_arch = "wasm32"))))]

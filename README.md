@@ -44,7 +44,7 @@ let json = r#"{
 }"#;
 
 let jwks: KeySet = serde_json::from_str(json)?;
-let key = jwks.find_by_kid("my-key-id").expect("key not found");
+let key = jwks.get_by_kid("my-key-id").expect("key not found");
 assert!(key.is_public_key_only());
 ```
 
@@ -73,16 +73,19 @@ Note: snippets below are focused examples and may omit surrounding async/runtime
 ### Basic JWKS Parsing
 
 ```rust
-use jwk_simple::{KeyType, KeyUse};
-use jwk_simple::KeySet;
+use jwk_simple::{KeyFilter, KeySet, KeyType, KeyUse};
 
 // Parse from JSON string
 let jwks: KeySet = serde_json::from_str(json)?;
 
 // Find keys by various criteria
-let key = jwks.find_by_kid("key-id");
+let key = jwks.get_by_kid("key-id");
 let rsa_keys = jwks.find_by_kty(KeyType::Rsa);
 let signing_keys = jwks.find_by_use(&KeyUse::Signature);
+
+// Preferred discovery pattern with composable filters
+let rsa_keys_v2 = jwks.find(&KeyFilter::new().with_kty(KeyType::Rsa));
+let signing_keys_v2 = jwks.find(&KeyFilter::new().with_key_use(KeyUse::Signature));
 
 // Get the first signing key (common pattern)
 let first_signing = jwks.first_signing_key();
@@ -110,7 +113,7 @@ use jwk_simple::KeySet;
 use jwt_simple::prelude::*;
 
 let jwks: KeySet = serde_json::from_str(json)?;
-let jwk = jwks.find_by_kid("my-key").unwrap();
+let jwk = jwks.get_by_kid("my-key").unwrap();
 
 // Convert to jwt-simple key type using TryFrom/TryInto
 let key: RS256PublicKey = jwk.try_into()?;
@@ -179,7 +182,7 @@ let key = jwks.first().unwrap();
 let thumbprint = key.thumbprint();
 
 // Find key by thumbprint
-let key = jwks.find_by_thumbprint(&thumbprint);
+let key = jwks.get_by_thumbprint(&thumbprint);
 ```
 
 ## Supported Key Types
@@ -285,7 +288,7 @@ use jwk_simple::KeySet;
 
 // In WASM, fetch JWKS via browser APIs, then parse
 let jwks: KeySet = serde_json::from_str(&json_string)?;
-let key = jwks.find_by_kid("key-id").expect("key not found");
+let key = jwks.get_by_kid("key-id").expect("key not found");
 ```
 
 ## License
