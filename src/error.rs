@@ -14,6 +14,8 @@
 
 use std::fmt;
 
+use crate::jwk::KeyOperation;
+
 /// The main error type for this crate.
 ///
 /// All fallible operations return `Result<T, Error>`.
@@ -296,8 +298,8 @@ pub enum IncompatibleKeyError {
     },
     /// Key metadata does not permit the requested operation(s).
     OperationNotPermitted {
-        /// The operations that were requested.
-        operations: Vec<String>,
+        /// The disallowed operations.
+        operations: Vec<KeyOperation>,
         /// Why the operations are not permitted.
         reason: String,
     },
@@ -339,10 +341,11 @@ impl fmt::Display for IncompatibleKeyError {
                 )
             }
             IncompatibleKeyError::OperationNotPermitted { operations, reason } => {
+                let ops: Vec<&str> = operations.iter().map(|op| op.as_str()).collect();
                 write!(
                     f,
                     "operation(s) not permitted ({}): {}",
-                    operations.join(", "),
+                    ops.join(", "),
                     reason
                 )
             }

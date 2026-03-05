@@ -1047,13 +1047,10 @@ impl Key {
         ops: impl IntoIterator<Item = KeyOperation>,
     ) -> Result<()> {
         let ops: Vec<KeyOperation> = ops.into_iter().collect();
-        if ops.is_empty() {
-            return Err(InvalidKeyError::InvalidParameter {
-                name: "operations",
-                reason: "at least one requested operation is required".to_string(),
-            }
-            .into());
-        }
+        debug_assert!(
+            !ops.is_empty(),
+            "at least one requested operation is required"
+        );
 
         // Structural validation first (belt-and-suspenders).
         self.validate()?;
@@ -1103,13 +1100,10 @@ impl Key {
     /// assert!(key.check_operations_permitted(&[KeyOperation::Encrypt]).is_err());
     /// ```
     pub fn check_operations_permitted(&self, operations: &[KeyOperation]) -> Result<()> {
-        if operations.is_empty() {
-            return Err(InvalidKeyError::InvalidParameter {
-                name: "operations",
-                reason: "at least one requested operation is required".to_string(),
-            }
-            .into());
-        }
+        debug_assert!(
+            !operations.is_empty(),
+            "at least one requested operation is required"
+        );
         self.check_operation_intent(operations)
     }
 
@@ -1161,10 +1155,10 @@ impl Key {
         debug_assert!(!operations.is_empty());
 
         if let Some(key_use) = &self.key_use {
-            let disallowed: Vec<String> = operations
+            let disallowed: Vec<KeyOperation> = operations
                 .iter()
                 .filter(|op| !is_operation_allowed_by_use(key_use, op))
-                .map(|op| op.as_str().to_string())
+                .cloned()
                 .collect();
 
             if !disallowed.is_empty() {
@@ -1182,10 +1176,10 @@ impl Key {
         if let Some(key_ops) = &self.key_ops {
             // `key_ops` is an explicit allow-list. Unknown operations are
             // accepted only when explicitly listed in the key metadata.
-            let disallowed: Vec<String> = operations
+            let disallowed: Vec<KeyOperation> = operations
                 .iter()
                 .filter(|op| !key_ops.contains(op))
-                .map(|op| op.as_str().to_string())
+                .cloned()
                 .collect();
 
             if !disallowed.is_empty() {
@@ -2448,14 +2442,15 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_use_rejects_empty_operation_set() {
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "at least one requested operation is required")]
+    fn test_validate_for_use_panics_on_empty_operation_set() {
         let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
             Base64UrlBytes::new(vec![1, 2, 3]),
             Base64UrlBytes::new(vec![1, 0, 1]),
         )));
 
-        let result = key.validate_for_use(&Algorithm::Rs256, vec![]);
-        assert!(result.is_err());
+        let _ = key.validate_for_use(&Algorithm::Rs256, vec![]);
     }
 
     #[test]

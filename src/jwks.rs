@@ -375,12 +375,12 @@ impl<'a> KeySelector<'a> {
                                 saw_suitability_error = Some(suitability);
                             }
                         }
-                        // `check_algorithm_suitability` normally returns
-                        // `Error::IncompatibleKey` for algorithm/strength mismatches,
-                        // but can also return `Error::InvalidKey` from `params.validate()`
-                        // for structurally malformed keys added programmatically.
-                        // Both non-`IncompatibleKey` cases are treated conservatively
-                        // as incompatibility in strict selection.
+                        // `check_algorithm_suitability` can return `Error::InvalidKey`
+                        // from `params.validate()` for structurally malformed keys
+                        // added programmatically (bypassing parse-time filtering).
+                        Error::InvalidKey(_) => incompatible_for_known_kid = true,
+                        // Catch-all for any future error variants. Treated
+                        // conservatively as incompatibility in strict selection.
                         _ => incompatible_for_known_kid = true,
                     }
                 }

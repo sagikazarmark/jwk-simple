@@ -349,18 +349,31 @@ Copy this block for new items:
 - Revisit signal: Error taxonomy refactor or security audit of error message contents.
 - Suggested future action: Change `OperationNotPermitted.reason` to `&'static str`; evaluate structured variants for `InconsistentParameters`.
 
-## `OperationNotPermitted` may embed unsanitized `KeyOperation::Unknown` values
+## `IncompatibleAlgorithm` fields use `String` instead of `&'static str` or `Cow`
+- Date added: 2026-03-05
+- Source: PR #43 review (second round)
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: `algorithm` and `key_type` are allocated via `as_str().to_string()` on every `IncompatibleAlgorithm` error. In practice, only known enum variants reach this path (unknown algorithms are rejected earlier), so the values are always `&'static str` at the source. Using `Cow<'static, str>` would avoid heap allocation without restricting future unknown-variant support. Pre-1.0 so low change cost, but also low impact since this is an error path.
+- Preconditions/Trigger: Every `IncompatibleAlgorithm` error construction.
+- Risk if not fixed: Unnecessary heap allocation on error paths; minor ergonomic friction in tests.
+- Revisit signal: Error type ergonomics pass or performance audit of error paths.
+- Suggested future action: Change both fields to `Cow<'static, str>`, or `&'static str` if unknown algorithms are guaranteed not to reach this path.
+
+## `OperationNotPermitted` Display renders unsanitized `KeyOperation::Unknown` values
 - Date added: 2026-03-05
 - Source: PR #43 review (second round)
 - Validity: CONFIRMED
 - Trigger likelihood: RARE
 - Severity: LOW -> LOW
 - Decision: DEFER
-- Rationale: `KeyOperation::Unknown(String)` can carry arbitrary strings from untrusted JWK `key_ops`. These are joined unsanitized into `OperationNotPermitted.operations` and rendered in error `Display`. Risk is theoretical — real JWKS sources use short RFC-defined strings — but log injection is possible in adversarial inputs.
-- Preconditions/Trigger: Untrusted JWKS contains `key_ops` with control characters or very long values, and errors are logged/displayed.
-- Risk if not fixed: Potential log injection or noisy error output from adversarial inputs.
+- Rationale: The `operations` field now stores `Vec<KeyOperation>` (preserving type info), but the `Display` impl still renders `KeyOperation::Unknown` values via `as_str()` without sanitization. Callers who inspect the error programmatically can distinguish known from unknown operations, but log output from `Display` may still embed control characters or long strings from adversarial inputs. Risk is theoretical — real JWKS sources use short RFC-defined strings.
+- Preconditions/Trigger: Untrusted JWKS contains `key_ops` with control characters or very long values, and errors are logged via `Display`.
+- Risk if not fixed: Potential log injection or noisy error output from adversarial inputs when using `Display`.
 - Revisit signal: Security audit of error output paths or adoption in environments processing untrusted JWKS.
-- Suggested future action: Truncate/escape operation strings in `Display` impl, or sanitize before storing in the error.
+- Suggested future action: Truncate/escape `KeyOperation::Unknown` values in `Display` impl.
 
 ## `SelectionError::IncompatibleKeyType` used for structurally invalid keys
 - Date added: 2026-03-05
