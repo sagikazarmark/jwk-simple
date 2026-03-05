@@ -705,36 +705,6 @@ pub struct Key {
 }
 
 impl Key {
-    fn validate_use_key_ops_consistency(&self) -> Result<()> {
-        if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops)
-            && !is_use_consistent_with_ops(key_use, key_ops)
-        {
-            return Err(Error::Validation(ValidationError::InconsistentParameters(
-                "RFC 7517: 'use' and 'key_ops' are both present but inconsistent".to_string(),
-            )));
-        }
-
-        Ok(())
-    }
-
-    fn validate_key_ops_unique(&self) -> Result<()> {
-        if let Some(ref ops) = self.key_ops {
-            let mut seen = HashSet::new();
-            for op in ops {
-                if !seen.insert(op) {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
-                        format!(
-                            "RFC 7517: key_ops array contains duplicate value '{}'",
-                            op.as_str()
-                        ),
-                    )));
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Creates a new `Key` from key-type-specific parameters.
     ///
     /// The key type is automatically derived from the [`KeyParams`] variant via
@@ -867,10 +837,6 @@ impl Key {
     /// chains (trust anchors, validity period, key usage/EKU, revocation, etc.).
     /// PKIX trust validation is application-defined and out of scope for this crate.
     pub fn validate_structure(&self) -> Result<()> {
-        self.validate_structure_internal()
-    }
-
-    fn validate_structure_internal(&self) -> Result<()> {
         // RFC 7517 Section 4.3 metadata constraints.
         self.validate_use_key_ops_consistency()?;
         self.validate_key_ops_unique()?;
@@ -946,6 +912,36 @@ impl Key {
         } else {
             self.params.validate()
         }
+    }
+
+    fn validate_use_key_ops_consistency(&self) -> Result<()> {
+        if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops)
+            && !is_use_consistent_with_ops(key_use, key_ops)
+        {
+            return Err(Error::Validation(ValidationError::InconsistentParameters(
+                "RFC 7517: 'use' and 'key_ops' are both present but inconsistent".to_string(),
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_key_ops_unique(&self) -> Result<()> {
+        if let Some(ref ops) = self.key_ops {
+            let mut seen = HashSet::new();
+            for op in ops {
+                if !seen.insert(op) {
+                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                        format!(
+                            "RFC 7517: key_ops array contains duplicate value '{}'",
+                            op.as_str()
+                        ),
+                    )));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn decode_and_validate_x5c_first_der(&self) -> Result<Option<Vec<u8>>> {
