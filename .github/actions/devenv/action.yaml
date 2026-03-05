@@ -10,7 +10,7 @@ inputs:
   use-flake:
     description: "Install devenv from flake"
     required: false
-    default: "false"
+    default: "true"
   build:
     description: "Build the environment"
     required: false
