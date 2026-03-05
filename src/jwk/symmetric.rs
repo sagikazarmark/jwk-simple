@@ -128,8 +128,8 @@ impl SymmetricParams {
 
         let actual_bits = self.key_size_bits();
         if actual_bits != exact_bits {
-            return Err(IncompatibleKeyError::InsufficientKeyStrength {
-                minimum_bits: exact_bits,
+            return Err(IncompatibleKeyError::KeySizeMismatch {
+                required_bits: exact_bits,
                 actual_bits,
                 context,
             }

@@ -285,6 +285,15 @@ pub enum IncompatibleKeyError {
         /// What was being validated.
         context: &'static str,
     },
+    /// Key size does not match the exact size required by the algorithm.
+    KeySizeMismatch {
+        /// Required size in bits.
+        required_bits: usize,
+        /// Actual key size in bits.
+        actual_bits: usize,
+        /// What was being validated.
+        context: &'static str,
+    },
     /// Key metadata does not permit the requested operation(s).
     OperationNotPermitted {
         /// The operations that were requested.
@@ -316,6 +325,17 @@ impl fmt::Display for IncompatibleKeyError {
                     f,
                     "insufficient key strength for {}: need {} bits, got {}",
                     context, minimum_bits, actual_bits
+                )
+            }
+            IncompatibleKeyError::KeySizeMismatch {
+                required_bits,
+                actual_bits,
+                context,
+            } => {
+                write!(
+                    f,
+                    "key size mismatch for {}: expected {} bits, got {}",
+                    context, required_bits, actual_bits
                 )
             }
             IncompatibleKeyError::OperationNotPermitted { operations, reason } => {

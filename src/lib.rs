@@ -88,7 +88,10 @@
 //! native SubtleCrypto API:
 //!
 #![cfg_attr(all(feature = "web-crypto", target_arch = "wasm32"), doc = "```no_run")]
-#![cfg_attr(not(all(feature = "web-crypto", target_arch = "wasm32")), doc = "```ignore")]
+#![cfg_attr(
+    not(all(feature = "web-crypto", target_arch = "wasm32")),
+    doc = "```ignore"
+)]
 //! use jwk_simple::{Algorithm, KeySet};
 //! use std::convert::TryInto;
 //!

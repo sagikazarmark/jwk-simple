@@ -831,8 +831,11 @@ impl Key {
     /// fields are properly encoded and match the key material.
     ///
     /// This method does **not** check algorithm suitability, key strength for
-    /// a specific algorithm, or operation intent. Use [`Key::validate_for_use`]
-    /// for those checks.
+    /// a specific algorithm, or operation intent — even if the `alg` field is
+    /// set on the key. A key with `"alg": "RS256"` on a symmetric key type
+    /// passes `validate()` because the key material itself is structurally
+    /// valid; the algorithm mismatch is a suitability concern.
+    /// Use [`Key::validate_for_use`] for those checks.
     ///
     /// This method does **not** perform PKIX trust/path validation for `x5c`
     /// chains (trust anchors, validity period, key usage/EKU, revocation, etc.).
@@ -1056,18 +1059,67 @@ impl Key {
         self.validate()?;
 
         // Algorithm suitability: type match + strength.
-        self.check_algorithm_suitability(alg)?;
+        // `validate()` above already ran `params.validate()`, so we call the
+        // algorithm-specific checks directly to avoid redundant structural work.
+        self.validate_algorithm_key_type_match(alg)?;
+        self.validate_algorithm_key_strength(alg)?;
 
         // Operation intent: use/key_ops metadata permits the requested operations.
-        self.check_operation_intent(&ops)
+        // `validate()` above already enforced `use`/`key_ops` consistency and
+        // uniqueness, so we call the intent-only helper directly.
+        self.validate_operation_intent_for_all(&ops)
     }
 
-    /// Checks algorithm suitability: key-type compatibility and key strength.
+    /// Checks whether this key's metadata permits the requested operation(s).
     ///
-    /// This does **not** perform structural validation or operation-intent
-    /// checks. It is intended for internal use by [`Key::validate_for_use`]
-    /// and [`KeySelector`](crate::KeySelector).
+    /// This enforces RFC 7517 operation-intent semantics:
+    /// - If `use` is present, it must be compatible with all requested operations.
+    /// - If `key_ops` is present, it must include all requested operations.
+    /// - If both are present, they must be mutually consistent.
+    /// - `key_ops` values must be unique.
+    ///
+    /// Metadata members are optional in RFC 7517. If both `use` and `key_ops`
+    /// are absent, this check succeeds.
+    ///
+    /// This does **not** perform structural validation or algorithm suitability
+    /// checks. Use [`Key::validate_for_use`] for the full pre-use gate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::Key;
+    /// use jwk_simple::jwk::KeyOperation;
+    ///
+    /// let json = r#"{"kty":"oct","use":"sig","k":"c2VjcmV0LWtleS1tYXRlcmlhbC10aGF0LWlzLWxvbmctZW5vdWdo"}"#;
+    /// let key: Key = serde_json::from_str(json).unwrap();
+    ///
+    /// // Signing is permitted by use="sig"
+    /// assert!(key.check_operations_permitted(&[KeyOperation::Sign]).is_ok());
+    ///
+    /// // Encryption is not permitted by use="sig"
+    /// assert!(key.check_operations_permitted(&[KeyOperation::Encrypt]).is_err());
+    /// ```
+    pub fn check_operations_permitted(&self, operations: &[KeyOperation]) -> Result<()> {
+        if operations.is_empty() {
+            return Err(InvalidKeyError::InvalidParameter {
+                name: "operations",
+                reason: "at least one requested operation is required".to_string(),
+            }
+            .into());
+        }
+        self.check_operation_intent(operations)
+    }
+
+    /// Checks algorithm suitability: structural validity, key-type
+    /// compatibility, and key strength.
+    ///
+    /// This does **not** perform operation-intent checks. It is intended for
+    /// internal use by [`Key::validate_for_use`] and
+    /// [`KeySelector`](crate::KeySelector).
     pub(crate) fn check_algorithm_suitability(&self, alg: &Algorithm) -> Result<()> {
+        // Structural validation first: reject malformed key material before
+        // checking algorithm-specific constraints.
+        self.params.validate()?;
         self.validate_algorithm_key_type_match(alg)?;
         self.validate_algorithm_key_strength(alg)
     }
@@ -1103,16 +1155,15 @@ impl Key {
         debug_assert!(!operations.is_empty());
 
         if let Some(key_use) = &self.key_use {
-            let use_allows_requested = operations
+            let disallowed: Vec<String> = operations
                 .iter()
-                .all(|operation| is_operation_allowed_by_use(key_use, operation));
+                .filter(|op| !is_operation_allowed_by_use(key_use, op))
+                .map(|op| op.as_str().to_string())
+                .collect();
 
-            if !use_allows_requested {
+            if !disallowed.is_empty() {
                 return Err(IncompatibleKeyError::OperationNotPermitted {
-                    operations: operations
-                        .iter()
-                        .map(|op| op.as_str().to_string())
-                        .collect(),
+                    operations: disallowed,
                     reason: format!(
                         "RFC 7517: key 'use' '{}' does not permit requested operation(s)",
                         key_use
@@ -1125,16 +1176,15 @@ impl Key {
         if let Some(key_ops) = &self.key_ops {
             // `key_ops` is an explicit allow-list. Unknown operations are
             // accepted only when explicitly listed in the key metadata.
-            let key_ops_allow_requested = operations
+            let disallowed: Vec<String> = operations
                 .iter()
-                .all(|operation| key_ops.contains(operation));
+                .filter(|op| !key_ops.contains(op))
+                .map(|op| op.as_str().to_string())
+                .collect();
 
-            if !key_ops_allow_requested {
+            if !disallowed.is_empty() {
                 return Err(IncompatibleKeyError::OperationNotPermitted {
-                    operations: operations
-                        .iter()
-                        .map(|op| op.as_str().to_string())
-                        .collect(),
+                    operations: disallowed,
                     reason: "RFC 7517: key_ops does not permit requested operation(s)".to_string(),
                 }
                 .into());

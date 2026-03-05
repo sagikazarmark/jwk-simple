@@ -1257,6 +1257,33 @@ mod tests {
     }
 
     #[test]
+    fn test_selector_rejects_structurally_invalid_key_added_programmatically() {
+        // EC P-256 key with x coordinate of wrong length (4 bytes instead of 32).
+        // Constructed programmatically to bypass JWKS parse-time filtering.
+        use crate::encoding::Base64UrlBytes;
+        use crate::jwk::{EcCurve, EcParams, KeyParams};
+
+        let bad_ec = Key::new(KeyParams::Ec(EcParams::new_public(
+            EcCurve::P256,
+            Base64UrlBytes::new(vec![1, 2, 3, 4]), // x: 4 bytes, should be 32
+            Base64UrlBytes::new(vec![0; 32]),      // y: 32 bytes, correct
+        )))
+        .with_kid("bad-ec");
+
+        let mut jwks = KeySet::new();
+        jwks.add_key(bad_ec);
+        assert_eq!(jwks.len(), 1); // Key is present (no parse-time filtering)
+
+        let selector = jwks.selector(&[Algorithm::Es256]);
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256).with_kid("bad-ec"))
+            .unwrap_err();
+
+        // check_algorithm_suitability should reject due to structural invalidity.
+        assert!(!matches!(err, SelectionError::NoMatchingKey));
+    }
+
+    #[test]
     fn test_selector_key_suitability_failed_hs512_for_known_kid() {
         let json = r#"{"keys": [
             {"kty": "oct", "kid": "weak-hs", "use": "sig", "alg": "HS512", "k": "AQAB"}

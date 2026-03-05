@@ -336,6 +336,32 @@ Copy this block for new items:
 - Revisit signal: Repeated confusion about thumbprint-only trust semantics.
 - Suggested future action: Clarify docs and optionally add external-cert lookup hooks.
 
+## `validate_for_use` collects `IntoIterator` into Vec unconditionally
+- Date added: 2026-03-05
+- Source: PR #43 review
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: The allocation is negligible for typical 1-2 operation inputs. Changing the signature to `&[KeyOperation]` reduces ergonomics for callers passing arrays or iterators.
+- Preconditions/Trigger: Hot-path validation with many operations per call.
+- Risk if not fixed: Minor unnecessary allocation on every `validate_for_use` call.
+- Revisit signal: Performance profiling showing validation as a bottleneck.
+- Suggested future action: Consider accepting `&[KeyOperation]` with a convenience wrapper, or use `SmallVec` to avoid heap allocation for small counts.
+
+## `InconsistentParameters(String)` and `OperationNotPermitted.reason: String` use unstructured payloads
+- Date added: 2026-03-05
+- Source: PR #43 review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: All current values are static strings with no user-supplied data. Changing to `&'static str` for `reason` is low-risk but `InconsistentParameters` uses `format!()` in some call sites, requiring more design work. Related to the existing `Error::Other(String)` deferred finding.
+- Preconditions/Trigger: Future contributors accidentally embed sensitive key material in error message strings.
+- Risk if not fixed: Brittle programmatic matching on message text; potential future information leak.
+- Revisit signal: Error taxonomy refactor or security audit of error message contents.
+- Suggested future action: Change `OperationNotPermitted.reason` to `&'static str`; evaluate structured variants for `InconsistentParameters`.
+
 ## Ignored Findings
 
 ## Parse-count-only tests in RFC vectors and JWKS module

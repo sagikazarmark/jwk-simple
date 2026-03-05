@@ -276,7 +276,7 @@ mod alg_parameter {
         // RS256 requires RSA key, not symmetric
         let json = r#"{"kty": "oct", "alg": "RS256", "k": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        // Structural validation passes — symmetric key with 2 bytes is structurally valid
+        // Structural validation passes — symmetric key is structurally valid
         assert!(
             jwk.validate().is_ok(),
             "symmetric key is structurally valid"
