@@ -316,6 +316,8 @@ impl<'a> KeySelector<'a> {
 
             // Linear scan is acceptable for small verification allowlists.
             // Revisit with set-backed lookup if large allowlists become common.
+            // Unknown/private algorithms are rejected above (`UnknownAlgorithm`),
+            // so this allowlist check is only meaningful for known variants.
             if !self.allowed_verify_algs.contains(&matcher.alg) {
                 return Err(SelectionError::AlgorithmNotAllowed);
             }
@@ -1231,6 +1233,21 @@ mod tests {
 
         let err = selector
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("weak-rsa"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
+    }
+
+    #[test]
+    fn test_selector_key_validation_failed_hs512_for_known_kid() {
+        let json = r#"{"keys": [
+            {"kty": "oct", "kid": "weak-hs", "use": "sig", "alg": "HS512", "k": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[Algorithm::Hs512]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Hs512).with_kid("weak-hs"))
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
