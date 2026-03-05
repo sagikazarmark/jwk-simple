@@ -128,19 +128,6 @@ Copy this block for new items:
 - Revisit signal: Repeated flakes in `moka_cache_expiration`.
 - Suggested future action: Increase timing margin or use deterministic time control where compatible.
 
-## Missing direct coverage for KeySet::find_by_thumbprint
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
-- Severity: MEDIUM -> LOW
-- Decision: DEFER
-- Rationale: Useful completeness improvement but not urgent.
-- Preconditions/Trigger: Regression in thumbprint lookup behavior.
-- Risk if not fixed: Lookup regressions may go undetected.
-- Revisit signal: Changes to thumbprint or key lookup internals.
-- Suggested future action: Add positive/negative/multi-key lookup tests for `find_by_thumbprint`.
-
 ## Missing direct coverage for KeySet::get_by_thumbprint
 - Date added: 2026-03-05
 - Source: PR #38 review thread
@@ -230,7 +217,7 @@ Copy this block for new items:
 - Preconditions/Trigger: Upstream stalls or responds very slowly, and callers need tighter app-level fail-fast semantics.
 - Risk if not fixed: Longer-than-desired latency and less precise timeout classification for retry/backoff behavior.
 - Revisit signal: SLO pressure, latency incidents, or need for distinct timeout error handling.
-- Suggested future action: Add optional configurable timeout/abort in Cloudflare `RemoteKeyStore` with typed timeout error.
+- Suggested future action: Add optional configurable timeout/abort in Cloudflare `FetchKeyStore` with typed timeout error.
 
 ## Public-only OKP enforcement is not explicit
 - Date added: 2026-03-03
@@ -294,7 +281,7 @@ Copy this block for new items:
 - Rationale: Test uses explicit timeout with a wider server-delay margin; still timing-based but lower practical flake risk.
 - Preconditions/Trigger: Slow/variable CI hosts cause timeout race around small margins.
 - Risk if not fixed: Intermittent CI flakes.
-- Revisit signal: Any recurring flaky failures in `test_remote_keystore_timeout`.
+- Revisit signal: Any recurring flaky failures in `test_http_keystore_timeout`.
 - Suggested future action: Increase margin or migrate to deterministic timeout harness.
 
 ## x5c RSA SPKI OID excludes RSASSA-PSS OID
@@ -364,80 +351,4 @@ Copy this block for new items:
 
 ## Ignored Findings
 
-## Parse-count-only tests in RFC vectors and JWKS module
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: COMMON
-- Severity: LOW -> LOW
-- Decision: IGNORE
-- Rationale: Low-value tests are real, but removal is optional housekeeping and not worth churn right now.
-- Preconditions/Trigger: Key-content regressions that preserve item counts.
-- Risk if not fixed: Slightly weaker signal-to-noise in test suite.
-- Revisit signal: Test-suite cleanup pass or persistent maintenance burden.
-- Suggested future action: Remove or strengthen count-only parse tests opportunistically.
-
-## Duplicate unsupported-path WebCrypto tests
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: DUPLICATE
-- Trigger likelihood: COMMON
-- Severity: LOW -> LOW
-- Decision: IGNORE
-- Rationale: Duplication is minor and stable; merging tests yields little practical benefit.
-- Preconditions/Trigger: Both `validate_*` and `is_web_crypto_compatible` paths remain thinly coupled.
-- Risk if not fixed: Slight extra test maintenance.
-- Revisit signal: Future test reorganization in `src/integrations/web_crypto.rs`.
-- Suggested future action: Merge pairs into single parametrized tests when editing this area.
-
-## Table-driven refactor recommendation for RFC compliance tests
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: DISPUTED
-- Trigger likelihood: THEORETICAL
-- Severity: LOW -> LOW
-- Decision: IGNORE
-- Rationale: Primarily stylistic preference; current structure is acceptable and readable enough.
-- Preconditions/Trigger: Significant expansion or churn in similar scenarios.
-- Risk if not fixed: Minor duplication in test setup.
-- Revisit signal: Repeated copy/paste defects or painful future edits.
-- Suggested future action: Consider table-driven structure only if maintenance pain increases.
-
-## Informational RFC 9864 transition note is not a defect
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: DISPUTED
-- Trigger likelihood: THEORETICAL
-- Severity: INFORMATIONAL -> N/A
-- Decision: IGNORE
-- Rationale: Positive observation, not an actionable issue.
-- Preconditions/Trigger: N/A.
-- Risk if not fixed: None.
-- Revisit signal: N/A.
-- Suggested future action: Keep as release-note context, not as backlog finding.
-
-## JWKS ingestion should always run full `Key::validate()`
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: DISPUTED
-- Trigger likelihood: THEORETICAL
-- Severity: HIGH -> LOW
-- Decision: IGNORE
-- Rationale: Current behavior is intentional permissive JWKS ingestion aligned with RFC 7517 Section 5 SHOULD-ignore semantics.
-- Preconditions/Trigger: Assumes project policy should be strict-at-ingest for all metadata consistency checks.
-- Risk if not fixed: None for intended permissive mode; strict-mode users should call explicit validation.
-- Revisit signal: Product decision to switch to strict parsing by default.
-- Suggested future action: If needed, add an opt-in strict ingestion mode rather than changing default behavior.
-
-## `test_get_subtle_crypto` is environment-oriented noise
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: PLAUSIBLE
-- Trigger likelihood: UNCOMMON
-- Severity: LOW -> LOW
-- Decision: IGNORE
-- Rationale: Test is cheap and can serve as a minimal environment smoke check.
-- Preconditions/Trigger: Browser test runner lacks crypto APIs or has environmental quirks.
-- Risk if not fixed: Minor CI noise only.
-- Revisit signal: If this test starts flaking frequently or blocks useful signal.
-- Suggested future action: Keep as-is unless flakiness trends upward.
+(No active ignored findings.)
