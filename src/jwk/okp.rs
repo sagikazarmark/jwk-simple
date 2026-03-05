@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::encoding::Base64UrlBytes;
-use crate::error::{Error, ParseError, Result, ValidationError};
+use crate::error::{Error, InvalidKeyError, ParseError, Result};
 
 /// Supported OKP curves (RFC 8037).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -164,11 +164,12 @@ impl OkpParams {
 
         // Validate public key size
         if self.x.len() != expected_public_size {
-            return Err(Error::Validation(ValidationError::InvalidKeySize {
+            return Err(InvalidKeyError::InvalidKeySize {
                 expected: expected_public_size,
                 actual: self.x.len(),
                 context: "OKP public key x",
-            }));
+            }
+            .into());
         }
 
         // Validate private key size if present
@@ -176,11 +177,12 @@ impl OkpParams {
         if let Some(ref d) = self.d
             && !self.crv.is_valid_private_key_size(d.len())
         {
-            return Err(Error::Validation(ValidationError::InvalidKeySize {
+            return Err(InvalidKeyError::InvalidKeySize {
                 expected: self.crv.private_key_size(),
                 actual: d.len(),
                 context: "OKP private key d (accepts seed or seed+public format)",
-            }));
+            }
+            .into());
         }
 
         Ok(())

@@ -58,7 +58,7 @@ use x509_parser::prelude::parse_x509_certificate;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::encoding::Base64UrlBytes;
-use crate::error::{Error, ParseError, Result, ValidationError};
+use crate::error::{Error, IncompatibleKeyError, InvalidKeyError, ParseError, Result};
 
 /// Key type identifier (RFC 7517 Section 4.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -826,17 +826,21 @@ impl Key {
 
     /// Validates the JWK structure and metadata consistency.
     ///
-    /// This includes key parameter validation, JOSE metadata consistency, and
-    /// X.509 field format checks (`x5u`, `x5c`, `x5t`, `x5t#S256`) including
-    /// key-material matching against `x5c[0]`.
+    /// This is a context-free structural check: it verifies the key material
+    /// is well-formed, metadata fields are internally consistent, and X.509
+    /// fields are properly encoded and match the key material.
     ///
-    /// If `alg` is present, this also enforces algorithm/key compatibility and
-    /// algorithm-specific minimum key-strength requirements.
+    /// This method does **not** check algorithm suitability, key strength for
+    /// a specific algorithm, or operation intent. Use [`Key::validate_for_use`]
+    /// for those checks.
     ///
     /// This method does **not** perform PKIX trust/path validation for `x5c`
     /// chains (trust anchors, validity period, key usage/EKU, revocation, etc.).
     /// PKIX trust validation is application-defined and out of scope for this crate.
-    pub fn validate_structure(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
+        // Structural key-material validation (key-type-specific).
+        self.params.validate()?;
+
         // RFC 7517 Section 4.3 metadata constraints.
         self.validate_use_key_ops_consistency()?;
         self.validate_key_ops_unique()?;
@@ -844,17 +848,18 @@ impl Key {
         // RFC 7517 Section 4.6: x5u MUST use TLS (HTTPS)
         if let Some(ref x5u) = self.x5u {
             let parsed = Url::parse(x5u).map_err(|_| {
-                Error::Validation(ValidationError::InvalidParameter {
+                Error::from(InvalidKeyError::InvalidParameter {
                     name: "x5u",
                     reason: "RFC 7517: x5u must be a valid absolute URL".to_string(),
                 })
             })?;
 
             if parsed.scheme() != "https" || parsed.host_str().is_none() {
-                return Err(Error::Validation(ValidationError::InvalidParameter {
+                return Err(InvalidKeyError::InvalidParameter {
                     name: "x5u",
                     reason: "RFC 7517: x5u URL must use HTTPS and include a host".to_string(),
-                }));
+                }
+                .into());
             }
         }
 
@@ -885,9 +890,10 @@ impl Key {
                 let expected = Base64UrlUnpadded::encode_string(&hasher.finalize());
 
                 if x5t != &expected {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    return Err(InvalidKeyError::InconsistentParameters(
                         "RFC 7517: x5t does not match SHA-1 thumbprint of x5c[0]".to_string(),
-                    )));
+                    )
+                    .into());
                 }
             }
 
@@ -897,30 +903,26 @@ impl Key {
                 let expected = Base64UrlUnpadded::encode_string(&hasher.finalize());
 
                 if x5t_s256 != &expected {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    return Err(InvalidKeyError::InconsistentParameters(
                         "RFC 7517: x5t#S256 does not match SHA-256 thumbprint of x5c[0]"
                             .to_string(),
-                    )));
+                    )
+                    .into());
                 }
             }
         }
 
-        // Validate algorithm-aware compatibility if specified.
-        // Otherwise, perform structural parameter validation.
-        if let Some(ref alg) = self.alg {
-            self.validate_for_algorithm(alg)
-        } else {
-            self.params.validate()
-        }
+        Ok(())
     }
 
     fn validate_use_key_ops_consistency(&self) -> Result<()> {
         if let (Some(key_use), Some(key_ops)) = (&self.key_use, &self.key_ops)
             && !is_use_consistent_with_ops(key_use, key_ops)
         {
-            return Err(Error::Validation(ValidationError::InconsistentParameters(
+            return Err(InvalidKeyError::InconsistentParameters(
                 "RFC 7517: 'use' and 'key_ops' are both present but inconsistent".to_string(),
-            )));
+            )
+            .into());
         }
 
         Ok(())
@@ -931,12 +933,11 @@ impl Key {
             let mut seen = HashSet::new();
             for op in ops {
                 if !seen.insert(op) {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
-                        format!(
-                            "RFC 7517: key_ops array contains duplicate value '{}'",
-                            op.as_str()
-                        ),
-                    )));
+                    return Err(InvalidKeyError::InconsistentParameters(format!(
+                        "RFC 7517: key_ops array contains duplicate value '{}'",
+                        op.as_str()
+                    ))
+                    .into());
                 }
             }
         }
@@ -951,10 +952,11 @@ impl Key {
         };
 
         if certs.is_empty() {
-            return Err(Error::Validation(ValidationError::InvalidParameter {
+            return Err(InvalidKeyError::InvalidParameter {
                 name: "x5c",
                 reason: "RFC 7517: x5c must contain one or more certificates".to_string(),
-            }));
+            }
+            .into());
         }
 
         let mut first_der = None;
@@ -966,41 +968,44 @@ impl Key {
             // We validate it's proper base64 by checking for base64url-only chars
             // and attempting to decode
             if cert.contains('-') || cert.contains('_') {
-                return Err(Error::Validation(ValidationError::InvalidParameter {
+                return Err(InvalidKeyError::InvalidParameter {
                     name: "x5c",
                     reason: format!(
                         "RFC 7517: x5c[{}] appears to be base64url encoded; must be standard base64",
                         i
                     ),
-                }));
+                }
+                .into());
             }
 
             // Validate it's valid base64 by checking character set and padding
             if !is_valid_base64(cert) {
-                return Err(Error::Validation(ValidationError::InvalidParameter {
+                return Err(InvalidKeyError::InvalidParameter {
                     name: "x5c",
                     reason: format!("RFC 7517: x5c[{}] is not valid base64 encoding", i),
-                }));
+                }
+                .into());
             }
 
             // RFC 7517 Section 4.7: Each certificate value MUST be a DER-encoded X.509 certificate
             // Decode and validate basic DER certificate structure
             use base64ct::{Base64, Encoding};
             let der_bytes = Base64::decode_vec(cert).map_err(|_| {
-                Error::Validation(ValidationError::InvalidParameter {
+                Error::from(InvalidKeyError::InvalidParameter {
                     name: "x5c",
                     reason: format!("RFC 7517: x5c[{}] failed base64 decoding", i),
                 })
             })?;
 
             if parse_x509_certificate(&der_bytes).is_err() {
-                return Err(Error::Validation(ValidationError::InvalidParameter {
+                return Err(InvalidKeyError::InvalidParameter {
                     name: "x5c",
                     reason: format!(
                         "RFC 7517: x5c[{}] is not a valid DER-encoded X.509 certificate",
                         i
                     ),
-                }));
+                }
+                .into());
             }
 
             if i == 0 {
@@ -1011,60 +1016,77 @@ impl Key {
         Ok(first_der)
     }
 
-    /// Validates operation-intent metadata for a requested operation.
+    /// Validates this key for a specific algorithm and operation(s).
     ///
-    /// This enforces RFC 7517 operation intent semantics when metadata is
-    /// present:
-    /// - If `key_ops` is present, it must include the requested operation.
-    /// - If `use` is present, it must be compatible with the requested operation.
+    /// This is the full pre-use gate: it performs structural validation
+    /// ([`Key::validate`]) followed by algorithm suitability checks
+    /// (type compatibility, key strength) and operation-intent enforcement
+    /// (metadata permits the requested operations).
+    ///
+    /// This method calls [`Key::validate`] internally, so callers do not
+    /// need to call it separately.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::{Key, Algorithm};
+    /// use jwk_simple::jwk::KeyOperation;
+    ///
+    /// let json = r#"{"kty":"oct","k":"c2VjcmV0LWtleS1tYXRlcmlhbC10aGF0LWlzLWxvbmctZW5vdWdo"}"#;
+    /// let key: Key = serde_json::from_str(json).unwrap();
+    ///
+    /// // Validate for HMAC signing
+    /// assert!(key.validate_for_use(&Algorithm::Hs256, [KeyOperation::Sign]).is_ok());
+    /// ```
+    pub fn validate_for_use(
+        &self,
+        alg: &Algorithm,
+        ops: impl IntoIterator<Item = KeyOperation>,
+    ) -> Result<()> {
+        let ops: Vec<KeyOperation> = ops.into_iter().collect();
+        if ops.is_empty() {
+            return Err(InvalidKeyError::InvalidParameter {
+                name: "operations",
+                reason: "at least one requested operation is required".to_string(),
+            }
+            .into());
+        }
+
+        // Structural validation first (belt-and-suspenders).
+        self.validate()?;
+
+        // Algorithm suitability: type match + strength.
+        self.check_algorithm_suitability(alg)?;
+
+        // Operation intent: use/key_ops metadata permits the requested operations.
+        self.check_operation_intent(&ops)
+    }
+
+    /// Checks algorithm suitability: key-type compatibility and key strength.
+    ///
+    /// This does **not** perform structural validation or operation-intent
+    /// checks. It is intended for internal use by [`Key::validate_for_use`]
+    /// and [`KeySelector`](crate::KeySelector).
+    pub(crate) fn check_algorithm_suitability(&self, alg: &Algorithm) -> Result<()> {
+        self.validate_algorithm_key_type_match(alg)?;
+        self.validate_algorithm_key_strength(alg)
+    }
+
+    /// Checks operation-intent metadata for requested operations.
+    ///
+    /// This enforces RFC 7517 operation intent semantics:
+    /// - If `use` is present, it must be compatible with all requested operations.
+    /// - If `key_ops` is present, it must include all requested operations.
     /// - If both are present, they must be mutually consistent.
     ///
     /// Metadata members are optional in RFC 7517. If both are absent, this
-    /// validation succeeds.
-    pub fn validate_operation_metadata(&self, operation: KeyOperation) -> Result<()> {
-        self.validate_operation_metadata_ref(&operation)
-    }
-
-    /// Borrowing variant of [`Key::validate_operation_metadata`].
+    /// check succeeds.
     ///
-    /// This applies identical validation semantics while taking the operation
-    /// by reference, so call sites that already hold a borrowed operation can
-    /// avoid cloning.
-    pub(crate) fn validate_operation_metadata_ref(&self, operation: &KeyOperation) -> Result<()> {
-        self.validate_use_key_ops_consistency()?;
-        self.validate_key_ops_unique()?;
-        self.validate_operation_intent_for_all(std::slice::from_ref(operation))
-    }
-
-    /// Validates this key for a specific algorithm and operation.
-    ///
-    /// This combines algorithm/key-material validation with metadata intent
-    /// enforcement for operation-specific APIs.
-    pub fn validate_for_operation(&self, alg: &Algorithm, operation: KeyOperation) -> Result<()> {
-        self.validate_for_operations(alg, std::slice::from_ref(&operation))
-    }
-
-    /// Validates this key for a specific algorithm and one-or-more operations.
-    ///
-    /// This is intended for APIs that can perform more than one operation with
-    /// the same key type (for example, HMAC sign/verify APIs).
-    ///
-    /// All requested operations must be allowed by metadata when metadata is
-    /// present. For example, `operations = [Sign, Verify]` requires both
-    /// operations to be permitted in `key_ops` (if provided).
-    pub fn validate_for_operations(
-        &self,
-        alg: &Algorithm,
-        operations: &[KeyOperation],
-    ) -> Result<()> {
-        if operations.is_empty() {
-            return Err(Error::Validation(ValidationError::InvalidParameter {
-                name: "operations",
-                reason: "at least one requested operation is required".to_string(),
-            }));
-        }
-
-        self.validate_for_algorithm(alg)?;
+    /// This does **not** perform structural validation or algorithm suitability
+    /// checks. It is intended for internal use by [`Key::validate_for_use`]
+    /// and [`KeySelector`](crate::KeySelector).
+    pub(crate) fn check_operation_intent(&self, operations: &[KeyOperation]) -> Result<()> {
+        debug_assert!(!operations.is_empty());
         self.validate_use_key_ops_consistency()?;
         self.validate_key_ops_unique()?;
         self.validate_operation_intent_for_all(operations)
@@ -1072,7 +1094,7 @@ impl Key {
 
     /// Validates only operation-intent compatibility for all requested operations.
     ///
-    /// Unlike [`Key::validate_operation_metadata`], this does not run
+    /// Unlike [`Key::check_operation_intent`], this does not run
     /// `use`/`key_ops` structural consistency or uniqueness pre-checks.
     pub(crate) fn validate_operation_intent_for_all(
         &self,
@@ -1086,13 +1108,17 @@ impl Key {
                 .all(|operation| is_operation_allowed_by_use(key_use, operation));
 
             if !use_allows_requested {
-                return Err(Error::Validation(ValidationError::InconsistentParameters(
-                    format!(
-                        "RFC 7517: key 'use' '{}' is not compatible with requested operation(s): {}",
-                        key_use,
-                        format_operations_list(operations)
+                return Err(IncompatibleKeyError::OperationNotPermitted {
+                    operations: operations
+                        .iter()
+                        .map(|op| op.as_str().to_string())
+                        .collect(),
+                    reason: format!(
+                        "RFC 7517: key 'use' '{}' does not permit requested operation(s)",
+                        key_use
                     ),
-                )));
+                }
+                .into());
             }
         }
 
@@ -1104,12 +1130,14 @@ impl Key {
                 .all(|operation| key_ops.contains(operation));
 
             if !key_ops_allow_requested {
-                return Err(Error::Validation(ValidationError::InconsistentParameters(
-                    format!(
-                        "RFC 7517: key_ops does not permit requested operation(s): {}",
-                        format_operations_list(operations)
-                    ),
-                )));
+                return Err(IncompatibleKeyError::OperationNotPermitted {
+                    operations: operations
+                        .iter()
+                        .map(|op| op.as_str().to_string())
+                        .collect(),
+                    reason: "RFC 7517: key_ops does not permit requested operation(s)".to_string(),
+                }
+                .into());
             }
         }
 
@@ -1227,13 +1255,11 @@ impl Key {
         }
 
         if !self.is_algorithm_compatible(alg) {
-            return Err(Error::Validation(ValidationError::InconsistentParameters(
-                format!(
-                    "algorithm '{}' is not compatible with key type '{}'",
-                    alg.as_str(),
-                    self.kty().as_str()
-                ),
-            )));
+            return Err(IncompatibleKeyError::IncompatibleAlgorithm {
+                algorithm: alg.as_str().to_string(),
+                key_type: self.kty().as_str().to_string(),
+            }
+            .into());
         }
 
         Ok(())
@@ -1296,7 +1322,7 @@ impl Key {
     /// Validates that the first `x5c` certificate public key matches JWK key material.
     fn validate_x5c_public_key_match(&self, cert_der: &[u8]) -> Result<()> {
         let (_, cert) = parse_x509_certificate(cert_der).map_err(|_| {
-            Error::Validation(ValidationError::InvalidParameter {
+            Error::from(InvalidKeyError::InvalidParameter {
                 name: "x5c",
                 reason: "RFC 7517: x5c[0] is not a parseable X.509 certificate".to_string(),
             })
@@ -1309,26 +1335,29 @@ impl Key {
         match &self.params {
             KeyParams::Rsa(rsa) => {
                 if cert_alg_oid != "1.2.840.113549.1.1.1" {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    return Err(InvalidKeyError::InconsistentParameters(
                         "RFC 7517: x5c[0] public key algorithm does not match JWK RSA key"
                             .to_string(),
-                    )));
+                    )
+                    .into());
                 }
 
                 let expected_der = encode_rsa_public_key_der(rsa.n.as_bytes(), rsa.e.as_bytes());
                 if cert_key != expected_der.as_slice() {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    return Err(InvalidKeyError::InconsistentParameters(
                         "RFC 7517: x5c[0] public key does not match JWK RSA key parameters"
                             .to_string(),
-                    )));
+                    )
+                    .into());
                 }
             }
             KeyParams::Ec(ec) => {
                 if cert_alg_oid != "1.2.840.10045.2.1" {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    return Err(InvalidKeyError::InconsistentParameters(
                         "RFC 7517: x5c[0] public key algorithm does not match JWK EC key"
                             .to_string(),
-                    )));
+                    )
+                    .into());
                 }
 
                 let expected_curve_oid = match ec.crv {
@@ -1346,17 +1375,19 @@ impl Key {
                     .map(|oid| oid.to_id_string());
 
                 if cert_curve_oid.as_deref() != Some(expected_curve_oid) {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    return Err(InvalidKeyError::InconsistentParameters(
                         "RFC 7517: x5c[0] EC curve does not match JWK crv".to_string(),
-                    )));
+                    )
+                    .into());
                 }
 
                 let expected_point = ec.to_uncompressed_point();
                 if cert_key != expected_point.as_slice() {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    return Err(InvalidKeyError::InconsistentParameters(
                         "RFC 7517: x5c[0] public key does not match JWK EC key parameters"
                             .to_string(),
-                    )));
+                    )
+                    .into());
                 }
             }
             KeyParams::Okp(okp) => {
@@ -1368,47 +1399,30 @@ impl Key {
                 };
 
                 if cert_alg_oid != expected_oid {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    return Err(InvalidKeyError::InconsistentParameters(
                         "RFC 7517: x5c[0] public key algorithm does not match JWK OKP key"
                             .to_string(),
-                    )));
+                    )
+                    .into());
                 }
 
                 if cert_key != okp.x.as_bytes() {
-                    return Err(Error::Validation(ValidationError::InconsistentParameters(
+                    return Err(InvalidKeyError::InconsistentParameters(
                         "RFC 7517: x5c[0] public key does not match JWK OKP key parameters"
                             .to_string(),
-                    )));
+                    )
+                    .into());
                 }
             }
             KeyParams::Symmetric(_) => {
-                return Err(Error::Validation(ValidationError::InconsistentParameters(
+                return Err(InvalidKeyError::InconsistentParameters(
                     "RFC 7517: x5c is not valid for symmetric (oct) keys".to_string(),
-                )));
+                )
+                .into());
             }
         }
 
         Ok(())
-    }
-
-    /// Validates this key for a specific algorithm before key usage.
-    ///
-    /// This is the canonical algorithm-aware validation gate and should be
-    /// used by integrations before converting/importing key material.
-    ///
-    /// This method intentionally validates algorithm suitability and key
-    /// material only. It does not run full JWK metadata validation from
-    /// [`Key::validate_structure`] (such as `use`/`key_ops` consistency or x509-related
-    /// checks).
-    ///
-    /// Validation order:
-    /// 1. Structural/key-material validation (`params.validate()`)
-    /// 2. Algorithm/key-type compatibility (`validate_algorithm_key_type_match`)
-    /// 3. Algorithm-specific key strength checks (`validate_algorithm_key_strength`)
-    pub fn validate_for_algorithm(&self, alg: &Algorithm) -> Result<()> {
-        self.params.validate()?;
-        self.validate_algorithm_key_type_match(alg)?;
-        self.validate_algorithm_key_strength(alg)
     }
 
     #[cfg(test)]
@@ -1861,14 +1875,6 @@ fn is_encryption_operation(operation: &KeyOperation) -> bool {
     )
 }
 
-fn format_operations_list(operations: &[KeyOperation]) -> String {
-    operations
-        .iter()
-        .map(KeyOperation::as_str)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 /// Encodes a byte slice as a DER INTEGER.
 fn encode_der_integer(bytes: &[u8]) -> Vec<u8> {
     if bytes.is_empty() {
@@ -1983,20 +1989,21 @@ fn validate_x509_thumbprint(
 
     // Validate it's valid base64url
     if !is_valid_base64url(thumbprint) {
-        return Err(Error::Validation(ValidationError::InvalidParameter {
+        return Err(InvalidKeyError::InvalidParameter {
             name: param_name,
             reason: format!(
                 "RFC 7517: {} must be base64url-encoded (invalid characters found)",
                 param_name
             ),
-        }));
+        }
+        .into());
     }
 
     // Try to decode and check the length
     match Base64UrlUnpadded::decode_vec(thumbprint) {
         Ok(decoded) => {
             if decoded.len() != expected_bytes {
-                return Err(Error::Validation(ValidationError::InvalidParameter {
+                return Err(InvalidKeyError::InvalidParameter {
                     name: param_name,
                     reason: format!(
                         "RFC 7517: {} must be {} bytes when decoded (got {} bytes)",
@@ -2004,14 +2011,16 @@ fn validate_x509_thumbprint(
                         expected_bytes,
                         decoded.len()
                     ),
-                }));
+                }
+                .into());
             }
             Ok(())
         }
-        Err(_) => Err(Error::Validation(ValidationError::InvalidParameter {
+        Err(_) => Err(InvalidKeyError::InvalidParameter {
             name: param_name,
             reason: format!("RFC 7517: {} failed base64url decoding", param_name),
-        })),
+        }
+        .into()),
     }
 }
 
@@ -2332,78 +2341,69 @@ mod tests {
         );
     }
     #[test]
-    fn test_validate_for_algorithm_enforces_strength_without_key_alg() {
+    fn test_check_algorithm_suitability_enforces_strength_without_key_alg() {
         let weak_hmac_key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
             Base64UrlBytes::new(vec![0u8; 31]),
         )));
 
-        // Baseline JWK validation (metadata + structure) still passes when `alg` is absent.
-        assert!(weak_hmac_key.validate_structure().is_ok());
+        // Baseline JWK validation (structure) still passes — key is structurally valid.
+        assert!(weak_hmac_key.validate().is_ok());
 
-        // Algorithm-aware validation enforces HS256 minimum key strength.
+        // Algorithm suitability check enforces HS256 minimum key strength.
         assert!(
             weak_hmac_key
-                .validate_for_algorithm(&Algorithm::Hs256)
+                .check_algorithm_suitability(&Algorithm::Hs256)
                 .is_err()
         );
     }
 
     #[test]
-    fn test_validate_operation_metadata_enforces_use_when_present() {
+    fn test_check_operation_intent_enforces_use_when_present() {
         let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
             Base64UrlBytes::new(vec![0u8; 32]),
         )))
         .with_use(KeyUse::Encryption);
 
-        assert!(
-            key.validate_operation_metadata(KeyOperation::Encrypt)
-                .is_ok()
-        );
-        assert!(key.validate_operation_metadata(KeyOperation::Sign).is_err());
+        assert!(key.check_operation_intent(&[KeyOperation::Encrypt]).is_ok());
+        assert!(key.check_operation_intent(&[KeyOperation::Sign]).is_err());
     }
 
     #[test]
-    fn test_validate_operation_metadata_enforces_key_ops_when_present() {
+    fn test_check_operation_intent_enforces_key_ops_when_present() {
         let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
             Base64UrlBytes::new(vec![1, 2, 3]),
             Base64UrlBytes::new(vec![1, 0, 1]),
         )))
         .with_key_ops(vec![KeyOperation::Verify]);
 
-        assert!(
-            key.validate_operation_metadata(KeyOperation::Verify)
-                .is_ok()
-        );
-        assert!(key.validate_operation_metadata(KeyOperation::Sign).is_err());
+        assert!(key.check_operation_intent(&[KeyOperation::Verify]).is_ok());
+        assert!(key.check_operation_intent(&[KeyOperation::Sign]).is_err());
     }
 
     #[test]
-    fn test_validate_operation_metadata_allows_missing_optional_fields() {
+    fn test_check_operation_intent_allows_missing_optional_fields() {
         let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
             Base64UrlBytes::new(vec![1, 2, 3]),
             Base64UrlBytes::new(vec![1, 0, 1]),
         )));
 
-        assert!(
-            key.validate_operation_metadata(KeyOperation::Verify)
-                .is_ok()
-        );
-        assert!(key.validate_operation_metadata(KeyOperation::Sign).is_ok());
+        assert!(key.check_operation_intent(&[KeyOperation::Verify]).is_ok());
+        assert!(key.check_operation_intent(&[KeyOperation::Sign]).is_ok());
     }
 
     #[test]
-    fn test_validate_for_operations_rejects_empty_operation_set() {
+    fn test_validate_for_use_rejects_empty_operation_set() {
         let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
             Base64UrlBytes::new(vec![1, 2, 3]),
             Base64UrlBytes::new(vec![1, 0, 1]),
         )));
 
-        let result = key.validate_for_operations(&Algorithm::Rs256, &[]);
+        let result = key.validate_for_use(&Algorithm::Rs256, vec![]);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_validate_operation_metadata_rejects_inconsistent_use_and_key_ops() {
+    fn test_check_operation_intent_rejects_inconsistent_use_and_key_ops() {
         let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
             Base64UrlBytes::new(vec![1, 2, 3]),
             Base64UrlBytes::new(vec![1, 0, 1]),
@@ -2411,20 +2411,17 @@ mod tests {
         .with_use(KeyUse::Signature)
         .with_key_ops(vec![KeyOperation::Encrypt]);
 
-        assert!(
-            key.validate_operation_metadata(KeyOperation::Verify)
-                .is_err()
-        );
+        assert!(key.check_operation_intent(&[KeyOperation::Verify]).is_err());
     }
 
     #[test]
-    fn test_validate_operation_metadata_allows_unknown_operation_with_use() {
+    fn test_check_operation_intent_allows_unknown_operation_with_use() {
         let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
             Base64UrlBytes::new(vec![0u8; 32]),
         )))
         .with_use(KeyUse::Signature);
 
-        let result = key.validate_operation_metadata(KeyOperation::Unknown("custom-op".into()));
+        let result = key.check_operation_intent(&[KeyOperation::Unknown("custom-op".into())]);
         assert!(result.is_ok());
     }
 }

@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::error::{Error, Result, ValidationError};
+use crate::error::{Error, IncompatibleKeyError, Result};
 use crate::jwk::{Algorithm, Key, KeyOperation, KeyType, KeyUse};
 
 mod cache;
@@ -47,8 +47,8 @@ pub enum SelectionError {
     IntentMismatch,
     /// Key material type/curve is incompatible with the requested algorithm.
     IncompatibleKeyType,
-    /// Key failed algorithm-specific validation (strength/parameter constraints).
-    KeyValidationFailed(ValidationError),
+    /// Key failed algorithm suitability check (strength/parameter constraints).
+    KeySuitabilityFailed(IncompatibleKeyError),
     /// More than one key satisfies strict selection criteria.
     AmbiguousSelection {
         /// Number of matched keys.
@@ -106,8 +106,8 @@ impl std::fmt::Display for SelectionError {
             SelectionError::IncompatibleKeyType => {
                 write!(f, "key type/curve is incompatible with requested algorithm")
             }
-            SelectionError::KeyValidationFailed(e) => {
-                write!(f, "key validation failed: {}", e)
+            SelectionError::KeySuitabilityFailed(e) => {
+                write!(f, "key suitability check failed: {}", e)
             }
             SelectionError::AmbiguousSelection { count } => {
                 write!(f, "selection is ambiguous: {} matching keys", count)
@@ -120,7 +120,7 @@ impl std::fmt::Display for SelectionError {
 impl std::error::Error for SelectionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SelectionError::KeyValidationFailed(e) => Some(e),
+            SelectionError::KeySuitabilityFailed(e) => Some(e),
             _ => None,
         }
     }
@@ -237,7 +237,7 @@ impl<'a> KeySelector<'a> {
     ///
     /// When `kid` is present in the matcher, candidate-level validation failures are
     /// surfaced with specific diagnostics (`AlgorithmMismatch`, `IntentMismatch`,
-    /// `KeyValidationFailed`, `IncompatibleKeyType`) using deterministic precedence.
+    /// `KeySuitabilityFailed`, `IncompatibleKeyType`) using deterministic precedence.
     ///
     /// When `kid` is not present, candidates that fail per-key checks are skipped and
     /// selection resolves by surviving cardinality (`AmbiguousSelection` / `NoMatchingKey`).
@@ -255,13 +255,13 @@ impl<'a> KeySelector<'a> {
     ///
     /// If `kid` is present and no candidate survives, the most specific error
     /// is returned in this order: `AlgorithmMismatch` -> `IntentMismatch`
-    /// -> `KeyValidationFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`.
+    /// -> `KeySuitabilityFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`.
     ///
     /// If `kid` is absent and no candidate survives, candidate-level
     /// diagnostics are suppressed and selection returns `NoMatchingKey`.
     ///
-    /// Note: `IncompatibleKeyType` also covers unexpected non-validation
-    /// failures from `validate_for_algorithm`, conservatively mapped to
+    /// Note: `IncompatibleKeyType` also covers unexpected non-suitability
+    /// failures from `check_algorithm_suitability`, conservatively mapped to
     /// incompatibility in strict mode.
     ///
     /// If `kid` is omitted and selection returns `NoMatchingKey`, use
@@ -329,7 +329,7 @@ impl<'a> KeySelector<'a> {
         let mut incompatible_for_known_kid = false;
         let mut saw_alg_mismatch: Option<(Algorithm, Algorithm)> = None;
         let mut saw_intent_mismatch = false;
-        let mut saw_validation_error: Option<ValidationError> = None;
+        let mut saw_suitability_error: Option<IncompatibleKeyError> = None;
 
         for key in self.keyset.keys.iter() {
             // Diagnostics are accumulated only for kid-constrained lookups.
@@ -357,23 +357,26 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
-            if key.validate_operation_metadata_ref(&matcher.op).is_err() {
+            if key
+                .check_operation_intent(std::slice::from_ref(&matcher.op))
+                .is_err()
+            {
                 if matcher.kid.is_some() {
                     saw_intent_mismatch = true;
                 }
                 continue;
             }
 
-            if let Err(e) = key.validate_for_algorithm(&matcher.alg) {
+            if let Err(e) = key.check_algorithm_suitability(&matcher.alg) {
                 if matcher.kid.is_some() {
                     match e {
-                        Error::Validation(validation) => {
-                            if saw_validation_error.is_none() {
-                                saw_validation_error = Some(validation);
+                        Error::IncompatibleKey(suitability) => {
+                            if saw_suitability_error.is_none() {
+                                saw_suitability_error = Some(suitability);
                             }
                         }
-                        // `validate_for_algorithm` should primarily return
-                        // `Error::Validation`. Non-validation failures are treated
+                        // `check_algorithm_suitability` should only return
+                        // `Error::IncompatibleKey`. Other failures are treated
                         // conservatively as incompatibility in strict selection.
                         _ => incompatible_for_known_kid = true,
                     }
@@ -394,8 +397,8 @@ impl<'a> KeySelector<'a> {
             if saw_intent_mismatch {
                 return Err(SelectionError::IntentMismatch);
             }
-            if let Some(validation) = saw_validation_error {
-                return Err(SelectionError::KeyValidationFailed(validation));
+            if let Some(suitability) = saw_suitability_error {
+                return Err(SelectionError::KeySuitabilityFailed(suitability));
             }
             if incompatible_for_known_kid {
                 return Err(SelectionError::IncompatibleKeyType);
@@ -798,7 +801,7 @@ impl KeySet {
     /// Returns the first validation error encountered, if any.
     pub fn validate(&self) -> Result<()> {
         for key in &self.keys {
-            key.validate_structure()?;
+            key.validate()?;
         }
 
         Ok(())
@@ -1250,11 +1253,11 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("weak-rsa"))
             .unwrap_err();
 
-        assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
+        assert!(matches!(err, SelectionError::KeySuitabilityFailed(_)));
     }
 
     #[test]
-    fn test_selector_key_validation_failed_hs512_for_known_kid() {
+    fn test_selector_key_suitability_failed_hs512_for_known_kid() {
         let json = r#"{"keys": [
             {"kty": "oct", "kid": "weak-hs", "use": "sig", "alg": "HS512", "k": "AQAB"}
         ]}"#;
@@ -1265,7 +1268,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Hs512).with_kid("weak-hs"))
             .unwrap_err();
 
-        assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
+        assert!(matches!(err, SelectionError::KeySuitabilityFailed(_)));
     }
 
     #[test]
@@ -1395,7 +1398,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("dup"))
             .unwrap_err();
 
-        assert!(matches!(err, SelectionError::KeyValidationFailed(_)));
+        assert!(matches!(err, SelectionError::KeySuitabilityFailed(_)));
     }
 
     #[test]
@@ -1610,14 +1613,15 @@ mod tests {
             "selection is ambiguous: 2 matching keys"
         );
 
-        let validation = SelectionError::KeyValidationFailed(ValidationError::InvalidKeySize {
-            expected: 32,
-            actual: 16,
-            context: "HS256",
-        });
+        let suitability =
+            SelectionError::KeySuitabilityFailed(IncompatibleKeyError::InsufficientKeyStrength {
+                minimum_bits: 256,
+                actual_bits: 128,
+                context: "HS256",
+            });
         assert_eq!(
-            validation.to_string(),
-            "key validation failed: invalid key size for HS256: expected 32 bytes, got 16"
+            suitability.to_string(),
+            "key suitability check failed: insufficient key strength for HS256: need 256 bits, got 128"
         );
 
         assert_eq!(

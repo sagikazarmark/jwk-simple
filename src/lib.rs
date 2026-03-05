@@ -124,9 +124,10 @@
 //! - All fallible operations return `Result` types. The crate avoids panics,
 //!   though standard trait implementations like `Index` follow normal Rust
 //!   semantics and may panic on invalid input (e.g., out-of-bounds indexing)
-//! - `Key::validate_structure` performs structural and consistency checks
-//!   only. PKIX trust validation for `x5c` chains is application-defined and
-//!   out of scope for this crate.
+//! - [`Key::validate`] performs structural and consistency checks only.
+//!   [`Key::validate_for_use`] adds algorithm suitability and operation intent.
+//!   PKIX trust validation for `x5c` chains is application-defined and out of
+//!   scope for this crate.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
@@ -155,7 +156,7 @@ pub mod jwk;
 pub mod jwks;
 
 // Re-exports for convenience
-pub use error::{Error, Result, ValidationError};
+pub use error::{Error, IncompatibleKeyError, InvalidKeyError, Result};
 pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
     OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,
