@@ -73,8 +73,7 @@ Note: snippets below are focused examples and may omit surrounding async/runtime
 ### Basic JWKS Parsing
 
 ```rust
-use jwk_simple::{KeyType, KeyUse};
-use jwk_simple::KeySet;
+use jwk_simple::{KeyFilter, KeySet, KeyType, KeyUse};
 
 // Parse from JSON string
 let jwks: KeySet = serde_json::from_str(json)?;
@@ -83,6 +82,10 @@ let jwks: KeySet = serde_json::from_str(json)?;
 let key = jwks.get_by_kid("key-id");
 let rsa_keys = jwks.find_by_kty(KeyType::Rsa);
 let signing_keys = jwks.find_by_use(&KeyUse::Signature);
+
+// Preferred discovery pattern with composable filters
+let rsa_keys_v2 = jwks.find(&KeyFilter::new().with_kty(KeyType::Rsa));
+let signing_keys_v2 = jwks.find(&KeyFilter::new().with_key_use(KeyUse::Signature));
 
 // Get the first signing key (common pattern)
 let first_signing = jwks.first_signing_key();

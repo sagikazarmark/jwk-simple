@@ -83,12 +83,9 @@ impl std::fmt::Display for SelectionError {
                 requested,
                 declared,
             } => {
-                let requested_display = match requested {
-                    Algorithm::Unknown(value) => {
-                        format!("unknown({})", sanitize_for_display(value))
-                    }
-                    _ => requested.to_string(),
-                };
+                // In strict selection, `requested` is guaranteed to be known
+                // because unknown algorithms are rejected upfront.
+                let requested_display = requested.to_string();
 
                 let declared_display = match declared {
                     Algorithm::Unknown(value) => {

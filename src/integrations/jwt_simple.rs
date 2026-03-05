@@ -556,6 +556,7 @@ impl TryFrom<Key> for HS512Key {
 mod tests {
     use super::*;
     use crate::KeyMatcher;
+    use crate::SelectionError;
     use crate::jwks::KeySet;
 
     // Test RSA public key from RFC 7517 Appendix A.1
@@ -808,6 +809,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(key.kid.as_deref(), Some("rsa-verify"));
+
+        let err = jwks
+            .selector(&[Algorithm::Rs256])
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256).with_kid("rsa-verify"))
+            .unwrap_err();
+        assert!(matches!(err, SelectionError::AlgorithmNotAllowed));
     }
 
     #[test]
