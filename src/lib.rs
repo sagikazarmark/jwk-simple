@@ -48,6 +48,11 @@
 //!
 //! - [`ValidationError`] is re-exported at crate root for matching
 //!   [`SelectionError::KeyValidationFailed`] payloads.
+//! - `Error` is now `#[non_exhaustive]`; external exhaustive matches should
+//!   include a wildcard branch.
+//! - `SelectionError` intentionally does not implement `From` into [`Error`].
+//!   Bridge explicitly with `.map_err(...)` when integrating strict selection
+//!   into `Result<_, Error>` flows.
 //!
 //! | Feature | Platform | Description |
 //! |---------|----------|-------------|

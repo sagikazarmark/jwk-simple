@@ -58,6 +58,13 @@ pub enum SelectionError {
 
 impl std::fmt::Display for SelectionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn sanitize_for_display(value: &str) -> String {
+            value
+                .chars()
+                .map(|ch| if ch.is_control() { ' ' } else { ch })
+                .collect()
+        }
+
         match self {
             SelectionError::EmptyVerifyAllowlist => {
                 write!(f, "verification allowlist is empty")
@@ -69,11 +76,20 @@ impl std::fmt::Display for SelectionError {
             SelectionError::AlgorithmMismatch {
                 requested,
                 declared,
-            } => write!(
-                f,
-                "algorithm mismatch: requested {}, key declares {}",
-                requested, declared
-            ),
+            } => {
+                let declared_display = match declared {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => declared.to_string(),
+                };
+
+                write!(
+                    f,
+                    "algorithm mismatch: requested {}, key declares {}",
+                    requested, declared_display
+                )
+            }
             SelectionError::IntentMismatch => {
                 write!(f, "key metadata does not permit requested operation")
             }
@@ -134,6 +150,8 @@ impl<'a> KeyMatcher<'a> {
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct KeyFilter<'a> {
+    /// Note for external users: this type is `#[non_exhaustive]`, so construct
+    /// it with [`KeyFilter::new`] and builder methods instead of struct literals.
     /// Optional operation-intent filter.
     pub op: Option<KeyOperation>,
     /// Optional algorithm filter (exact `alg` match only).
@@ -282,6 +300,9 @@ impl<'a> KeySelector<'a> {
         let mut saw_validation_error: Option<ValidationError> = None;
 
         for key in self.keyset.keys.iter() {
+            // Diagnostics are accumulated only for kid-constrained lookups.
+            // For kid-less selection, failing candidates are skipped and final
+            // outcome is resolved by surviving cardinality.
             if let Some(kid) = matcher.kid
                 && key.kid.as_deref() != Some(kid)
             {
@@ -776,7 +797,9 @@ impl KeySet {
     /// assert!(jwks.find_first_compatible(&Algorithm::Rs256).is_some());
     /// # }
     /// ```
-    #[deprecated(note = "use selector(...).select(KeyMatcher::new(...)) for strict selection")]
+    #[deprecated(
+        note = "use find(&KeyFilter) for discovery, or selector(...).select(KeyMatcher::new(...)) for strict selection"
+    )]
     pub fn find_first_compatible<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
         self.find_compatible(alg).next()
     }
@@ -813,7 +836,7 @@ impl KeySet {
     /// # }
     /// ```
     #[deprecated(
-        note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) for signing-key selection"
+        note = "use find(&KeyFilter) for discovery, or selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) / selector(...).select(KeyMatcher::new(KeyOperation::Verify, ...)) for strict signing-key selection"
     )]
     pub fn find_compatible_signing_key<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
         self.find_compatible(alg).find(|k| is_signing_key(k))
@@ -950,6 +973,8 @@ impl KeySet {
     /// assert_eq!(jwks.find(&rsa_rs256).count(), 1);
     /// ```
     pub fn find<'a, 'f>(&'a self, filter: &KeyFilter<'f>) -> impl Iterator<Item = &'a Key> + 'a {
+        // Capture filter fields up-front so the returned iterator lifetime only
+        // depends on `self`, not on the borrow of `filter`.
         let kid = filter.kid.map(ToOwned::to_owned);
         let alg = filter.alg.clone();
         let kty = filter.kty;

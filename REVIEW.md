@@ -141,6 +141,19 @@ Copy this block for new items:
 - Revisit signal: Changes to thumbprint or key lookup internals.
 - Suggested future action: Add positive/negative/multi-key lookup tests for `find_by_thumbprint`.
 
+## Missing direct coverage for KeySet::get_by_thumbprint
+- Date added: 2026-03-05
+- Source: PR #38 review thread
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: Functionality is exercised indirectly; dedicated direct tests are low-risk follow-up.
+- Preconditions/Trigger: Regression in thumbprint lookup behavior.
+- Risk if not fixed: Direct lookup regressions may be slower to detect.
+- Revisit signal: Changes to thumbprint comparison or lookup iteration behavior.
+- Suggested future action: Add direct positive/negative/multi-key lookup tests for `get_by_thumbprint`.
+
 ## Convenience conversion test uses broad is_ok checks
 - Date added: 2026-03-03
 - Source: second-opinion review
