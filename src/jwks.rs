@@ -32,6 +32,8 @@ pub enum SelectionError {
     EmptyVerifyAllowlist,
     /// The requested algorithm is unknown/private and strict selection rejects it.
     UnknownAlgorithm,
+    /// The requested operation is unknown/private and strict selection rejects it.
+    UnknownOperation,
     /// The requested verification algorithm is not permitted by the allowlist.
     AlgorithmNotAllowed,
     /// The requested algorithm conflicts with a key's declared `alg` value.
@@ -58,9 +60,12 @@ pub enum SelectionError {
 
 impl std::fmt::Display for SelectionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const MAX_DISPLAY_IDENTIFIER_CHARS: usize = 256;
+
         fn sanitize_for_display(value: &str) -> String {
             value
                 .chars()
+                .take(MAX_DISPLAY_IDENTIFIER_CHARS)
                 .map(|ch| if ch.is_control() { ' ' } else { ch })
                 .collect()
         }
@@ -70,6 +75,7 @@ impl std::fmt::Display for SelectionError {
                 write!(f, "verification allowlist is empty")
             }
             SelectionError::UnknownAlgorithm => write!(f, "unknown or unsupported algorithm"),
+            SelectionError::UnknownOperation => write!(f, "unknown or unsupported operation"),
             SelectionError::AlgorithmNotAllowed => {
                 write!(f, "algorithm is not allowed for verification")
             }
@@ -147,11 +153,14 @@ impl<'a> KeyMatcher<'a> {
 }
 
 /// Discovery filter criteria.
+///
+/// # Construction
+/// This type is `#[non_exhaustive]`. External callers must use [`KeyFilter::new`]
+/// and the builder methods; struct-literal syntax will not compile outside
+/// this crate.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct KeyFilter<'a> {
-    /// Note for external users: this type is `#[non_exhaustive]`, so construct
-    /// it with [`KeyFilter::new`] and builder methods instead of struct literals.
     /// Optional operation-intent filter.
     pub op: Option<KeyOperation>,
     /// Optional algorithm filter (exact `alg` match only).
@@ -228,11 +237,12 @@ impl<'a> KeySelector<'a> {
     ///
     /// Error precedence is deterministic:
     /// 1. `UnknownAlgorithm`
-    /// 2. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
-    /// 3. Candidate evaluation
-    /// 4. If no candidate survives: `AlgorithmMismatch` -> `IntentMismatch`
+    /// 2. `UnknownOperation`
+    /// 3. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
+    /// 4. Candidate evaluation
+    /// 5. If no candidate survives: `AlgorithmMismatch` -> `IntentMismatch`
     ///    -> `KeyValidationFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`
-    /// 5. If multiple candidates survive: `AmbiguousSelection`
+    /// 6. If multiple candidates survive: `AmbiguousSelection`
     ///
     /// Note: `IncompatibleKeyType` also covers unexpected non-validation
     /// failures from `validate_for_algorithm`, conservatively mapped to
@@ -281,6 +291,10 @@ impl<'a> KeySelector<'a> {
             return Err(SelectionError::UnknownAlgorithm);
         }
 
+        if matcher.op.is_unknown() {
+            return Err(SelectionError::UnknownOperation);
+        }
+
         if matcher.op == KeyOperation::Verify {
             if self.allowed_verify_algs.is_empty() {
                 return Err(SelectionError::EmptyVerifyAllowlist);
@@ -327,9 +341,7 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
-            // validate_operation_metadata currently takes KeyOperation by value.
-            // Cloning here may allocate for KeyOperation::Unknown(String).
-            if key.validate_operation_metadata(matcher.op.clone()).is_err() {
+            if key.validate_operation_metadata_ref(&matcher.op).is_err() {
                 if matcher.kid.is_some() {
                     saw_intent_mismatch = true;
                 }
@@ -1176,6 +1188,21 @@ mod tests {
     }
 
     #[test]
+    fn test_selector_unknown_operation_rejected() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(
+                KeyOperation::Unknown("custom-op".to_string()),
+                Algorithm::Rs256,
+            ))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::UnknownOperation));
+    }
+
+    #[test]
     fn test_selector_incompatible_key_type_for_known_kid() {
         let json = r#"{"keys": [
             {"kty": "oct", "kid": "oct-1", "k": "AQAB"}
@@ -1491,6 +1518,10 @@ mod tests {
         assert_eq!(
             SelectionError::UnknownAlgorithm.to_string(),
             "unknown or unsupported algorithm"
+        );
+        assert_eq!(
+            SelectionError::UnknownOperation.to_string(),
+            "unknown or unsupported operation"
         );
         assert_eq!(
             SelectionError::AlgorithmNotAllowed.to_string(),

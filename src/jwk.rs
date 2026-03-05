@@ -238,6 +238,11 @@ impl KeyOperation {
             KeyOperation::Unknown(s) => s.as_str(),
         }
     }
+
+    /// Returns `true` if this is an unknown/unrecognized key operation.
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, KeyOperation::Unknown(_))
+    }
 }
 
 impl Display for KeyOperation {
@@ -1046,9 +1051,13 @@ impl Key {
     /// Metadata members are optional in RFC 7517. If both are absent, this
     /// validation succeeds.
     pub fn validate_operation_metadata(&self, operation: KeyOperation) -> Result<()> {
+        self.validate_operation_metadata_ref(&operation)
+    }
+
+    pub(crate) fn validate_operation_metadata_ref(&self, operation: &KeyOperation) -> Result<()> {
         self.validate_use_key_ops_consistency()?;
         self.validate_key_ops_unique()?;
-        self.validate_operation_intent_for_all(std::slice::from_ref(&operation))
+        self.validate_operation_intent_for_all(std::slice::from_ref(operation))
     }
 
     /// Validates this key for a specific algorithm and operation.
