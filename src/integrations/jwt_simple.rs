@@ -555,6 +555,7 @@ impl TryFrom<Key> for HS512Key {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::KeyMatcher;
     use crate::jwks::KeySet;
 
     // Test RSA public key from RFC 7517 Appendix A.1
