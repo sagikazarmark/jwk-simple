@@ -623,12 +623,6 @@ impl KeySet {
         self.keys.iter().find(|k| k.kid.as_deref() == Some(kid))
     }
 
-    /// Finds a key by its ID (`kid`).
-    #[deprecated(note = "use get_by_kid instead")]
-    pub fn find_by_kid(&self, kid: &str) -> Option<&Key> {
-        self.get_by_kid(kid)
-    }
-
     /// Finds all keys with the specified algorithm.
     ///
     /// # Examples
@@ -732,160 +726,6 @@ impl KeySet {
         self.keys.iter().find(|k| k.alg.as_ref() == Some(alg))
     }
 
-    /// Finds all keys compatible with the specified algorithm.
-    ///
-    /// Unlike [`find_by_alg`](KeySet::find_by_alg), which only matches keys whose `alg`
-    /// field is explicitly set to the given algorithm, this method uses
-    /// [`Key::is_algorithm_compatible`] to check whether the key's type (and curve,
-    /// where applicable) is compatible with the algorithm. This catches keys that
-    /// don't have an `alg` field set, which is common in real-world JWKS endpoints.
-    ///
-    /// A key is considered compatible if:
-    /// - For known algorithms: its `alg` field matches and its key type/curve is compatible, OR
-    ///   its `alg` field is not set and its key type/curve is compatible
-    /// - For unknown/private algorithms: its `alg` field exactly matches the given algorithm
-    ///   (keys without `alg` are not included)
-    ///
-    /// Keys whose `alg` field is set to a *different* algorithm are excluded,
-    /// even if the key type would otherwise be compatible.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[allow(deprecated)]
-    /// # fn main() {
-    /// use jwk_simple::{Algorithm, KeySet};
-    ///
-    /// // This RSA key has no "alg" field, so find_by_alg would miss it
-    /// let json = r#"{"keys": [{"kty": "RSA", "n": "AQAB", "e": "AQAB"}]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// assert_eq!(jwks.find_by_alg(&Algorithm::Rs256).count(), 0);
-    /// assert_eq!(jwks.find_compatible(&Algorithm::Rs256).count(), 1);
-    /// # }
-    /// ```
-    #[deprecated(
-        note = "use find(&KeyFilter) for discovery or selector(...).select(...) for strict selection"
-    )]
-    pub fn find_compatible<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
-        let alg = alg.clone();
-        let is_unknown_alg = alg.is_unknown();
-        self.keys.iter().filter(move |k| match &k.alg {
-            Some(key_alg) => key_alg == &alg && (is_unknown_alg || k.is_algorithm_compatible(&alg)),
-            None => !is_unknown_alg && k.is_algorithm_compatible(&alg),
-        })
-    }
-
-    /// Returns the first key compatible with the specified algorithm, if any.
-    ///
-    /// This is a convenience method that returns a single key from
-    /// [`find_compatible`](KeySet::find_compatible).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[allow(deprecated)]
-    /// # fn main() {
-    /// use jwk_simple::{Algorithm, KeySet};
-    ///
-    /// let json = r#"{"keys": [{"kty": "RSA", "n": "AQAB", "e": "AQAB"}]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// // find_first_by_alg misses keys without an explicit "alg" field
-    /// assert!(jwks.find_first_by_alg(&Algorithm::Rs256).is_none());
-    /// // find_first_compatible finds them
-    /// assert!(jwks.find_first_compatible(&Algorithm::Rs256).is_some());
-    /// # }
-    /// ```
-    #[deprecated(
-        note = "use find(&KeyFilter) for discovery, or selector(...).select(KeyMatcher::new(...)) for strict selection"
-    )]
-    pub fn find_first_compatible<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
-        self.find_compatible(alg).next()
-    }
-
-    /// Returns the first signing key compatible with the specified algorithm, if any.
-    ///
-    /// This combines compatibility matching with a signing-key filter: a key matches
-    /// if it is compatible with the given algorithm (by key type/curve, not just the
-    /// `alg` field) AND it is a signing key.
-    ///
-    /// Signing-key determination is:
-    /// - if `key_ops` is present, it must contain `sign` or `verify`
-    /// - otherwise, `use` must be `"sig"` or unspecified
-    ///
-    /// This is the recommended lookup method for JWKS consumers that need to
-    /// verify JWT signatures, as it handles keys both with and without an explicit
-    /// `alg` field.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[allow(deprecated)]
-    /// # fn main() {
-    /// use jwk_simple::{Algorithm, KeySet};
-    ///
-    /// let json = r#"{"keys": [
-    ///     {"kty": "RSA", "use": "enc", "n": "AQAB", "e": "AQAB"},
-    ///     {"kty": "RSA", "use": "sig", "kid": "signing-key", "n": "AQAB", "e": "AQAB"}
-    /// ]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
-    /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
-    /// # }
-    /// ```
-    #[deprecated(
-        note = "use find(&KeyFilter) for discovery, or selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) / selector(...).select(KeyMatcher::new(KeyOperation::Verify, ...)) for strict signing-key selection"
-    )]
-    pub fn find_compatible_signing_key<'a>(&'a self, alg: &Algorithm) -> Option<&'a Key> {
-        self.find_compatible(alg).find(|k| is_signing_key(k))
-    }
-
-    /// Returns the first signing key matching the specified algorithm, if any.
-    ///
-    /// This combines algorithm matching with a signing-key filter: a key matches
-    /// if its `alg` field equals the given algorithm, and it is a signing key.
-    /// For known algorithms, key type/curve compatibility is also required;
-    /// for unknown/private algorithms, exact `alg` equality is treated as compatible.
-    /// Signing-key determination follows the same rules as
-    /// [`signing_keys`](KeySet::signing_keys):
-    /// - if `key_ops` is present, it must contain `sign` or `verify`
-    /// - otherwise, `use` must be `"sig"` or unspecified
-    ///
-    /// Use this when you require strict `alg` equality on keys.
-    /// For strict security-sensitive selection, use
-    /// [`KeySet::selector`] with [`KeyMatcher`] instead.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[allow(deprecated)]
-    /// # fn main() {
-    /// use jwk_simple::{Algorithm, KeySet};
-    ///
-    /// let json = r#"{"keys": [
-    ///     {"kty": "RSA", "alg": "RS256", "use": "enc", "n": "AQAB", "e": "AQAB"},
-    ///     {"kty": "RSA", "alg": "RS256", "use": "sig", "kid": "signing-key", "n": "AQAB", "e": "AQAB"}
-    /// ]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
-    /// assert_eq!(key.unwrap().kid.as_deref(), Some("signing-key"));
-    /// # }
-    /// ```
-    #[deprecated(
-        note = "use selector(...).select(KeyMatcher::new(KeyOperation::Sign, ...)) for signing-key selection"
-    )]
-    pub fn find_signing_key_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
-        let is_unknown_alg = alg.is_unknown();
-        self.keys.iter().find(|k| {
-            k.alg.as_ref() == Some(alg)
-                && (is_unknown_alg || k.is_algorithm_compatible(alg))
-                && is_signing_key(k)
-        })
-    }
-
     /// Returns the first key, if any.
     ///
     /// # Examples
@@ -936,12 +776,6 @@ impl KeySet {
     /// standalone security gate.
     pub fn get_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
         self.keys.iter().find(|k| k.thumbprint() == thumbprint)
-    }
-
-    /// Finds a key by its JWK thumbprint (RFC 7638).
-    #[deprecated(note = "use get_by_thumbprint instead")]
-    pub fn find_by_thumbprint(&self, thumbprint: &str) -> Option<&Key> {
-        self.get_by_thumbprint(thumbprint)
     }
 
     /// Finds keys by optional discovery criteria.
@@ -1195,7 +1029,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_by_kid() {
+    fn test_get_by_kid() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
         assert!(jwks.get_by_kid("rsa-key-1").is_some());
@@ -1757,151 +1591,6 @@ mod tests {
     }
 
     #[test]
-    fn test_find_signing_key_by_alg() {
-        let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "rsa-enc", "alg": "RS256", "use": "enc", "n": "AQAB", "e": "AQAB"},
-            {"kty": "RSA", "kid": "rsa-sig", "alg": "RS256", "use": "sig", "n": "AQAB", "e": "AQAB"},
-            {"kty": "EC", "kid": "ec-sig", "alg": "ES256", "use": "sig", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        // Should find the signing key, not the encryption key
-        let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-sig"));
-
-        // Should find ES256 signing key
-        let key = jwks.find_signing_key_by_alg(&Algorithm::Es256);
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("ec-sig"));
-
-        // No PS512 key exists
-        assert!(jwks.find_signing_key_by_alg(&Algorithm::Ps512).is_none());
-    }
-
-    #[test]
-    fn test_find_signing_key_by_alg_no_use() {
-        // Keys without "use" should be treated as signing keys
-        let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "rsa-no-use", "alg": "RS256", "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-no-use"));
-    }
-
-    #[test]
-    fn test_find_signing_key_by_alg_only_enc() {
-        // Only encryption keys — should return None
-        let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "rsa-enc", "alg": "RS256", "use": "enc", "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        assert!(jwks.find_signing_key_by_alg(&Algorithm::Rs256).is_none());
-    }
-
-    #[test]
-    fn test_find_compatible_with_alg_set() {
-        let json = r#"{"keys": [
-            {"kty": "RSA", "alg": "RS256", "kid": "with-alg", "n": "AQAB", "e": "AQAB"},
-            {"kty": "EC", "alg": "ES256", "kid": "ec-key", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        // Keys with matching alg are found
-        assert_eq!(jwks.find_compatible(&Algorithm::Rs256).count(), 1);
-        assert_eq!(jwks.find_compatible(&Algorithm::Es256).count(), 1);
-
-        // RSA key with alg=RS256 should NOT match RS384 (alg mismatch)
-        assert_eq!(jwks.find_compatible(&Algorithm::Rs384).count(), 0);
-    }
-
-    #[test]
-    fn test_find_compatible_with_alg_set_rejects_incompatible_key_type() {
-        let json = r#"{"keys": [
-            {"kty": "oct", "alg": "RS256", "kid": "bad-oct", "k": "AQAB"},
-            {"kty": "RSA", "alg": "RS256", "kid": "good-rsa", "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        let matching: Vec<&Key> = jwks.find_compatible(&Algorithm::Rs256).collect();
-        assert_eq!(matching.len(), 1);
-        assert_eq!(matching[0].kid.as_deref(), Some("good-rsa"));
-    }
-
-    #[test]
-    fn test_find_compatible_without_alg() {
-        // Keys without "alg" field — should match by key type/curve
-        let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "rsa-no-alg", "n": "AQAB", "e": "AQAB"},
-            {"kty": "EC", "kid": "ec-no-alg", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        // find_by_alg misses keys without alg
-        assert_eq!(jwks.find_by_alg(&Algorithm::Rs256).count(), 0);
-        // find_compatible finds them by type
-        assert_eq!(jwks.find_compatible(&Algorithm::Rs256).count(), 1);
-        assert_eq!(jwks.find_compatible(&Algorithm::Ps256).count(), 1); // RSA is also PS-compatible
-        assert_eq!(jwks.find_compatible(&Algorithm::Es256).count(), 1);
-
-        // EC P-256 key should NOT match ES384 (wrong curve)
-        assert_eq!(jwks.find_compatible(&Algorithm::Es384).count(), 0);
-    }
-
-    #[test]
-    fn test_find_first_compatible() {
-        let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "rsa-no-alg", "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        // find_first_by_alg misses keys without alg
-        assert!(jwks.find_first_by_alg(&Algorithm::Rs256).is_none());
-        // find_first_compatible finds them
-        let key = jwks.find_first_compatible(&Algorithm::Rs256);
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-no-alg"));
-    }
-
-    #[test]
-    fn test_find_compatible_signing_key() {
-        let json = r#"{"keys": [
-            {"kty": "RSA", "use": "enc", "kid": "rsa-enc", "n": "AQAB", "e": "AQAB"},
-            {"kty": "RSA", "use": "sig", "kid": "rsa-sig", "n": "AQAB", "e": "AQAB"},
-            {"kty": "RSA", "kid": "rsa-no-use", "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        // Should find the first signing-compatible RSA key (skipping enc)
-        let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-sig"));
-
-        // No ES256-compatible keys at all
-        assert!(
-            jwks.find_compatible_signing_key(&Algorithm::Es256)
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn test_find_compatible_signing_key_no_use() {
-        // Key without "use" should be treated as signing key
-        let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "rsa-no-use", "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-no-use"));
-    }
-
-    #[test]
     fn test_signing_keys_respects_key_ops_verify() {
         // A key with key_ops=["verify"] should be considered a signing key
         let json = r#"{"keys": [
@@ -1935,47 +1624,6 @@ mod tests {
     }
 
     #[test]
-    fn test_find_signing_key_by_alg_respects_key_ops() {
-        let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "enc-key", "alg": "RS256", "key_ops": ["encrypt"], "n": "AQAB", "e": "AQAB"},
-            {"kty": "RSA", "kid": "verify-key", "alg": "RS256", "key_ops": ["verify"], "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        // Should skip the encrypt-only key and find the verify key
-        let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("verify-key"));
-    }
-
-    #[test]
-    fn test_find_signing_key_by_alg_rejects_incompatible_key_type() {
-        let json = r#"{"keys": [
-            {"kty": "oct", "kid": "bad-oct", "alg": "RS256", "use": "sig", "k": "AQAB"},
-            {"kty": "RSA", "kid": "good-rsa", "alg": "RS256", "use": "sig", "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        let key = jwks.find_signing_key_by_alg(&Algorithm::Rs256);
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("good-rsa"));
-    }
-
-    #[test]
-    fn test_find_compatible_signing_key_respects_key_ops() {
-        let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "enc-key", "key_ops": ["encrypt"], "n": "AQAB", "e": "AQAB"},
-            {"kty": "RSA", "kid": "verify-key", "key_ops": ["verify"], "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        // Should skip the encrypt-only key and find the verify key
-        let key = jwks.find_compatible_signing_key(&Algorithm::Rs256);
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("verify-key"));
-    }
-
-    #[test]
     fn test_rfc9864_alg_lookup_behavior() {
         let json = r#"{"keys": [
             {"kty": "OKP", "kid": "ed25519-key", "use": "sig", "alg": "Ed25519", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"},
@@ -1987,58 +1635,26 @@ mod tests {
         assert_eq!(jwks.find_by_alg(&Algorithm::Ed25519).count(), 1);
         assert_eq!(jwks.find_by_alg(&Algorithm::EdDsa).count(), 1);
 
-        // Compatibility matching also requires exact alg when `alg` is set.
-        assert_eq!(jwks.find_compatible(&Algorithm::Ed25519).count(), 1);
-        assert_eq!(jwks.find_compatible(&Algorithm::EdDsa).count(), 1);
-
         assert_eq!(
-            jwks.find_signing_key_by_alg(&Algorithm::Ed25519)
+            jwks.selector(&[])
+                .select(
+                    KeyMatcher::new(KeyOperation::Sign, Algorithm::Ed25519).with_kid("ed25519-key")
+                )
                 .unwrap()
                 .kid
                 .as_deref(),
             Some("ed25519-key")
         );
         assert_eq!(
-            jwks.find_signing_key_by_alg(&Algorithm::EdDsa)
+            jwks.selector(&[])
+                .select(
+                    KeyMatcher::new(KeyOperation::Sign, Algorithm::EdDsa).with_kid("legacy-eddsa")
+                )
                 .unwrap()
                 .kid
                 .as_deref(),
             Some("legacy-eddsa")
         );
-    }
-
-    #[test]
-    fn test_find_compatible_unknown_alg_matches_only_exact_alg() {
-        let json = r#"{"keys": [
-            {"kty": "oct", "kid": "custom-1", "alg": "CUSTOM", "k": "AQAB"},
-            {"kty": "RSA", "kid": "custom-2", "alg": "CUSTOM", "n": "AQAB", "e": "AQAB"},
-            {"kty": "oct", "kid": "other", "alg": "OTHER", "k": "AQAB"},
-            {"kty": "oct", "kid": "no-alg", "k": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        let custom = Algorithm::Unknown("CUSTOM".to_string());
-        let matching: Vec<_> = jwks.find_compatible(&custom).collect();
-
-        assert_eq!(matching.len(), 2);
-        assert_eq!(matching[0].kid.as_deref(), Some("custom-1"));
-        assert_eq!(matching[1].kid.as_deref(), Some("custom-2"));
-    }
-
-    #[test]
-    fn test_find_signing_key_by_alg_unknown_alg_preserves_exact_match() {
-        let json = r#"{"keys": [
-            {"kty": "oct", "kid": "custom-enc", "alg": "CUSTOM", "use": "enc", "k": "AQAB"},
-            {"kty": "oct", "kid": "custom-sig", "alg": "CUSTOM", "use": "sig", "k": "AQAB"},
-            {"kty": "RSA", "kid": "other-sig", "alg": "OTHER", "use": "sig", "n": "AQAB", "e": "AQAB"}
-        ]}"#;
-        let jwks: KeySet = serde_json::from_str(json).unwrap();
-
-        let custom = Algorithm::Unknown("CUSTOM".to_string());
-        let key = jwks.find_signing_key_by_alg(&custom);
-
-        assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("custom-sig"));
     }
 
     #[test]

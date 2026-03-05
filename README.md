@@ -44,7 +44,7 @@ let json = r#"{
 }"#;
 
 let jwks: KeySet = serde_json::from_str(json)?;
-let key = jwks.find_by_kid("my-key-id").expect("key not found");
+let key = jwks.get_by_kid("my-key-id").expect("key not found");
 assert!(key.is_public_key_only());
 ```
 
@@ -80,7 +80,7 @@ use jwk_simple::KeySet;
 let jwks: KeySet = serde_json::from_str(json)?;
 
 // Find keys by various criteria
-let key = jwks.find_by_kid("key-id");
+let key = jwks.get_by_kid("key-id");
 let rsa_keys = jwks.find_by_kty(KeyType::Rsa);
 let signing_keys = jwks.find_by_use(&KeyUse::Signature);
 
@@ -110,7 +110,7 @@ use jwk_simple::KeySet;
 use jwt_simple::prelude::*;
 
 let jwks: KeySet = serde_json::from_str(json)?;
-let jwk = jwks.find_by_kid("my-key").unwrap();
+let jwk = jwks.get_by_kid("my-key").unwrap();
 
 // Convert to jwt-simple key type using TryFrom/TryInto
 let key: RS256PublicKey = jwk.try_into()?;
@@ -179,7 +179,7 @@ let key = jwks.first().unwrap();
 let thumbprint = key.thumbprint();
 
 // Find key by thumbprint
-let key = jwks.find_by_thumbprint(&thumbprint);
+let key = jwks.get_by_thumbprint(&thumbprint);
 ```
 
 ## Supported Key Types
@@ -285,7 +285,7 @@ use jwk_simple::KeySet;
 
 // In WASM, fetch JWKS via browser APIs, then parse
 let jwks: KeySet = serde_json::from_str(&json_string)?;
-let key = jwks.find_by_kid("key-id").expect("key not found");
+let key = jwks.get_by_kid("key-id").expect("key not found");
 ```
 
 ## License

@@ -53,7 +53,7 @@ fn main() {}
 mod wasm_example {
     use base64ct::{Base64UrlUnpadded, Encoding};
     use js_sys::Uint8Array;
-    use jwk_simple::{Algorithm, Key, KeySet, web_crypto};
+    use jwk_simple::{Algorithm, Key, KeyMatcher, KeyOperation, KeySet, web_crypto};
     use serde::{Deserialize, Serialize};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::JsFuture;
@@ -367,23 +367,19 @@ mod wasm_example {
     /// Finds the appropriate key from a JWKS for verifying a JWT
     #[cfg(target_arch = "wasm32")]
     fn find_key_for_jwt<'a>(jwks: &'a KeySet, jwt: &ParsedJwt) -> Result<&'a Key, JwtError> {
-        // Try to find by kid first
-        if let Some(kid) = &jwt.header.kid {
-            if let Some(key) = jwks.find_by_kid(kid) {
-                return Ok(key);
-            }
-        }
-
-        // Try to find a signing key compatible with the JWT's algorithm.
-        // This handles keys both with and without an explicit `alg` field,
-        // which is common with real-world OIDC providers.
         let alg: Algorithm = jwt
             .header
             .alg
             .parse()
             .unwrap_or(Algorithm::Unknown(jwt.header.alg.clone()));
-        jwks.find_compatible_signing_key(&alg)
-            .ok_or(JwtError::KeyNotFound)
+
+        // Strict selector path for JWT verification.
+        jwks.selector(&[alg.clone()])
+            .select(
+                KeyMatcher::new(KeyOperation::Verify, alg)
+                    .with_optional_kid(jwt.header.kid.as_deref()),
+            )
+            .map_err(|_| JwtError::KeyNotFound)
     }
 
     /// Verifies a JWT token using a JWKS

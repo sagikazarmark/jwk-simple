@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loaded JWKS with {} keys", jwks.len());
 
     // Find the key we want to use
-    let jwk = jwks.find_by_kid("my-signing-key").ok_or("Key not found")?;
+    let jwk = jwks.get_by_kid("my-signing-key").ok_or("Key not found")?;
 
     println!("Found key: {:?}", jwk.kid);
     println!("Key type: {:?}", jwk.kty());
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let hmac_jwks = serde_json::from_str::<KeySet>(hmac_jwks_json)?;
     let hmac_jwk = hmac_jwks
-        .find_by_kid("hmac-key")
+        .get_by_kid("hmac-key")
         .ok_or("HMAC key not found")?;
     let hmac_key: HS256Key = hmac_jwk.try_into()?;
     println!("\nSuccessfully converted to HS256Key");
