@@ -1026,6 +1026,12 @@ impl Key {
     /// (type compatibility, key strength) and operation-intent enforcement
     /// (metadata permits the requested operations).
     ///
+    /// The `alg` parameter controls which algorithm constraints are applied
+    /// (key type, minimum strength). It is independent of the key's own `alg`
+    /// field — no cross-check is performed. Callers are responsible for
+    /// ensuring the supplied algorithm is consistent with the key's declared
+    /// algorithm, if any.
+    ///
     /// At least one operation must be provided. Passing an empty iterator
     /// returns an error (this is a caller precondition, not a key problem).
     ///
@@ -1112,7 +1118,11 @@ impl Key {
                 "at least one requested operation is required".to_string(),
             ));
         }
-        self.check_operation_intent(operations)
+        // Consistency and uniqueness checks must run here since this is a
+        // standalone public method — callers may not have called `validate()`.
+        self.validate_use_key_ops_consistency()?;
+        self.validate_key_ops_unique()?;
+        self.validate_operation_intent_for_all(operations)
     }
 
     /// Checks algorithm suitability: structural validity, key-type

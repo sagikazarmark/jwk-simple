@@ -797,7 +797,13 @@ impl KeySet {
         self.keys.iter()
     }
 
-    /// Validates all keys in the set.
+    /// Validates the structural integrity and metadata consistency of all keys
+    /// in the set (see [`Key::validate`]).
+    ///
+    /// This is a context-free structural check: it does not validate algorithm
+    /// suitability, key strength for a specific algorithm, or operation intent,
+    /// even when the `alg` field is set on a key. Use [`Key::validate_for_use`]
+    /// for those checks.
     ///
     /// # Errors
     ///
