@@ -402,8 +402,10 @@ fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
     }
 
     // No algorithm on key: structural validation + operation intent only.
+    // `validate()` already enforced `use`/`key_ops` consistency and uniqueness,
+    // so we call the intent-only helper directly.
     key.validate()?;
-    key.check_operation_intent(std::slice::from_ref(&requested_op))?;
+    key.validate_operation_intent_for_all(std::slice::from_ref(&requested_op))?;
 
     Ok(())
 }
