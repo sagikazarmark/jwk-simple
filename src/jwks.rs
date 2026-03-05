@@ -25,7 +25,7 @@ pub use store::http::HttpKeyStore;
 pub use store::http::DEFAULT_TIMEOUT;
 
 /// Errors returned by strict key selection.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[non_exhaustive]
 pub enum SelectionError {
     /// Verification selection was requested without a configured allowlist.
@@ -117,13 +117,13 @@ impl<'a> KeyMatcher<'a> {
         Self { op, alg, kid: None }
     }
 
-    /// Adds a key identifier (`kid`) constraint.
+    /// Sets a key identifier (`kid`) constraint.
     pub fn with_kid(mut self, kid: &'a str) -> Self {
         self.kid = Some(kid);
         self
     }
 
-    /// Adds an optional key identifier (`kid`) constraint.
+    /// Sets an optional key identifier (`kid`) constraint.
     pub fn with_optional_kid(mut self, kid: Option<&'a str>) -> Self {
         self.kid = kid;
         self
@@ -152,37 +152,37 @@ impl<'a> KeyFilter<'a> {
         Self::default()
     }
 
-    /// Adds an operation filter.
+    /// Sets an operation filter.
     pub fn with_op(mut self, op: KeyOperation) -> Self {
         self.op = Some(op);
         self
     }
 
-    /// Adds an exact algorithm filter.
+    /// Sets an exact algorithm filter.
     pub fn with_alg(mut self, alg: Algorithm) -> Self {
         self.alg = Some(alg);
         self
     }
 
-    /// Adds a key identifier (`kid`) filter.
+    /// Sets a key identifier (`kid`) filter.
     pub fn with_kid(mut self, kid: &'a str) -> Self {
         self.kid = Some(kid);
         self
     }
 
-    /// Adds an optional key identifier (`kid`) filter.
+    /// Sets an optional key identifier (`kid`) filter.
     pub fn with_optional_kid(mut self, kid: Option<&'a str>) -> Self {
         self.kid = kid;
         self
     }
 
-    /// Adds a key type filter.
+    /// Sets a key type filter.
     pub fn with_kty(mut self, kty: KeyType) -> Self {
         self.kty = Some(kty);
         self
     }
 
-    /// Adds a key use filter.
+    /// Sets a key use filter.
     pub fn with_key_use(mut self, key_use: KeyUse) -> Self {
         self.key_use = Some(key_use);
         self
@@ -199,6 +199,30 @@ pub struct KeySelector<'a> {
 }
 
 impl<'a> KeySelector<'a> {
+    /// Selects exactly one key using strict cryptographic suitability checks.
+    ///
+    /// When `kid` is present in the matcher, candidate-level validation failures are
+    /// surfaced with specific diagnostics (`AlgorithmMismatch`, `IntentMismatch`,
+    /// `KeyValidationFailed`, `IncompatibleKeyType`) using deterministic precedence.
+    ///
+    /// When `kid` is not present, candidates that fail per-key checks are skipped and
+    /// selection resolves by surviving cardinality (`AmbiguousSelection` / `NoMatchingKey`).
+    ///
+    /// Error precedence is deterministic:
+    /// 1. `UnknownAlgorithm`
+    /// 2. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
+    /// 3. Candidate evaluation
+    /// 4. If no candidate survives: `AlgorithmMismatch` -> `IntentMismatch`
+    ///    -> `KeyValidationFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`
+    /// 5. If multiple candidates survive: `AmbiguousSelection`
+    ///
+    /// Note: `IncompatibleKeyType` also covers unexpected non-validation
+    /// failures from `validate_for_algorithm`, conservatively mapped to
+    /// incompatibility in strict mode.
+    ///
+    /// If `kid` is omitted and selection returns `NoMatchingKey`, use
+    /// [`KeySet::find`] for discovery diagnostics to inspect broad candidates.
+    ///
     /// # Examples
     ///
     /// Verify selection with an explicit allowlist:
@@ -234,29 +258,6 @@ impl<'a> KeySelector<'a> {
     ///   .unwrap();
     /// assert_eq!(key.kid.as_deref(), Some("sign-kid"));
     /// ```
-    /// Selects exactly one key using strict cryptographic suitability checks.
-    ///
-    /// When `kid` is present in the matcher, candidate-level validation failures are
-    /// surfaced with specific diagnostics (`AlgorithmMismatch`, `IntentMismatch`,
-    /// `KeyValidationFailed`, `IncompatibleKeyType`) using deterministic precedence.
-    ///
-    /// When `kid` is not present, candidates that fail per-key checks are skipped and
-    /// selection resolves by surviving cardinality (`AmbiguousSelection` / `NoMatchingKey`).
-    ///
-    /// Error precedence is deterministic:
-    /// 1. `UnknownAlgorithm`
-    /// 2. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
-    /// 3. Candidate evaluation
-    /// 4. If no candidate survives: `AlgorithmMismatch` -> `IntentMismatch`
-    ///    -> `KeyValidationFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`
-    /// 5. If multiple candidates survive: `AmbiguousSelection`
-    ///
-    /// Note: `IncompatibleKeyType` also covers unexpected non-validation
-    /// failures from `validate_for_algorithm`, conservatively mapped to
-    /// incompatibility in strict mode.
-    ///
-    /// If `kid` is omitted and selection returns `NoMatchingKey`, use
-    /// [`KeySet::find`] for discovery diagnostics to inspect broad candidates.
     pub fn select(&self, matcher: KeyMatcher<'_>) -> std::result::Result<&'a Key, SelectionError> {
         if matcher.alg.is_unknown() {
             return Err(SelectionError::UnknownAlgorithm);
@@ -1012,11 +1013,7 @@ impl KeySet {
     /// `allowed_verify_algs` applies only to [`KeyOperation::Verify`].
     /// For non-verify operations (for example [`KeyOperation::Sign`]),
     /// this allowlist is not consulted.
-    ///
-    /// # Errors
-    ///
-    /// This constructor is infallible; strict selection failures are returned
-    /// by [`KeySelector::select`].
+    /// Strict selection failures are returned by [`KeySelector::select`].
     pub fn selector(&self, allowed_verify_algs: &[Algorithm]) -> KeySelector<'_> {
         KeySelector {
             keyset: self,
