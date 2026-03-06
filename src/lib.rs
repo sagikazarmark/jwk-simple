@@ -51,7 +51,7 @@
 //!
 //! | Feature | Platform | Description |
 //! |---------|----------|-------------|
-//! | `jwt-simple` | all targets | Integration with the jwt-simple crate |
+//! | `jwt-simple` | all targets | Integration with the jwt-simple crate (requires a `jwt-simple` backend feature such as `jwt-simple/pure-rust`) |
 //! | `http` | all targets | Async HTTP fetching with `HttpKeyStore` |
 //! | `web-crypto` | `wasm32` only | WebCrypto integration for browser/WASM environments |
 //! | `cloudflare` | `wasm32` only | Cloudflare Workers support (Fetch API + KV cache) |
@@ -62,7 +62,9 @@
 //!
 //! ## Converting to jwt-simple keys
 //!
-//! With the `jwt-simple` feature enabled, you can convert JWKs to jwt-simple key types:
+//! With the `jwt-simple` feature enabled, you can convert JWKs to jwt-simple key types.
+//! Make sure your crate also enables a concrete `jwt-simple` backend feature
+//! (for example `jwt-simple/pure-rust`).
 //!
 #![cfg_attr(feature = "jwt-simple", doc = "```no_run")]
 #![cfg_attr(not(feature = "jwt-simple"), doc = "```ignore")]

@@ -59,7 +59,7 @@ expected usage and platform constraints.
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `jwt-simple` | ❌ | Integration with the jwt-simple crate (all targets) |
+| `jwt-simple` | ❌ | Integration with the jwt-simple crate (all targets; requires a `jwt-simple` backend feature such as `jwt-simple/pure-rust`) |
 | `http` | ❌ | Async HTTP fetching (reqwest, all targets) |
 | `web-crypto` | ❌ | WebCrypto API integration (`wasm32` only) |
 | `cloudflare` | ❌ | Cloudflare Workers support (KV cache + fetch, `wasm32` only) |
@@ -98,12 +98,12 @@ for key in &jwks {
 
 With the `jwt-simple` feature enabled:
 
-Note: `jwt-simple` is not re-exported. Add it to your dependencies when using its key types directly:
+Note: `jwt-simple` is not re-exported. Add it to your dependencies when using its key types directly, and enable a backend feature (for example `pure-rust`):
 
 ```toml
 [dependencies]
 jwk-simple = { version = "0.1", features = ["jwt-simple"] }
-jwt-simple = "0.12"
+jwt-simple = { version = "0.12", default-features = false, features = ["pure-rust"] }
 ```
 
 ```rust
