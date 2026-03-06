@@ -1093,8 +1093,9 @@ impl Key {
     ///
     /// This is the full pre-use gate: it performs structural validation
     /// ([`Key::validate`]) followed by algorithm suitability checks
-    /// (type compatibility, key strength) and operation-intent enforcement
-    /// (metadata permits the requested operations).
+    /// (type compatibility, key strength), operation capability checks
+    /// (key material can actually perform the operation), and
+    /// operation-intent enforcement (metadata permits the requested operations).
     ///
     /// The `alg` parameter controls which algorithm constraints are applied
     /// (key type, minimum strength). It is independent of the key's own `alg`
@@ -1140,6 +1141,9 @@ impl Key {
         // algorithm-specific checks directly to avoid redundant structural work.
         self.validate_algorithm_key_type_match(alg)?;
         self.validate_algorithm_key_strength(alg)?;
+
+        // Operation capability: key material can perform requested operations.
+        self.validate_operation_capability_for_all(&ops)?;
 
         // Operation intent: use/key_ops metadata permits the requested operations.
         // `validate()` above already enforced `use`/`key_ops` consistency and
@@ -1233,6 +1237,15 @@ impl Key {
         self.validate_operation_intent_for_all(operations)
     }
 
+    /// Checks whether this key material can actually perform requested operations.
+    ///
+    /// This is separate from metadata intent checks (`use`/`key_ops`):
+    /// a key may declare an operation but still lack required private material.
+    pub(crate) fn check_operation_capability(&self, operations: &[KeyOperation]) -> Result<()> {
+        debug_assert!(!operations.is_empty());
+        self.validate_operation_capability_for_all(operations)
+    }
+
     /// Validates only operation-intent compatibility for all requested operations.
     ///
     /// Unlike [`Key::check_operation_intent`], this does not run
@@ -1281,6 +1294,44 @@ impl Key {
         }
 
         Ok(())
+    }
+
+    fn validate_operation_capability_for_all(&self, operations: &[KeyOperation]) -> Result<()> {
+        debug_assert!(!operations.is_empty());
+
+        // Symmetric keys always carry secret material and do not have a
+        // public/private split. Private-material capability checks apply only
+        // to asymmetric key types.
+        if matches!(self.params, KeyParams::Symmetric(_)) || self.has_private_key() {
+            return Ok(());
+        }
+
+        let requires_private: Vec<KeyOperation> = operations
+            .iter()
+            .filter(|op| {
+                matches!(
+                    op,
+                    KeyOperation::Sign
+                        | KeyOperation::Decrypt
+                        | KeyOperation::UnwrapKey
+                        | KeyOperation::DeriveKey
+                        | KeyOperation::DeriveBits
+                )
+            })
+            .cloned()
+            .collect();
+
+        if requires_private.is_empty() {
+            return Ok(());
+        }
+
+        Err(IncompatibleKeyError::OperationNotPermitted {
+            operations: requires_private,
+            reason:
+                "requested operation(s) require private key material, but key contains only public parameters"
+                    .to_string(),
+        }
+        .into())
     }
 
     /// Returns `true` if this key's type (and curve, where applicable) is
@@ -2573,6 +2624,57 @@ mod tests {
 
         let result = key.validate_for_use(&Algorithm::Rs256, vec![]);
         assert!(matches!(result, Err(Error::Other(_))));
+    }
+
+    #[test]
+    fn test_validate_for_use_rejects_sign_with_public_rsa_key() {
+        let mut n = vec![0xff; 256];
+        n[255] = 0x01;
+        let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
+            Base64UrlBytes::new(n),
+            Base64UrlBytes::new(vec![1, 0, 1]),
+        )));
+
+        let result = key.validate_for_use(&Algorithm::Rs256, [KeyOperation::Sign]);
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_for_use_rejects_sign_with_public_okp_key() {
+        let key = Key::new(KeyParams::Okp(OkpParams::new_public(
+            OkpCurve::Ed25519,
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )));
+
+        let result = key.validate_for_use(&Algorithm::Ed25519, [KeyOperation::Sign]);
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_for_use_rejects_sign_with_public_ec_key() {
+        let key = Key::new(KeyParams::Ec(EcParams::new_public(
+            EcCurve::P256,
+            Base64UrlBytes::new(vec![0u8; 32]),
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )));
+
+        let result = key.validate_for_use(&Algorithm::Es256, [KeyOperation::Sign]);
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]

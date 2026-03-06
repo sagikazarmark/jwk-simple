@@ -284,7 +284,8 @@ pub enum IncompatibleKeyError {
         /// What was being validated.
         context: &'static str,
     },
-    /// Key metadata does not permit the requested operation(s).
+    /// Requested operation(s) are not permitted by key metadata or key material
+    /// capability (for example, a public-only key used for signing).
     OperationNotPermitted {
         /// The disallowed operations.
         operations: Vec<KeyOperation>,
