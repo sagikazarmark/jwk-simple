@@ -1,6 +1,23 @@
 //! jwt-simple key conversion implementations.
+//!
+//! # Security Note — RSA Timing Side-Channel (RUSTSEC-2023-0071)
+//!
+//! The underlying [`rsa`] crate (used by `jwt-simple`) does not perform
+//! RSA private-key operations in constant time. This means RSA **signing**
+//! conversions produced by this module may be vulnerable to timing
+//! side-channel attacks that could leak private key material.
+//!
+//! This library is primarily designed for key parsing, selection, and
+//! **verification**, where the timing issue is not relevant (verification
+//! uses the public exponent). If you use these conversions for RSA signing
+//! in a threat model where timing attacks are a concern, evaluate whether
+//! the risk is acceptable for your deployment.
+//!
+//! See [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071)
+//! for details. No upstream fix is currently available.
 
 use jwt_simple::prelude::*;
+use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams, OkpCurve, RsaParams};
@@ -57,7 +74,7 @@ fn build_rsa_public_key_der(params: &RsaParams) -> Vec<u8> {
 ///     coefficient       INTEGER,  -- qi (q^-1 mod p)
 /// }
 /// ```
-fn build_rsa_private_key_der(params: &RsaParams) -> Result<Vec<u8>> {
+fn build_rsa_private_key_der(params: &RsaParams) -> Result<Zeroizing<Vec<u8>>> {
     // Multi-prime RSA keys (with `oth` parameter) require PKCS#1 version 1
     // encoding with otherPrimeInfos, which is not implemented. Reject them
     // explicitly rather than producing a structurally incorrect two-prime DER.
@@ -89,8 +106,10 @@ fn build_rsa_private_key_der(params: &RsaParams) -> Result<Vec<u8>> {
         .as_ref()
         .ok_or(Error::MissingField { field: "qi" })?;
 
-    // Build DER-encoded integers
-    let version_der = encode_der_integer(&[0]); // version 0
+    // Build DER-encoded integers.
+    // Each intermediate buffer is wrapped in Zeroizing to ensure private key
+    // components are erased from memory when no longer needed.
+    let version_der = encode_der_integer(&[0]); // version 0 (not secret)
     let n_der = encode_der_integer(params.n.as_bytes());
     let e_der = encode_der_integer(params.e.as_bytes());
     let d_der = encode_der_integer(d.as_bytes());
@@ -110,7 +129,7 @@ fn build_rsa_private_key_der(params: &RsaParams) -> Result<Vec<u8>> {
         + dq_der.len()
         + qi_der.len();
 
-    let mut der = Vec::with_capacity(4 + content_len);
+    let mut der = Zeroizing::new(Vec::with_capacity(4 + content_len));
 
     // SEQUENCE tag and length
     der.push(0x30);
@@ -131,10 +150,13 @@ fn build_rsa_private_key_der(params: &RsaParams) -> Result<Vec<u8>> {
 }
 
 /// Encodes a byte slice as a DER INTEGER.
-fn encode_der_integer(bytes: &[u8]) -> Vec<u8> {
+///
+/// Returns a `Zeroizing<Vec<u8>>` so that private key component bytes
+/// are automatically erased from memory when the buffer is dropped.
+fn encode_der_integer(bytes: &[u8]) -> Zeroizing<Vec<u8>> {
     if bytes.is_empty() {
         // Encode zero: INTEGER tag, length 1, value 0x00
-        return vec![0x02, 0x01, 0x00];
+        return Zeroizing::new(vec![0x02, 0x01, 0x00]);
     }
 
     // Skip leading zeros (but keep at least one byte)
@@ -150,7 +172,7 @@ fn encode_der_integer(bytes: &[u8]) -> Vec<u8> {
     let needs_padding = !bytes.is_empty() && (bytes[0] & 0x80) != 0;
 
     let len = bytes.len() + if needs_padding { 1 } else { 0 };
-    let mut der = Vec::with_capacity(2 + len + 2); // tag + length + content
+    let mut der = Zeroizing::new(Vec::with_capacity(2 + len + 2)); // tag + length + content
 
     // INTEGER tag
     der.push(0x02);
@@ -729,7 +751,7 @@ mod tests {
     fn test_encode_der_integer_empty_bytes() {
         // Encoding an empty byte slice should produce DER INTEGER 0, not panic
         let result = encode_der_integer(&[]);
-        assert_eq!(result, vec![0x02, 0x01, 0x00]);
+        assert_eq!(*result, vec![0x02, 0x01, 0x00]);
     }
 
     #[test]
