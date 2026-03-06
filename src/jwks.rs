@@ -148,12 +148,6 @@ impl<'a> KeyMatcher<'a> {
         self.kid = Some(kid);
         self
     }
-
-    /// Sets an optional key identifier (`kid`) constraint.
-    pub fn with_optional_kid(mut self, kid: Option<&'a str>) -> Self {
-        self.kid = kid;
-        self
-    }
 }
 
 /// Discovery filter criteria.

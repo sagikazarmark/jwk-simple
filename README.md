@@ -28,10 +28,10 @@ jwk-simple = "0.1"
 serde_json = "1"
 ```
 
-Parse a JWKS and find a key:
+Parse a JWKS and strictly select a verification key:
 
 ```rust
-use jwk_simple::KeySet;
+use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 
 let json = r#"{
     "keys": [{
@@ -44,7 +44,9 @@ let json = r#"{
 }"#;
 
 let jwks: KeySet = serde_json::from_str(json)?;
-let key = jwks.get_by_kid("my-key-id").expect("key not found");
+let key = jwks
+    .selector(&[Algorithm::Rs256])
+    .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-key-id"))?;
 assert!(key.is_public_key_only());
 ```
 
@@ -105,11 +107,13 @@ jwt-simple = "0.12"
 ```
 
 ```rust
-use jwk_simple::KeySet;
+use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 use jwt_simple::prelude::*;
 
 let jwks: KeySet = serde_json::from_str(json)?;
-let jwk = jwks.get_by_kid("my-key").unwrap();
+let jwk = jwks
+    .selector(&[Algorithm::Rs256])
+    .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-key"))?;
 
 // Convert to jwt-simple key type using TryFrom/TryInto
 let key: RS256PublicKey = jwk.try_into()?;

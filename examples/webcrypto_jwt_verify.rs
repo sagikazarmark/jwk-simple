@@ -366,12 +366,16 @@ mod wasm_example {
         let alg = Algorithm::from(jwt.header.alg.as_str());
 
         // Strict selector path for JWT verification.
-        jwks.selector(&[alg.clone()])
-            .select(
-                KeyMatcher::new(KeyOperation::Verify, alg)
-                    .with_optional_kid(jwt.header.kid.as_deref()),
-            )
-            .map_err(|_| JwtError::KeyNotFound)
+        let selector = jwks.selector(&[alg.clone()]);
+        let matcher = KeyMatcher::new(KeyOperation::Verify, alg);
+
+        let result = if let Some(kid) = jwt.header.kid.as_deref() {
+            selector.select(matcher.with_kid(kid))
+        } else {
+            selector.select(matcher)
+        };
+
+        result.map_err(|_| JwtError::KeyNotFound)
     }
 
     /// Verifies a JWT token using a JWKS

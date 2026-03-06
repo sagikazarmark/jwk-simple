@@ -19,11 +19,11 @@
 //!
 //! ## Quick Start
 //!
-//! Parse a JWKS and find a key:
+//! Parse a JWKS and strictly select a verification key:
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use jwk_simple::KeySet;
+//! use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 //!
 //! let json = r#"{
 //!     "keys": [{
@@ -36,7 +36,9 @@
 //! }"#;
 //!
 //! let jwks = serde_json::from_str::<KeySet>(json)?;
-//! let key = jwks.get_by_kid("my-key-id").expect("key not found");
+//! let key = jwks
+//!     .selector(&[Algorithm::Rs256])
+//!     .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-key-id"))?;
 //! assert!(key.is_public_key_only());
 //! # Ok(())
 //! # }
@@ -64,14 +66,17 @@
 //!
 #![cfg_attr(feature = "jwt-simple", doc = "```no_run")]
 #![cfg_attr(not(feature = "jwt-simple"), doc = "```ignore")]
-//! use jwk_simple::KeySet;
+//! use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 //! use jwt_simple::prelude::*;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let json = "{}";
 //! # let token = "";
 //! let keyset: KeySet = serde_json::from_str(json)?;
-//! let jwk = keyset.get_by_kid("my-key-id").ok_or("key not found")?.clone();
+//! let jwk = keyset
+//!     .selector(&[Algorithm::Rs256])
+//!     .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-key-id"))?
+//!     .clone();
 //!
 //! // Convert to jwt-simple key
 //! let key: RS256PublicKey = jwk.try_into()?;
