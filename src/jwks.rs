@@ -148,20 +148,14 @@ impl<'a> KeyMatcher<'a> {
         self.kid = Some(kid);
         self
     }
-
-    /// Sets an optional key identifier (`kid`) constraint.
-    pub fn with_optional_kid(mut self, kid: Option<&'a str>) -> Self {
-        self.kid = kid;
-        self
-    }
 }
 
 /// Discovery filter criteria.
 ///
 /// # Construction
 /// This type is `#[non_exhaustive]`. External callers must use [`KeyFilter::new`]
-/// and the builder methods; struct-literal syntax will not compile outside
-/// this crate.
+/// plus builder methods, or convenience constructors such as
+/// [`KeyFilter::for_alg`]. Struct-literal syntax will not compile outside this crate.
 ///
 /// Public fields remain readable for inspection/pattern-matching, but builder
 /// methods are the only supported external construction path.
@@ -186,6 +180,36 @@ impl<'a> KeyFilter<'a> {
         Self::default()
     }
 
+    /// Creates a filter for an exact algorithm match.
+    pub fn for_alg(alg: Algorithm) -> Self {
+        Self::new().with_alg(alg)
+    }
+
+    /// Creates a filter for a specific key use.
+    pub fn for_use(key_use: KeyUse) -> Self {
+        Self::new().with_key_use(key_use)
+    }
+
+    /// Creates a filter for a specific key type.
+    pub fn for_kty(kty: KeyType) -> Self {
+        Self::new().with_kty(kty)
+    }
+
+    /// Creates a filter for a specific operation intent.
+    pub fn for_op(op: KeyOperation) -> Self {
+        Self::new().with_op(op)
+    }
+
+    /// Creates a filter for key use + exact algorithm.
+    pub fn for_use_alg(key_use: KeyUse, alg: Algorithm) -> Self {
+        Self::new().with_key_use(key_use).with_alg(alg)
+    }
+
+    /// Creates a filter for operation intent + exact algorithm.
+    pub fn for_op_alg(op: KeyOperation, alg: Algorithm) -> Self {
+        Self::new().with_op(op).with_alg(alg)
+    }
+
     /// Sets an operation filter.
     pub fn with_op(mut self, op: KeyOperation) -> Self {
         self.op = Some(op);
@@ -201,12 +225,6 @@ impl<'a> KeyFilter<'a> {
     /// Sets a key identifier (`kid`) filter.
     pub fn with_kid(mut self, kid: &'a str) -> Self {
         self.kid = Some(kid);
-        self
-    }
-
-    /// Sets an optional key identifier (`kid`) filter.
-    pub fn with_optional_kid(mut self, kid: Option<&'a str>) -> Self {
-        self.kid = kid;
         self
     }
 
@@ -283,7 +301,7 @@ impl<'a> KeySelector<'a> {
     ///   .selector(&[Algorithm::Rs256, Algorithm::Es256])
     ///   .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-kid"))
     ///   .unwrap();
-    /// assert_eq!(key.kid.as_deref(), Some("my-kid"));
+    /// assert_eq!(key.kid(), Some("my-kid"));
     /// ```
     ///
     /// Sign selection (allowlist is not consulted for signing):
@@ -300,7 +318,7 @@ impl<'a> KeySelector<'a> {
     ///   .selector(&[])
     ///   .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("sign-kid"))
     ///   .unwrap();
-    /// assert_eq!(key.kid.as_deref(), Some("sign-kid"));
+    /// assert_eq!(key.kid(), Some("sign-kid"));
     /// ```
     pub fn select(&self, matcher: KeyMatcher<'_>) -> std::result::Result<&'a Key, SelectionError> {
         if matcher.alg.is_unknown() {
@@ -336,12 +354,12 @@ impl<'a> KeySelector<'a> {
             // For kid-less selection, failing candidates are skipped and final
             // outcome is resolved by surviving cardinality.
             if let Some(kid) = matcher.kid
-                && key.kid.as_deref() != Some(kid)
+                && key.kid() != Some(kid)
             {
                 continue;
             }
 
-            if let Some(declared_alg) = &key.alg
+            if let Some(declared_alg) = key.alg()
                 && declared_alg != &matcher.alg
             {
                 if matcher.kid.is_some() && saw_alg_mismatch.is_none() {
@@ -574,7 +592,7 @@ impl<'de> Deserialize<'de> for KeySet {
             // Attempt to parse each key, then validate key parameters.
             // Skip any key that fails either phase.
             if let Ok(key) = serde_json::from_value::<Key>(value)
-                && key.params.validate().is_ok()
+                && key.params().validate().is_ok()
             {
                 keys.push(key);
             }
@@ -630,7 +648,7 @@ impl KeySet {
 
     /// Removes and returns a key by its ID.
     pub fn remove_by_kid(&mut self, kid: &str) -> Option<Key> {
-        if let Some(pos) = self.keys.iter().position(|k| k.kid.as_deref() == Some(kid)) {
+        if let Some(pos) = self.keys.iter().position(|k| k.kid() == Some(kid)) {
             Some(self.keys.remove(pos))
         } else {
             None
@@ -654,52 +672,7 @@ impl KeySet {
     /// assert!(missing.is_none());
     /// ```
     pub fn get_by_kid(&self, kid: &str) -> Option<&Key> {
-        self.keys.iter().find(|k| k.kid.as_deref() == Some(kid))
-    }
-
-    /// Finds all keys with the specified algorithm.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use jwk_simple::{Algorithm, KeySet};
-    ///
-    /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// let rs256_keys: Vec<_> = jwks.find_by_alg(&Algorithm::Rs256).collect();
-    /// assert_eq!(rs256_keys.len(), 1);
-    /// ```
-    pub fn find_by_alg<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
-        let alg = alg.clone();
-        self.keys
-            .iter()
-            .filter(move |k| k.alg.as_ref() == Some(&alg))
-    }
-
-    /// Finds all keys with the specified key type.
-    pub fn find_by_kty(&self, kty: KeyType) -> impl Iterator<Item = &Key> {
-        self.keys.iter().filter(move |k| k.kty() == kty)
-    }
-
-    /// Finds all keys with the specified use.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use jwk_simple::{KeyUse, KeySet};
-    ///
-    /// let json = r#"{"keys": [{"kty": "RSA", "use": "sig", "n": "AQAB", "e": "AQAB"}]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// let signing_keys: Vec<_> = jwks.find_by_use(&KeyUse::Signature).collect();
-    /// assert_eq!(signing_keys.len(), 1);
-    /// ```
-    pub fn find_by_use<'a>(&'a self, key_use: &KeyUse) -> impl Iterator<Item = &'a Key> + 'a {
-        let key_use = key_use.clone();
-        self.keys
-            .iter()
-            .filter(move |k| k.key_use.as_ref() == Some(&key_use))
+        self.keys.iter().find(|k| k.kid() == Some(kid))
     }
 
     /// Finds all signing keys.
@@ -756,26 +729,6 @@ impl KeySet {
     /// ```
     pub fn first_signing_key(&self) -> Option<&Key> {
         self.signing_keys().next()
-    }
-
-    /// Returns the first key matching the specified algorithm, if any.
-    ///
-    /// This is a convenience method that returns a single key instead of the
-    /// iterator returned by [`KeySet::find_by_alg`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use jwk_simple::{Algorithm, KeySet};
-    ///
-    /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// let key = jwks.find_first_by_alg(&Algorithm::Rs256);
-    /// assert!(key.is_some());
-    /// ```
-    pub fn find_first_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
-        self.keys.iter().find(|k| k.alg.as_ref() == Some(alg))
     }
 
     /// Returns the first key, if any.
@@ -867,20 +820,24 @@ impl KeySet {
     ///     .with_kty(KeyType::Rsa)
     ///     .with_alg(Algorithm::Rs256);
     ///
-    /// assert_eq!(jwks.find(&rsa_rs256).count(), 1);
+    /// assert_eq!(jwks.find(rsa_rs256).count(), 1);
     /// ```
-    pub fn find<'a, 'f>(&'a self, filter: &KeyFilter<'f>) -> impl Iterator<Item = &'a Key> + 'a {
+    pub fn find<'a, 'f>(&'a self, filter: KeyFilter<'f>) -> impl Iterator<Item = &'a Key> + 'a {
+        let KeyFilter {
+            op,
+            alg,
+            kid,
+            kty,
+            key_use,
+        } = filter;
+
         // Capture filter fields up-front so the returned iterator lifetime only
-        // depends on `self`, not on the borrow of `filter`.
-        let kid = filter.kid.map(ToOwned::to_owned);
-        let alg = filter.alg.clone();
-        let kty = filter.kty;
-        let key_use = filter.key_use.clone();
-        let op = filter.op.clone();
+        // depends on `self`.
+        let kid = kid.map(ToOwned::to_owned);
 
         self.keys.iter().filter(move |k| {
             if let Some(kid) = kid.as_deref()
-                && k.kid.as_deref() != Some(kid)
+                && k.kid() != Some(kid)
             {
                 return false;
             }
@@ -892,23 +849,23 @@ impl KeySet {
             }
 
             if let Some(alg) = &alg
-                && k.alg.as_ref() != Some(alg)
+                && k.alg() != Some(alg)
             {
                 return false;
             }
 
             if let Some(key_use) = &key_use
-                && k.key_use.as_ref() != Some(key_use)
+                && k.key_use() != Some(key_use)
             {
                 return false;
             }
 
             if let Some(op) = &op {
-                if let Some(key_ops) = &k.key_ops {
+                if let Some(key_ops) = k.key_ops() {
                     if !key_ops.contains(op) {
                         return false;
                     }
-                } else if let Some(key_use) = &k.key_use {
+                } else if let Some(key_use) = k.key_use() {
                     let allowed_by_use = match op {
                         KeyOperation::Sign | KeyOperation::Verify => key_use == &KeyUse::Signature,
                         KeyOperation::Encrypt
@@ -997,10 +954,10 @@ impl std::ops::Index<usize> for KeySet {
 /// When `key_ops` is absent, `key_use` is consulted: the key is a signing
 /// key if `use` is `"sig"` or unset.
 fn is_signing_key(key: &Key) -> bool {
-    if let Some(ref ops) = key.key_ops {
+    if let Some(ops) = key.key_ops() {
         ops.contains(&KeyOperation::Sign) || ops.contains(&KeyOperation::Verify)
     } else {
-        key.key_use.is_none() || key.key_use.as_ref() == Some(&KeyUse::Signature)
+        key.key_use().is_none() || key.key_use() == Some(&KeyUse::Signature)
     }
 }
 
@@ -1012,13 +969,13 @@ fn is_signing_key(key: &Key) -> bool {
 /// When `key_ops` is absent, `key_use` is consulted: the key is an
 /// encryption key if `use` is `"enc"`.
 fn is_encryption_key(key: &Key) -> bool {
-    if let Some(ref ops) = key.key_ops {
+    if let Some(ops) = key.key_ops() {
         ops.contains(&KeyOperation::Encrypt)
             || ops.contains(&KeyOperation::Decrypt)
             || ops.contains(&KeyOperation::WrapKey)
             || ops.contains(&KeyOperation::UnwrapKey)
     } else {
-        key.key_use.as_ref() == Some(&KeyUse::Encryption)
+        key.key_use() == Some(&KeyUse::Encryption)
     }
 }
 
@@ -1106,19 +1063,19 @@ mod tests {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
         let by_alg = KeyFilter::new().with_alg(Algorithm::Rs256);
-        assert_eq!(jwks.find(&by_alg).count(), 1);
+        assert_eq!(jwks.find(by_alg).count(), 1);
 
         let by_kty = KeyFilter::new().with_kty(KeyType::Rsa);
-        assert_eq!(jwks.find(&by_kty).count(), 2);
+        assert_eq!(jwks.find(by_kty).count(), 2);
 
         let by_use = KeyFilter::new().with_key_use(KeyUse::Encryption);
-        assert_eq!(jwks.find(&by_use).count(), 1);
+        assert_eq!(jwks.find(by_use).count(), 1);
 
         let by_op_use = KeyFilter::new().with_op(KeyOperation::Sign);
-        assert_eq!(jwks.find(&by_op_use).count(), 2);
+        assert_eq!(jwks.find(by_op_use).count(), 2);
 
         let by_unknown_op = KeyFilter::new().with_op(KeyOperation::Unknown("custom".to_string()));
-        assert_eq!(jwks.find(&by_unknown_op).count(), 3);
+        assert_eq!(jwks.find(by_unknown_op).count(), 3);
 
         let json = r#"{"keys": [
             {"kty": "RSA", "kid": "sign", "n": "AQAB", "e": "AQAB", "key_ops": ["sign"]},
@@ -1126,7 +1083,27 @@ mod tests {
         ]}"#;
         let with_key_ops: KeySet = serde_json::from_str(json).unwrap();
         let by_op_key_ops = KeyFilter::new().with_op(KeyOperation::Sign);
-        assert_eq!(with_key_ops.find(&by_op_key_ops).count(), 1);
+        assert_eq!(with_key_ops.find(by_op_key_ops).count(), 1);
+    }
+
+    #[test]
+    fn test_find_with_shorthand_constructors() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+
+        assert_eq!(jwks.find(KeyFilter::for_alg(Algorithm::Rs256)).count(), 1);
+        assert_eq!(jwks.find(KeyFilter::for_kty(KeyType::Rsa)).count(), 2);
+        assert_eq!(jwks.find(KeyFilter::for_use(KeyUse::Signature)).count(), 2);
+        assert_eq!(jwks.find(KeyFilter::for_op(KeyOperation::Sign)).count(), 2);
+        assert_eq!(
+            jwks.find(KeyFilter::for_use_alg(KeyUse::Signature, Algorithm::Rs256))
+                .count(),
+            1
+        );
+        assert_eq!(
+            jwks.find(KeyFilter::for_op_alg(KeyOperation::Sign, Algorithm::Rs256))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1162,7 +1139,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-key-1"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(key.kid(), Some("rsa-key-1"));
     }
 
     #[test]
@@ -1446,7 +1423,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("ec-key-1"));
+        assert_eq!(key.kid(), Some("ec-key-1"));
     }
 
     #[test]
@@ -1477,7 +1454,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Ed25519).with_kid("ed-key"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("ed-key"));
+        assert_eq!(key.kid(), Some("ed-key"));
     }
 
     #[test]
@@ -1492,7 +1469,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Ed25519).with_kid("ed-sign"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("ed-sign"));
+        assert_eq!(key.kid(), Some("ed-sign"));
     }
 
     #[test]
@@ -1525,7 +1502,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("rsa-key-1"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(key.kid(), Some("rsa-key-1"));
     }
 
     #[test]
@@ -1537,7 +1514,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-key-1"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("ec-key-1"));
+        assert_eq!(key.kid(), Some("ec-key-1"));
     }
 
     #[test]
@@ -1547,12 +1524,12 @@ mod tests {
         let compatible = KeyFilter::new()
             .with_op(KeyOperation::Sign)
             .with_key_use(KeyUse::Signature);
-        assert_eq!(jwks.find(&compatible).count(), 2);
+        assert_eq!(jwks.find(compatible).count(), 2);
 
         let conflicting = KeyFilter::new()
             .with_op(KeyOperation::Sign)
             .with_key_use(KeyUse::Encryption);
-        assert_eq!(jwks.find(&conflicting).count(), 0);
+        assert_eq!(jwks.find(conflicting).count(), 0);
     }
 
     #[test]
@@ -1566,7 +1543,7 @@ mod tests {
         let by_sign = KeyFilter::new().with_op(KeyOperation::Sign);
 
         // Keys without key_ops/use pass through in discovery mode by design.
-        assert_eq!(jwks.find(&by_sign).count(), 2);
+        assert_eq!(jwks.find(by_sign).count(), 2);
     }
 
     #[test]
@@ -1578,9 +1555,9 @@ mod tests {
             .with_alg(Algorithm::Rs256)
             .with_kid("rsa-key-1");
 
-        let keys: Vec<_> = jwks.find(&filter).collect();
+        let keys: Vec<_> = jwks.find(filter).collect();
         assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0].kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(keys[0].kid(), Some("rsa-key-1"));
     }
 
     #[test]
@@ -1670,16 +1647,32 @@ mod tests {
     fn test_find_by_alg() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert_eq!(jwks.find_by_alg(&Algorithm::Rs256).count(), 1);
-        assert_eq!(jwks.find_by_alg(&Algorithm::Es256).count(), 1);
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_alg(Algorithm::Rs256))
+                .count(),
+            1
+        );
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_alg(Algorithm::Es256))
+                .count(),
+            1
+        );
     }
 
     #[test]
     fn test_find_by_use() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert_eq!(jwks.find_by_use(&KeyUse::Signature).count(), 2);
-        assert_eq!(jwks.find_by_use(&KeyUse::Encryption).count(), 1);
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_key_use(KeyUse::Signature))
+                .count(),
+            2
+        );
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_key_use(KeyUse::Encryption))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1701,22 +1694,28 @@ mod tests {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
         let first = jwks.first_signing_key().unwrap();
-        assert_eq!(first.kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(first.kid(), Some("rsa-key-1"));
     }
 
     #[test]
     fn test_find_first_by_alg() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        let key = jwks.find_first_by_alg(&Algorithm::Rs256);
+        let key = jwks
+            .find(KeyFilter::new().with_alg(Algorithm::Rs256))
+            .next();
         assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(key.unwrap().kid(), Some("rsa-key-1"));
 
-        let key = jwks.find_first_by_alg(&Algorithm::Es256);
+        let key = jwks
+            .find(KeyFilter::new().with_alg(Algorithm::Es256))
+            .next();
         assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("ec-key-1"));
+        assert_eq!(key.unwrap().kid(), Some("ec-key-1"));
 
-        let missing = jwks.find_first_by_alg(&Algorithm::Ps512);
+        let missing = jwks
+            .find(KeyFilter::new().with_alg(Algorithm::Ps512))
+            .next();
         assert!(missing.is_none());
     }
 
@@ -1763,8 +1762,16 @@ mod tests {
         let jwks: KeySet = serde_json::from_str(json).unwrap();
 
         // Strict alg matching only finds exact matches.
-        assert_eq!(jwks.find_by_alg(&Algorithm::Ed25519).count(), 1);
-        assert_eq!(jwks.find_by_alg(&Algorithm::EdDsa).count(), 1);
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_alg(Algorithm::Ed25519))
+                .count(),
+            1
+        );
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_alg(Algorithm::EdDsa))
+                .count(),
+            1
+        );
 
         assert_eq!(
             jwks.selector(&[])
@@ -1772,8 +1779,7 @@ mod tests {
                     KeyMatcher::new(KeyOperation::Sign, Algorithm::Ed25519).with_kid("ed25519-key")
                 )
                 .unwrap()
-                .kid
-                .as_deref(),
+                .kid(),
             Some("ed25519-key")
         );
         assert_eq!(
@@ -1782,8 +1788,7 @@ mod tests {
                     KeyMatcher::new(KeyOperation::Sign, Algorithm::EdDsa).with_kid("legacy-eddsa")
                 )
                 .unwrap()
-                .kid
-                .as_deref(),
+                .kid(),
             Some("legacy-eddsa")
         );
     }
@@ -1813,7 +1818,7 @@ mod tests {
         let count = jwks.iter().count();
         assert_eq!(count, 3);
 
-        let kids: Vec<_> = jwks.iter().filter_map(|k| k.kid.as_deref()).collect();
+        let kids: Vec<_> = jwks.iter().filter_map(Key::kid).collect();
         assert!(kids.contains(&"rsa-key-1"));
     }
 
@@ -1821,7 +1826,7 @@ mod tests {
     fn test_index() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
         let first = &jwks[0];
-        assert_eq!(first.kid, Some("rsa-key-1".to_string()));
+        assert_eq!(first.kid(), Some("rsa-key-1"));
     }
 
     #[test]
@@ -1842,7 +1847,7 @@ mod tests {
 
         let removed = jwks.remove_by_kid("ec-key-1");
         assert!(removed.is_some());
-        assert_eq!(removed.unwrap().kid.as_deref(), Some("ec-key-1"));
+        assert_eq!(removed.unwrap().kid(), Some("ec-key-1"));
         assert_eq!(jwks.len(), 2);
         assert!(jwks.get_by_kid("ec-key-1").is_none());
 
@@ -1855,10 +1860,20 @@ mod tests {
     fn test_find_by_kty() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert_eq!(jwks.find_by_kty(KeyType::Rsa).count(), 2);
-        assert_eq!(jwks.find_by_kty(KeyType::Ec).count(), 1);
-        assert_eq!(jwks.find_by_kty(KeyType::Okp).count(), 0);
-        assert_eq!(jwks.find_by_kty(KeyType::Symmetric).count(), 0);
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_kty(KeyType::Rsa)).count(),
+            2
+        );
+        assert_eq!(jwks.find(KeyFilter::new().with_kty(KeyType::Ec)).count(), 1);
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_kty(KeyType::Okp)).count(),
+            0
+        );
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_kty(KeyType::Symmetric))
+                .count(),
+            0
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1870,7 +1885,7 @@ mod tests {
         // Test get_key
         let key = store.get_key("test-key").await.unwrap();
         assert!(key.is_some());
-        assert_eq!(key.unwrap().kid, Some("test-key".to_string()));
+        assert_eq!(key.unwrap().kid(), Some("test-key"));
 
         // Test missing key
         let missing = store.get_key("nonexistent").await.unwrap();

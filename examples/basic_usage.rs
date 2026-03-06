@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates parsing a JWKS and looking up keys.
 
-use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet, KeyType};
+use jwk_simple::{Algorithm, KeyFilter, KeyMatcher, KeyOperation, KeySet, KeyType};
 
 fn main() {
     // Example JWKS with multiple keys
@@ -44,8 +44,8 @@ fn main() {
     if let Some(key) = jwks.get_by_kid("rsa-signing-key") {
         println!("\nFound RSA key:");
         println!("  Key type: {:?}", key.kty());
-        println!("  Key use: {:?}", key.key_use);
-        println!("  Algorithm: {:?}", key.alg);
+        println!("  Key use: {:?}", key.key_use());
+        println!("  Algorithm: {:?}", key.alg());
         println!("  Is public key only: {}", key.is_public_key_only());
     }
 
@@ -57,31 +57,27 @@ fn main() {
         .expect("strict key selection failed");
     println!(
         "\nStrictly selected verify key: {}",
-        selected.kid.as_deref().unwrap_or("no kid")
+        selected.kid().unwrap_or("no kid")
     );
 
     // Find all signing keys
     let signing_keys: Vec<_> = jwks.signing_keys().collect();
     println!("\nFound {} signing keys:", signing_keys.len());
     for key in signing_keys {
-        println!(
-            "  - {} ({:?})",
-            key.kid.as_deref().unwrap_or("no kid"),
-            key.kty()
-        );
+        println!("  - {} ({:?})", key.kid().unwrap_or("no kid"), key.kty());
     }
 
     // Find keys by type
     println!(
         "\nFound {} RSA keys",
-        jwks.find_by_kty(KeyType::Rsa).count()
+        jwks.find(KeyFilter::new().with_kty(KeyType::Rsa)).count()
     );
 
     // Get the first signing key (common pattern)
     if let Some(first_signing) = jwks.first_signing_key() {
         println!(
             "\nFirst signing key: {}",
-            first_signing.kid.as_deref().unwrap_or("no kid")
+            first_signing.kid().unwrap_or("no kid")
         );
 
         // Calculate thumbprint
@@ -94,9 +90,9 @@ fn main() {
     for key in &jwks {
         println!(
             "  - kid={:?}, kty={:?}, use={:?}",
-            key.kid,
+            key.kid(),
             key.kty(),
-            key.key_use
+            key.key_use()
         );
     }
 }

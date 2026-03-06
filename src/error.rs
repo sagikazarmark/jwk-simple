@@ -25,6 +25,9 @@ pub enum Error {
     /// Failed to parse JSON.
     Parse(ParseError),
 
+    /// Invalid URL input.
+    InvalidUrl(String),
+
     /// The JWK is malformed: missing parameters, invalid encoding, or
     /// inconsistent fields.
     InvalidKey(InvalidKeyError),
@@ -67,14 +70,6 @@ pub enum Error {
     /// Cache operation failed.
     Cache(String),
 
-    /// Upstream payload exceeded configured size limit.
-    PayloadTooLarge {
-        /// Maximum number of bytes allowed.
-        max_bytes: usize,
-        /// Actual payload size in bytes.
-        actual_bytes: usize,
-    },
-
     /// Other error (for platform-specific or miscellaneous errors).
     Other(String),
 
@@ -96,6 +91,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Parse(e) => write!(f, "parse error: {}", e),
+            Error::InvalidUrl(msg) => write!(f, "invalid URL: {}", msg),
             Error::InvalidKey(e) => write!(f, "invalid key: {}", e),
             Error::IncompatibleKey(e) => write!(f, "incompatible key: {}", e),
             Error::Base64(e) => write!(f, "base64 decoding error: {:?}", e),
@@ -118,14 +114,6 @@ impl fmt::Display for Error {
             #[cfg(feature = "http")]
             Error::Http(e) => write!(f, "HTTP error: {}", e),
             Error::Cache(msg) => write!(f, "cache error: {}", msg),
-            Error::PayloadTooLarge {
-                max_bytes,
-                actual_bytes,
-            } => write!(
-                f,
-                "payload too large: {} bytes (max {})",
-                actual_bytes, max_bytes
-            ),
             Error::Other(msg) => write!(f, "{}", msg),
             #[cfg(feature = "web-crypto")]
             Error::UnsupportedForWebCrypto { reason } => {

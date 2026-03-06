@@ -41,7 +41,7 @@ mod public_keys {
         let ec_key = jwks.get_by_kid("1").unwrap();
 
         assert_eq!(ec_key.kty(), KeyType::Ec);
-        assert_eq!(ec_key.key_use, Some(KeyUse::Encryption));
+        assert_eq!(ec_key.key_use(), Some(&KeyUse::Encryption));
         assert!(ec_key.is_public_key_only());
 
         let ec_params = ec_key.as_ec().unwrap();
@@ -56,7 +56,7 @@ mod public_keys {
         let rsa_key = jwks.get_by_kid("2011-04-29").unwrap();
 
         assert_eq!(rsa_key.kty(), KeyType::Rsa);
-        assert_eq!(rsa_key.alg, Some(Algorithm::Rs256));
+        assert_eq!(rsa_key.alg(), Some(&Algorithm::Rs256));
         assert!(rsa_key.is_public_key_only());
 
         let rsa_params = rsa_key.as_rsa().unwrap();
@@ -167,7 +167,7 @@ mod symmetric_keys {
         // First key (A128KW)
         let first = &jwks[0];
         assert_eq!(first.kty(), KeyType::Symmetric);
-        assert_eq!(first.alg, Some(Algorithm::A128kw));
+        assert_eq!(first.alg(), Some(&Algorithm::A128kw));
 
         let params = first.as_symmetric().unwrap();
         assert_eq!(params.key_size_bits(), 128); // 16 bytes * 8

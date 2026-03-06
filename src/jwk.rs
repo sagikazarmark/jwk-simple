@@ -28,7 +28,7 @@
 //! }"#;
 //!
 //! let jwk: Key = serde_json::from_str(json)?;
-//! assert_eq!(jwk.kid.as_deref(), Some("my-key-id"));
+//! assert_eq!(jwk.kid(), Some("my-key-id"));
 //! # Ok(())
 //! # }
 //! ```
@@ -45,6 +45,7 @@ pub use rsa::{RsaOtherPrime, RsaParams, RsaParamsBuilder};
 pub use symmetric::SymmetricParams;
 
 use std::collections::HashSet;
+use std::convert::Infallible;
 use std::fmt::{self, Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
@@ -161,19 +162,24 @@ impl Display for KeyUse {
     }
 }
 
-impl FromStr for KeyUse {
-    type Err = std::convert::Infallible;
-
+impl From<&str> for KeyUse {
     /// Parses a key use string.
     ///
     /// Per RFC 7517, unknown key use values are accepted and stored as `Unknown`.
-    /// This function never fails - unrecognized values become `KeyUse::Unknown(s)`.
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(match s {
+    fn from(s: &str) -> Self {
+        match s {
             "sig" => KeyUse::Signature,
             "enc" => KeyUse::Encryption,
             _ => KeyUse::Unknown(s.to_string()),
-        })
+        }
+    }
+}
+
+impl FromStr for KeyUse {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(Self::from(s))
     }
 }
 
@@ -191,8 +197,7 @@ impl<'de> Deserialize<'de> for KeyUse {
     where
         D: Deserializer<'de>,
     {
-        // Infallible, so unwrap is safe
-        Ok(String::deserialize(deserializer)?.parse().unwrap())
+        Ok(KeyUse::from(String::deserialize(deserializer)?.as_str()))
     }
 }
 
@@ -253,15 +258,12 @@ impl Display for KeyOperation {
     }
 }
 
-impl FromStr for KeyOperation {
-    type Err = std::convert::Infallible;
-
+impl From<&str> for KeyOperation {
     /// Parses a key operation string.
     ///
     /// Per RFC 7517, unknown key operation values are accepted and stored as `Unknown`.
-    /// This function never fails - unrecognized values become `KeyOperation::Unknown(s)`.
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(match s {
+    fn from(s: &str) -> Self {
+        match s {
             "sign" => KeyOperation::Sign,
             "verify" => KeyOperation::Verify,
             "encrypt" => KeyOperation::Encrypt,
@@ -271,7 +273,15 @@ impl FromStr for KeyOperation {
             "deriveKey" => KeyOperation::DeriveKey,
             "deriveBits" => KeyOperation::DeriveBits,
             _ => KeyOperation::Unknown(s.to_string()),
-        })
+        }
+    }
+}
+
+impl FromStr for KeyOperation {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(Self::from(s))
     }
 }
 
@@ -289,8 +299,9 @@ impl<'de> Deserialize<'de> for KeyOperation {
     where
         D: Deserializer<'de>,
     {
-        // Infallible, so unwrap is safe
-        Ok(String::deserialize(deserializer)?.parse().unwrap())
+        Ok(KeyOperation::from(
+            String::deserialize(deserializer)?.as_str(),
+        ))
     }
 }
 
@@ -487,15 +498,12 @@ impl Display for Algorithm {
     }
 }
 
-impl FromStr for Algorithm {
-    type Err = std::convert::Infallible;
-
+impl From<&str> for Algorithm {
     /// Parses an algorithm string.
     ///
     /// Per RFC 7517, unknown algorithm values are accepted and stored as `Unknown`.
-    /// This function never fails - unrecognized values become `Algorithm::Unknown(s)`.
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(match s {
+    fn from(s: &str) -> Self {
+        match s {
             "HS256" => Algorithm::Hs256,
             "HS384" => Algorithm::Hs384,
             "HS512" => Algorithm::Hs512,
@@ -538,7 +546,15 @@ impl FromStr for Algorithm {
             "A192GCM" => Algorithm::A192gcm,
             "A256GCM" => Algorithm::A256gcm,
             _ => Algorithm::Unknown(s.to_string()),
-        })
+        }
+    }
+}
+
+impl FromStr for Algorithm {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(Self::from(s))
     }
 }
 
@@ -556,9 +572,7 @@ impl<'de> Deserialize<'de> for Algorithm {
     where
         D: Deserializer<'de>,
     {
-        String::deserialize(deserializer)?
-            .parse()
-            .map_err(serde::de::Error::custom)
+        Ok(Algorithm::from(String::deserialize(deserializer)?.as_str()))
     }
 }
 
@@ -669,39 +683,39 @@ impl From<OkpParams> for KeyParams {
 pub struct Key {
     /// The key ID.
     #[zeroize(skip)]
-    pub kid: Option<String>,
+    kid: Option<String>,
 
     /// The intended use of the key.
     #[zeroize(skip)]
-    pub key_use: Option<KeyUse>,
+    key_use: Option<KeyUse>,
 
     /// The permitted operations for the key.
     #[zeroize(skip)]
-    pub key_ops: Option<Vec<KeyOperation>>,
+    key_ops: Option<Vec<KeyOperation>>,
 
     /// The algorithm intended for use with the key.
     #[zeroize(skip)]
-    pub alg: Option<Algorithm>,
+    alg: Option<Algorithm>,
 
     /// The key-type-specific parameters.
-    pub params: KeyParams,
+    params: KeyParams,
 
     /// X.509 certificate chain (base64-encoded DER).
     #[zeroize(skip)]
-    pub x5c: Option<Vec<String>>,
+    x5c: Option<Vec<String>>,
 
     /// X.509 certificate SHA-1 thumbprint (base64url-encoded).
     #[zeroize(skip)]
-    pub x5t: Option<String>,
+    x5t: Option<String>,
 
     /// X.509 certificate SHA-256 thumbprint (base64url-encoded).
     #[zeroize(skip)]
     #[allow(non_snake_case)]
-    pub x5t_s256: Option<String>,
+    x5t_s256: Option<String>,
 
     /// X.509 URL.
     #[zeroize(skip)]
-    pub x5u: Option<String>,
+    x5u: Option<String>,
 }
 
 impl Key {
@@ -728,7 +742,7 @@ impl Key {
     /// .with_use(KeyUse::Signature);
     ///
     /// assert_eq!(key.kty(), KeyType::Rsa);
-    /// assert_eq!(key.kid.as_deref(), Some("my-key-id"));
+    /// assert_eq!(key.kid(), Some("my-key-id"));
     /// ```
     #[must_use]
     pub fn new(params: KeyParams) -> Self {
@@ -758,6 +772,61 @@ impl Key {
         self.params.key_type()
     }
 
+    /// Returns the key ID (`kid`), if present.
+    #[must_use]
+    pub fn kid(&self) -> Option<&str> {
+        self.kid.as_deref()
+    }
+
+    /// Returns the intended key use (`use`), if present.
+    #[must_use]
+    pub fn key_use(&self) -> Option<&KeyUse> {
+        self.key_use.as_ref()
+    }
+
+    /// Returns the permitted operations (`key_ops`), if present.
+    #[must_use]
+    pub fn key_ops(&self) -> Option<&[KeyOperation]> {
+        self.key_ops.as_deref()
+    }
+
+    /// Returns the declared algorithm (`alg`), if present.
+    #[must_use]
+    pub fn alg(&self) -> Option<&Algorithm> {
+        self.alg.as_ref()
+    }
+
+    /// Returns the key-type-specific parameters.
+    #[must_use]
+    pub fn params(&self) -> &KeyParams {
+        &self.params
+    }
+
+    /// Returns the X.509 certificate chain (`x5c`), if present.
+    #[must_use]
+    pub fn x5c(&self) -> Option<&[String]> {
+        self.x5c.as_deref()
+    }
+
+    /// Returns the X.509 SHA-1 certificate thumbprint (`x5t`), if present.
+    #[must_use]
+    pub fn x5t(&self) -> Option<&str> {
+        self.x5t.as_deref()
+    }
+
+    /// Returns the X.509 SHA-256 certificate thumbprint (`x5t#S256`), if present.
+    #[must_use]
+    #[allow(non_snake_case)]
+    pub fn x5t_s256(&self) -> Option<&str> {
+        self.x5t_s256.as_deref()
+    }
+
+    /// Returns the X.509 URL (`x5u`), if present.
+    #[must_use]
+    pub fn x5u(&self) -> Option<&str> {
+        self.x5u.as_deref()
+    }
+
     /// Sets the key ID (`kid`).
     #[must_use]
     pub fn with_kid(mut self, kid: impl Into<String>) -> Self {
@@ -774,8 +843,8 @@ impl Key {
 
     /// Sets the permitted key operations (`key_ops`).
     #[must_use]
-    pub fn with_key_ops(mut self, key_ops: Vec<KeyOperation>) -> Self {
-        self.key_ops = Some(key_ops);
+    pub fn with_key_ops(mut self, key_ops: impl IntoIterator<Item = KeyOperation>) -> Self {
+        self.key_ops = Some(key_ops.into_iter().collect());
         self
     }
 
@@ -1112,7 +1181,8 @@ impl Key {
     /// // Encryption is not permitted by use="sig"
     /// assert!(key.check_operations_permitted(&[KeyOperation::Encrypt]).is_err());
     /// ```
-    pub fn check_operations_permitted(&self, operations: &[KeyOperation]) -> Result<()> {
+    pub fn check_operations_permitted(&self, operations: impl AsRef<[KeyOperation]>) -> Result<()> {
+        let operations = operations.as_ref();
         if operations.is_empty() {
             return Err(Error::Other(
                 "at least one requested operation is required".to_string(),
@@ -2276,10 +2346,32 @@ mod tests {
 
     #[test]
     fn test_parse_rfc9864_ed_algorithms() {
+        assert_eq!(Algorithm::from("Ed25519"), Algorithm::Ed25519);
+        assert_eq!(Algorithm::from("Ed448"), Algorithm::Ed448);
         assert_eq!("Ed25519".parse::<Algorithm>().unwrap(), Algorithm::Ed25519);
         assert_eq!("Ed448".parse::<Algorithm>().unwrap(), Algorithm::Ed448);
         assert_eq!(Algorithm::Ed25519.as_str(), "Ed25519");
         assert_eq!(Algorithm::Ed448.as_str(), "Ed448");
+    }
+
+    #[test]
+    fn test_parse_key_use_and_operation_with_from_str() {
+        assert_eq!("sig".parse::<KeyUse>().unwrap(), KeyUse::Signature);
+        assert_eq!("enc".parse::<KeyUse>().unwrap(), KeyUse::Encryption);
+        assert_eq!(
+            "private-use".parse::<KeyUse>().unwrap(),
+            KeyUse::Unknown("private-use".to_string())
+        );
+
+        assert_eq!("sign".parse::<KeyOperation>().unwrap(), KeyOperation::Sign);
+        assert_eq!(
+            "verify".parse::<KeyOperation>().unwrap(),
+            KeyOperation::Verify
+        );
+        assert_eq!(
+            "custom-op".parse::<KeyOperation>().unwrap(),
+            KeyOperation::Unknown("custom-op".to_string())
+        );
     }
 
     #[test]

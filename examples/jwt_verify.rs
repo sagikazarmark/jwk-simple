@@ -5,7 +5,7 @@
 //!
 //! Run with: `cargo run --example jwt_verify --features jwt-simple`
 
-use jwk_simple::KeySet;
+use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 use jwt_simple::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,12 +27,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwks = serde_json::from_str::<KeySet>(jwks_json)?;
     println!("Loaded JWKS with {} keys", jwks.len());
 
-    // Find the key we want to use
-    let jwk = jwks.get_by_kid("my-signing-key").ok_or("Key not found")?;
+    // Strict selection for verification (security-sensitive path)
+    let jwk = jwks
+        .selector(&[Algorithm::Rs256])
+        .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-signing-key"))
+        .map_err(|e| format!("strict key selection failed: {e}"))?;
 
-    println!("Found key: {:?}", jwk.kid);
+    println!("Found key: {:?}", jwk.kid());
     println!("Key type: {:?}", jwk.kty());
-    println!("Algorithm: {:?}", jwk.alg);
+    println!("Algorithm: {:?}", jwk.alg());
 
     // Convert to jwt-simple key type
     // Method 1: Using TryFrom/TryInto
@@ -56,8 +59,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let hmac_jwks = serde_json::from_str::<KeySet>(hmac_jwks_json)?;
     let hmac_jwk = hmac_jwks
-        .get_by_kid("hmac-key")
-        .ok_or("HMAC key not found")?;
+        .selector(&[Algorithm::Hs256])
+        .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Hs256).with_kid("hmac-key"))
+        .map_err(|e| format!("strict HMAC key selection failed: {e}"))?;
     let hmac_key: HS256Key = hmac_jwk.try_into()?;
     println!("\nSuccessfully converted to HS256Key");
 

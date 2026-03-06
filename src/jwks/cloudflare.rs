@@ -12,7 +12,7 @@
 //! use jwk_simple::jwks::cloudflare;
 //! use jwk_simple::jwks::KeyStore;
 //!
-//! let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json");
+//! let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json")?;
 //! let key = store.get_key("my-key-id").await?;
 //! ```
 //!
@@ -25,14 +25,15 @@
 //!
 //! let kv: KvStore = env.kv("JWKS_CACHE")?;
 //! let cache = cloudflare::KvKeyCache::new(kv);
-//! let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json");
+//! let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json")?;
 //! let cached = CachedKeyStore::new(cache, store);
 //! ```
 
 use futures::TryStreamExt;
+use url::Url;
 use worker::kv::KvStore;
 
-use crate::error::{Error, ParseError, Result};
+use crate::error::{Error, Result};
 use crate::jwks::{KeyCache, KeySet, KeyStore};
 
 /// Default TTL for KV cache entries (5 minutes).
@@ -56,35 +57,28 @@ pub const DEFAULT_KV_TTL_SECONDS: u64 = 300;
 /// use jwk_simple::jwks::cloudflare;
 /// use jwk_simple::jwks::KeyStore;
 ///
-/// let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json");
+/// let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json")?;
 /// let key = store.get_key("my-key-id").await?;
 /// ```
 #[derive(Debug, Clone)]
 pub struct FetchKeyStore {
-    url: String,
+    url: Url,
 }
 
 impl FetchKeyStore {
     /// Creates a new `FetchKeyStore` from a URL.
-    pub fn new(url: impl Into<String>) -> Self {
-        Self { url: url.into() }
-    }
+    pub fn new(url: impl AsRef<str>) -> Result<Self> {
+        let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
 
-    /// Returns the URL of the JWKS endpoint.
-    pub fn url(&self) -> &str {
-        &self.url
+        Ok(Self { url })
     }
 
     /// Fetches the JWKS from the remote endpoint using Cloudflare Worker's Fetch API.
     async fn fetch(&self) -> Result<KeySet> {
-        let mut response = worker::Fetch::Url(
-            self.url
-                .parse()
-                .map_err(|e| Error::Parse(ParseError::Json(format!("invalid URL: {}", e))))?,
-        )
-        .send()
-        .await
-        .map_err(|e| Error::Other(format!("fetch failed: {}", e)))?;
+        let mut response = worker::Fetch::Url(self.url.clone())
+            .send()
+            .await
+            .map_err(|e| Error::Other(format!("fetch failed: {}", e)))?;
 
         let status = response.status_code();
         if !(200..300).contains(&status) {
@@ -241,5 +235,16 @@ impl KeyCache for KvKeyCache {
             .delete(&self.key)
             .await
             .map_err(|e| Error::Cache(format!("delete failed: {}", e)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fetch_keystore_new_rejects_invalid_url() {
+        let err = FetchKeyStore::new("not a valid url").unwrap_err();
+        assert!(matches!(err, Error::InvalidUrl(_)));
     }
 }

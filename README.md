@@ -28,10 +28,10 @@ jwk-simple = "0.1"
 serde_json = "1"
 ```
 
-Parse a JWKS and find a key:
+Parse a JWKS and strictly select a verification key:
 
 ```rust
-use jwk_simple::KeySet;
+use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 
 let json = r#"{
     "keys": [{
@@ -44,7 +44,9 @@ let json = r#"{
 }"#;
 
 let jwks: KeySet = serde_json::from_str(json)?;
-let key = jwks.get_by_kid("my-key-id").expect("key not found");
+let key = jwks
+    .selector(&[Algorithm::Rs256])
+    .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-key-id"))?;
 assert!(key.is_public_key_only());
 ```
 
@@ -80,19 +82,15 @@ let jwks: KeySet = serde_json::from_str(json)?;
 
 // Find keys by various criteria
 let key = jwks.get_by_kid("key-id");
-let rsa_keys = jwks.find_by_kty(KeyType::Rsa);
-let signing_keys = jwks.find_by_use(&KeyUse::Signature);
-
-// Preferred discovery pattern with composable filters
-let rsa_keys_v2 = jwks.find(&KeyFilter::new().with_kty(KeyType::Rsa));
-let signing_keys_v2 = jwks.find(&KeyFilter::new().with_key_use(KeyUse::Signature));
+let rsa_keys = jwks.find(KeyFilter::for_kty(KeyType::Rsa));
+let signing_keys = jwks.find(KeyFilter::for_use(KeyUse::Signature));
 
 // Get the first signing key (common pattern)
 let first_signing = jwks.first_signing_key();
 
 // Iterate over all keys
 for key in &jwks {
-    println!("Key: {:?}", key.kid);
+    println!("Key: {:?}", key.kid());
 }
 ```
 
@@ -109,11 +107,13 @@ jwt-simple = "0.12"
 ```
 
 ```rust
-use jwk_simple::KeySet;
+use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 use jwt_simple::prelude::*;
 
 let jwks: KeySet = serde_json::from_str(json)?;
-let jwk = jwks.get_by_kid("my-key").unwrap();
+let jwk = jwks
+    .selector(&[Algorithm::Rs256])
+    .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-key"))?;
 
 // Convert to jwt-simple key type using TryFrom/TryInto
 let key: RS256PublicKey = jwk.try_into()?;
@@ -130,7 +130,10 @@ With the `http` feature enabled:
 use jwk_simple::jwks::{HttpKeyStore, KeyStore};
 use std::time::Duration;
 
-// Create remote key store (uses default 30s timeout)
+// Create remote key store.
+// Native targets use a default 30s timeout.
+// On wasm32, reqwest uses the browser/Fetch backend where
+// client-level timeout configuration is not available.
 let remote = HttpKeyStore::new("https://example.com/.well-known/jwks.json")?;
 
 // For custom timeout, use a custom client.
@@ -142,7 +145,7 @@ let client = reqwest::Client::builder()
 let remote = HttpKeyStore::new_with_client(
     "https://example.com/.well-known/jwks.json",
     client,
-);
+)?;
 
 // Fetch the JWKS
 let jwks = remote.get_keyset().await?;

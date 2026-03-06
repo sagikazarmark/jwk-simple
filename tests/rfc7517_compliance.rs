@@ -3,8 +3,7 @@
 //! These tests verify strict compliance with RFC 7517 (JSON Web Key)
 //! requirements, particularly Section 4 parameter validation.
 
-use jwk_simple::error::InvalidKeyError;
-use jwk_simple::{Algorithm, Error, Key, KeyOperation, KeySet, KeyType, KeyUse};
+use jwk_simple::{Algorithm, Error, InvalidKeyError, Key, KeyOperation, KeySet, KeyType, KeyUse};
 
 // ============================================================================
 // Section 4.1: "kty" (Key Type) Parameter - REQUIRED
@@ -74,21 +73,21 @@ mod use_parameter {
     fn test_use_sig() {
         let json = r#"{"kty": "RSA", "use": "sig", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.key_use, Some(KeyUse::Signature));
+        assert_eq!(jwk.key_use(), Some(&KeyUse::Signature));
     }
 
     #[test]
     fn test_use_enc() {
         let json = r#"{"kty": "RSA", "use": "enc", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.key_use, Some(KeyUse::Encryption));
+        assert_eq!(jwk.key_use(), Some(&KeyUse::Encryption));
     }
 
     #[test]
     fn test_use_optional() {
         let json = r#"{"kty": "RSA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.key_use, None);
+        assert_eq!(jwk.key_use(), None);
     }
 }
 
@@ -103,7 +102,7 @@ mod key_ops_parameter {
     fn test_key_ops_array() {
         let json = r#"{"kty": "RSA", "key_ops": ["sign", "verify"], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        let ops = jwk.key_ops.as_ref().unwrap();
+        let ops = jwk.key_ops().unwrap();
         assert_eq!(ops.len(), 2);
         assert!(ops.contains(&KeyOperation::Sign));
         assert!(ops.contains(&KeyOperation::Verify));
@@ -113,7 +112,7 @@ mod key_ops_parameter {
     fn test_key_ops_all_values() {
         let json = r#"{"kty": "oct", "key_ops": ["sign", "verify", "encrypt", "decrypt", "wrapKey", "unwrapKey", "deriveKey", "deriveBits"], "k": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        let ops = jwk.key_ops.as_ref().unwrap();
+        let ops = jwk.key_ops().unwrap();
         let expected = [
             KeyOperation::Sign,
             KeyOperation::Verify,
@@ -213,7 +212,7 @@ mod key_ops_parameter {
     fn test_key_ops_empty_array_allowed() {
         let json = r#"{"kty": "RSA", "key_ops": [], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert!(jwk.key_ops.as_ref().unwrap().is_empty());
+        assert!(jwk.key_ops().unwrap().is_empty());
         // Empty key_ops is technically allowed (just means no operations permitted)
         assert!(jwk.validate().is_ok());
     }
@@ -232,7 +231,7 @@ mod alg_parameter {
     fn test_alg_optional() {
         let json = r#"{"kty": "RSA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.alg, None);
+        assert_eq!(jwk.alg(), None);
     }
 
     #[test]
@@ -250,7 +249,7 @@ mod alg_parameter {
                 alg_str, RSA_2048_N
             );
             let jwk: Key = serde_json::from_str(&json).unwrap();
-            assert_eq!(jwk.alg, Some(alg_enum));
+            assert_eq!(jwk.alg(), Some(&alg_enum));
             assert!(
                 jwk.validate().is_ok(),
                 "RSA key with {} should validate",
@@ -329,7 +328,7 @@ mod alg_parameter {
     fn test_alg_ed25519_okp_ed25519_accepted() {
         let json = r#"{"kty": "OKP", "alg": "Ed25519", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.alg, Some(Algorithm::Ed25519));
+        assert_eq!(jwk.alg(), Some(&Algorithm::Ed25519));
         assert!(jwk.validate().is_ok());
     }
 
@@ -337,7 +336,7 @@ mod alg_parameter {
     fn test_alg_ed448_okp_ed448_accepted() {
         let json = r#"{"kty": "OKP", "alg": "Ed448", "crv": "Ed448", "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.alg, Some(Algorithm::Ed448));
+        assert_eq!(jwk.alg(), Some(&Algorithm::Ed448));
         assert!(jwk.validate().is_ok());
     }
 
@@ -373,8 +372,8 @@ mod alg_parameter {
     fn test_alg_eddsa_is_deprecated_but_still_valid() {
         let json = r#"{"kty": "OKP", "alg": "EdDSA", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.alg, Some(Algorithm::EdDsa));
-        assert!(jwk.alg.as_ref().unwrap().is_deprecated());
+        assert_eq!(jwk.alg(), Some(&Algorithm::EdDsa));
+        assert!(jwk.alg().unwrap().is_deprecated());
         assert!(jwk.validate().is_ok());
     }
 }
@@ -390,21 +389,21 @@ mod kid_parameter {
     fn test_kid_optional() {
         let json = r#"{"kty": "RSA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kid, None);
+        assert_eq!(jwk.kid(), None);
     }
 
     #[test]
     fn test_kid_arbitrary_string() {
         let json = r#"{"kty": "RSA", "kid": "my-key-2024-01", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kid, Some("my-key-2024-01".to_string()));
+        assert_eq!(jwk.kid(), Some("my-key-2024-01"));
     }
 
     #[test]
     fn test_kid_unicode() {
         let json = r#"{"kty": "RSA", "kid": "密钥-🔑", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.kid, Some("密钥-🔑".to_string()));
+        assert_eq!(jwk.kid(), Some("密钥-🔑"));
     }
 }
 
@@ -446,7 +445,7 @@ mod x5u_parameter {
     fn test_x5u_optional() {
         let json = r#"{"kty": "RSA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.x5u, None);
+        assert_eq!(jwk.x5u(), None);
         assert!(jwk.validate().is_ok());
     }
 }
@@ -603,7 +602,7 @@ mod x5c_parameter {
             TEST_CERT, TEST_CERT
         );
         let jwk: Key = serde_json::from_str(&json).unwrap();
-        assert_eq!(jwk.x5c.as_ref().unwrap().len(), 2);
+        assert_eq!(jwk.x5c().unwrap().len(), 2);
         assert!(jwk.validate().is_ok());
     }
 
@@ -611,7 +610,7 @@ mod x5c_parameter {
     fn test_x5c_optional() {
         let json = r#"{"kty": "RSA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.x5c, None);
+        assert_eq!(jwk.x5c(), None);
     }
 
     #[test]
@@ -643,22 +642,22 @@ mod x5t_parameters {
     fn test_x5t_optional() {
         let json = r#"{"kty": "RSA", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.x5t, None);
-        assert_eq!(jwk.x5t_s256, None);
+        assert_eq!(jwk.x5t(), None);
+        assert_eq!(jwk.x5t_s256(), None);
     }
 
     #[test]
     fn test_x5t_parsed() {
         let json = r#"{"kty": "RSA", "x5t": "abc123", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.x5t, Some("abc123".to_string()));
+        assert_eq!(jwk.x5t(), Some("abc123"));
     }
 
     #[test]
     fn test_x5t_s256_parsed() {
         let json = r#"{"kty": "RSA", "x5t#S256": "sha256thumbprint", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        assert_eq!(jwk.x5t_s256, Some("sha256thumbprint".to_string()));
+        assert_eq!(jwk.x5t_s256(), Some("sha256thumbprint"));
     }
 }
 
@@ -870,12 +869,12 @@ mod serialization {
         let roundtrip: Key = serde_json::from_str(&serialized).unwrap();
 
         assert_eq!(jwk.kty(), roundtrip.kty());
-        assert_eq!(jwk.kid, roundtrip.kid);
-        assert_eq!(jwk.key_use, roundtrip.key_use);
-        assert_eq!(jwk.alg, roundtrip.alg);
-        assert_eq!(jwk.x5u, roundtrip.x5u);
-        assert_eq!(jwk.x5t, roundtrip.x5t);
-        assert_eq!(jwk.x5t_s256, roundtrip.x5t_s256);
+        assert_eq!(jwk.kid(), roundtrip.kid());
+        assert_eq!(jwk.key_use(), roundtrip.key_use());
+        assert_eq!(jwk.alg(), roundtrip.alg());
+        assert_eq!(jwk.x5u(), roundtrip.x5u());
+        assert_eq!(jwk.x5t(), roundtrip.x5t());
+        assert_eq!(jwk.x5t_s256(), roundtrip.x5t_s256());
     }
 }
 
@@ -1087,8 +1086,8 @@ mod permissive_parsing {
         let json = r#"{"kty": "RSA", "alg": "CUSTOM-ALG-256", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         assert_eq!(
-            jwk.alg,
-            Some(Algorithm::Unknown("CUSTOM-ALG-256".to_string()))
+            jwk.alg(),
+            Some(&Algorithm::Unknown("CUSTOM-ALG-256".to_string()))
         );
     }
 
@@ -1130,7 +1129,7 @@ mod permissive_parsing {
         let json =
             r#"{"kty": "RSA", "key_ops": ["sign", "custom-operation"], "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        let key_ops = jwk.key_ops.as_ref().unwrap();
+        let key_ops = jwk.key_ops().unwrap();
         assert_eq!(key_ops.len(), 2);
         assert!(key_ops.contains(&KeyOperation::Sign));
         assert!(key_ops.contains(&KeyOperation::Unknown("custom-operation".to_string())));
@@ -1229,8 +1228,8 @@ mod permissive_parsing {
         let json = r#"{"kty": "RSA", "use": "custom-purpose", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
         assert_eq!(
-            jwk.key_use,
-            Some(KeyUse::Unknown("custom-purpose".to_string()))
+            jwk.key_use(),
+            Some(&KeyUse::Unknown("custom-purpose".to_string()))
         );
     }
 

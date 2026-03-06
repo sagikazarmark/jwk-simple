@@ -75,7 +75,7 @@ impl KeySet {
     // discovery-only
     pub fn get_by_kid(&self, kid: &str) -> Option<&Key>;
     pub fn get_by_thumbprint(&self, thumbprint: &str) -> Option<&Key>;
-    pub fn find<'a>(&'a self, filter: &'a KeyFilter<'a>) -> impl Iterator<Item = &'a Key>;
+    pub fn find<'a, 'f>(&'a self, filter: KeyFilter<'f>) -> impl Iterator<Item = &'a Key> + 'a;
 
     // strict selection entrypoint
     pub fn selector(&self, allowed_verify_algs: &[Algorithm]) -> KeySelector<'_>;
@@ -155,7 +155,7 @@ let key = keyset
 // sign
 let key = keyset
     .selector(&[])
-    .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid(Some("my-kid")))?;
+    .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("my-kid"))?;
 ```
 
 ## Naming, deprecations, and migration
