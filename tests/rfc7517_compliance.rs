@@ -577,6 +577,36 @@ mod x5c_parameter {
     }
 
     #[test]
+    fn test_x5c_rejects_der_with_trailing_data() {
+        // Append one zero byte (AA==) after a valid DER cert payload.
+        // This remains valid base64, but must be rejected as non-canonical DER certificate bytes.
+        let cert_with_trailing = format!("{}AA==", TEST_CERT);
+        let json = format!(
+            r#"{{
+                "kty": "EC",
+                "crv": "P-256",
+                "x5c": ["{}"],
+                "x": "eXgQGgNDS5eXfJgrSTRh25w1DnYdu8g_zYhT4o_7TmA",
+                "y": "bgsnNuWe_E7-lA-25VtFXmktQIrp80YyGoitGsay3z4"
+            }}"#,
+            cert_with_trailing
+        );
+        let jwk: Key = serde_json::from_str(&json).unwrap();
+        let result = jwk.validate();
+        assert!(
+            result.is_err(),
+            "x5c with DER trailing bytes must be rejected"
+        );
+        assert!(matches!(
+            result,
+            Err(Error::InvalidKey(InvalidKeyError::InvalidParameter {
+                name: "x5c",
+                ..
+            }))
+        ));
+    }
+
+    #[test]
     fn test_x5c_invalid_base64_characters() {
         // Contains invalid characters for any base64
         let json = r#"{"kty": "RSA", "x5c": ["Invalid!@#$%"], "n": "AQAB", "e": "AQAB"}"#;

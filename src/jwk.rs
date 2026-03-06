@@ -1070,11 +1070,21 @@ impl Key {
                 })
             })?;
 
-            if parse_x509_certificate(&der_bytes).is_err() {
-                return Err(InvalidKeyError::InvalidParameter {
+            let (remaining, _) = parse_x509_certificate(&der_bytes).map_err(|_| {
+                InvalidKeyError::InvalidParameter {
                     name: "x5c",
                     reason: format!(
                         "RFC 7517: x5c[{}] is not a valid DER-encoded X.509 certificate",
+                        i
+                    ),
+                }
+            })?;
+
+            if !remaining.is_empty() {
+                return Err(InvalidKeyError::InvalidParameter {
+                    name: "x5c",
+                    reason: format!(
+                        "RFC 7517: x5c[{}] contains trailing data after DER certificate",
                         i
                     ),
                 }
@@ -1101,7 +1111,8 @@ impl Key {
     /// (key type, minimum strength). It is independent of the key's own `alg`
     /// field; no cross-check is performed. Callers are responsible for
     /// ensuring the supplied algorithm is consistent with the key's declared
-    /// algorithm, if any.
+    /// algorithm, if any. Unknown algorithms are rejected because suitability
+    /// (type compatibility and strength) cannot be validated for them.
     ///
     /// At least one operation must be provided. Passing an empty iterator
     /// returns an error (this is a caller precondition, not a key problem).
@@ -1438,12 +1449,6 @@ impl Key {
 
     /// Validates that the algorithm matches the key type.
     fn validate_algorithm_key_type_match(&self, alg: &Algorithm) -> Result<()> {
-        // Unknown algorithms cannot be validated against key types
-        // Per RFC 7517, we accept them but cannot verify compatibility
-        if alg.is_unknown() {
-            return Ok(());
-        }
-
         if !self.is_algorithm_compatible(alg) {
             return Err(IncompatibleKeyError::IncompatibleAlgorithm {
                 algorithm: alg.as_str().to_string(),
@@ -1511,12 +1516,20 @@ impl Key {
 
     /// Validates that the first `x5c` certificate public key matches JWK key material.
     fn validate_x5c_public_key_match(&self, cert_der: &[u8]) -> Result<()> {
-        let (_, cert) = parse_x509_certificate(cert_der).map_err(|_| {
+        let (remaining, cert) = parse_x509_certificate(cert_der).map_err(|_| {
             Error::from(InvalidKeyError::InvalidParameter {
                 name: "x5c",
                 reason: "RFC 7517: x5c[0] is not a parseable X.509 certificate".to_string(),
             })
         })?;
+
+        if !remaining.is_empty() {
+            return Err(InvalidKeyError::InvalidParameter {
+                name: "x5c",
+                reason: "RFC 7517: x5c[0] contains trailing data after DER certificate".to_string(),
+            }
+            .into());
+        }
 
         let spki = &cert.tbs_certificate.subject_pki;
         let cert_alg_oid = spki.algorithm.algorithm.to_id_string();
@@ -2673,6 +2686,24 @@ mod tests {
             result,
             Err(Error::IncompatibleKey(
                 IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_for_use_rejects_unknown_algorithm() {
+        let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )));
+
+        let result = key.validate_for_use(
+            &Algorithm::Unknown("CUSTOM-ALG".to_string()),
+            [KeyOperation::Sign],
+        );
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::IncompatibleAlgorithm { .. }
             ))
         ));
     }

@@ -288,8 +288,6 @@ mod tests {
 
     #[test]
     fn test_fetch_keystore_new_insecure_accepts_http_url() {
-        assert!(
-            FetchKeyStore::new_insecure("http://example.com/.well-known/jwks.json").is_ok()
-        );
+        assert!(FetchKeyStore::new_insecure("http://example.com/.well-known/jwks.json").is_ok());
     }
 }

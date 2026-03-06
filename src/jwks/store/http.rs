@@ -305,7 +305,8 @@ mod tests {
             .timeout(Duration::from_millis(50))
             .build()
             .unwrap();
-        let store = HttpKeyStore::new_with_client_insecure(format!("http://{}", addr), client).unwrap();
+        let store =
+            HttpKeyStore::new_with_client_insecure(format!("http://{}", addr), client).unwrap();
         let err = store.get_keyset().await.unwrap_err();
         match err {
             Error::Http(e) => {
@@ -352,11 +353,10 @@ mod tests {
     fn test_http_keystore_new_with_client_accepts_https_url() {
         let client = reqwest::Client::new();
         // Construction succeeds; no network call is made here.
-        assert!(HttpKeyStore::new_with_client(
-            "https://example.com/.well-known/jwks.json",
-            client
-        )
-        .is_ok());
+        assert!(
+            HttpKeyStore::new_with_client("https://example.com/.well-known/jwks.json", client)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -367,10 +367,12 @@ mod tests {
     #[test]
     fn test_http_keystore_new_with_client_insecure_accepts_http_url() {
         let client = reqwest::Client::new();
-        assert!(HttpKeyStore::new_with_client_insecure(
-            "http://example.com/.well-known/jwks.json",
-            client
-        )
-        .is_ok());
+        assert!(
+            HttpKeyStore::new_with_client_insecure(
+                "http://example.com/.well-known/jwks.json",
+                client
+            )
+            .is_ok()
+        );
     }
 }
