@@ -10,9 +10,7 @@ use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 use js_sys::{Object, Reflect, Uint8Array};
-use jwk_simple::Key;
-use jwk_simple::error::IncompatibleKeyError;
-use jwk_simple::web_crypto;
+use jwk_simple::{IncompatibleKeyError, Key, web_crypto};
 use std::convert::TryFrom;
 
 // Test RSA public key from RFC 7517 Appendix A.1

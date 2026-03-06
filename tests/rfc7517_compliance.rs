@@ -3,8 +3,7 @@
 //! These tests verify strict compliance with RFC 7517 (JSON Web Key)
 //! requirements, particularly Section 4 parameter validation.
 
-use jwk_simple::error::InvalidKeyError;
-use jwk_simple::{Algorithm, Error, Key, KeyOperation, KeySet, KeyType, KeyUse};
+use jwk_simple::{Algorithm, Error, InvalidKeyError, Key, KeyOperation, KeySet, KeyType, KeyUse};
 
 // ============================================================================
 // Section 4.1: "kty" (Key Type) Parameter - REQUIRED

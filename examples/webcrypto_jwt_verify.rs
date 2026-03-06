@@ -63,7 +63,6 @@ mod wasm_example {
     // ============================================================================
 
     /// JWT Header (minimal fields for verification)
-    #[cfg(target_arch = "wasm32")]
     #[derive(Debug, Deserialize)]
     pub struct JwtHeader {
         /// Algorithm used for signing
@@ -77,7 +76,6 @@ mod wasm_example {
     }
 
     /// Standard JWT claims (minimal set)
-    #[cfg(target_arch = "wasm32")]
     #[derive(Debug, Serialize, Deserialize)]
     pub struct JwtClaims {
         /// Issuer
@@ -104,7 +102,6 @@ mod wasm_example {
     }
 
     /// Audience can be a string or array of strings
-    #[cfg(target_arch = "wasm32")]
     #[derive(Debug, Serialize, Deserialize)]
     #[serde(untagged)]
     pub enum StringOrArray {
@@ -112,7 +109,6 @@ mod wasm_example {
         Array(Vec<String>),
     }
 
-    #[cfg(target_arch = "wasm32")]
     impl StringOrArray {
         pub fn contains(&self, value: &str) -> bool {
             match self {
@@ -123,7 +119,6 @@ mod wasm_example {
     }
 
     /// Parsed JWT with all three parts
-    #[cfg(target_arch = "wasm32")]
     #[derive(Debug)]
     pub struct ParsedJwt {
         pub header: JwtHeader,
@@ -135,7 +130,6 @@ mod wasm_example {
     }
 
     /// JWT verification error
-    #[cfg(target_arch = "wasm32")]
     #[derive(Debug)]
     pub enum JwtError {
         /// Invalid JWT format (not 3 parts)
@@ -162,7 +156,6 @@ mod wasm_example {
         InvalidAudience,
     }
 
-    #[cfg(target_arch = "wasm32")]
     impl std::fmt::Display for JwtError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
@@ -186,13 +179,11 @@ mod wasm_example {
     // ============================================================================
 
     /// Decodes a base64url string (no padding)
-    #[cfg(target_arch = "wasm32")]
     fn base64url_decode(input: &str) -> Result<Vec<u8>, JwtError> {
         Base64UrlUnpadded::decode_vec(input).map_err(|e| JwtError::Base64Error(format!("{:?}", e)))
     }
 
     /// Parses a JWT string into its components
-    #[cfg(target_arch = "wasm32")]
     pub fn parse_jwt(token: &str) -> Result<ParsedJwt, JwtError> {
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
@@ -225,7 +216,6 @@ mod wasm_example {
     // ============================================================================
 
     /// Verifies a JWT signature using WebCrypto
-    #[cfg(target_arch = "wasm32")]
     pub async fn verify_signature(
         jwt: &ParsedJwt,
         crypto_key: &web_sys::CryptoKey,
@@ -268,7 +258,6 @@ mod wasm_example {
     // ============================================================================
 
     /// Options for JWT verification
-    #[cfg(target_arch = "wasm32")]
     pub struct VerifyOptions<'a> {
         /// Expected issuer (if set, must match)
         pub issuer: Option<&'a str>,
@@ -282,7 +271,6 @@ mod wasm_example {
         pub clock_skew: u64,
     }
 
-    #[cfg(target_arch = "wasm32")]
     impl<'a> Default for VerifyOptions<'a> {
         fn default() -> Self {
             Self {
@@ -295,7 +283,6 @@ mod wasm_example {
         }
     }
 
-    #[cfg(target_arch = "wasm32")]
     impl<'a> VerifyOptions<'a> {
         pub fn new() -> Self {
             Self::default()
@@ -313,13 +300,11 @@ mod wasm_example {
     }
 
     /// Gets the current Unix timestamp (seconds since epoch)
-    #[cfg(target_arch = "wasm32")]
     fn current_timestamp() -> u64 {
         (js_sys::Date::now() / 1000.0) as u64
     }
 
     /// Validates the JWT claims (expiration, issuer, audience, etc.)
-    #[cfg(target_arch = "wasm32")]
     fn validate_claims(claims: &JwtClaims, options: &VerifyOptions) -> Result<(), JwtError> {
         let now = current_timestamp();
 
@@ -361,7 +346,6 @@ mod wasm_example {
     }
 
     /// Finds the appropriate key from a JWKS for verifying a JWT
-    #[cfg(target_arch = "wasm32")]
     fn find_key_for_jwt<'a>(jwks: &'a KeySet, jwt: &ParsedJwt) -> Result<&'a Key, JwtError> {
         let alg = Algorithm::from(jwt.header.alg.as_str());
 
@@ -405,7 +389,6 @@ mod wasm_example {
     /// let claims = verify_jwt(token, &jwks, &options).await?;
     /// println!("Subject: {:?}", claims.sub);
     /// ```
-    #[cfg(target_arch = "wasm32")]
     pub async fn verify_jwt(
         token: &str,
         jwks: &KeySet,
@@ -449,7 +432,6 @@ mod wasm_example {
     // ============================================================================
 
     /// Example: Verify a JWT from an OIDC provider
-    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen]
     pub async fn example_verify_oidc_token(
         token: &str,
