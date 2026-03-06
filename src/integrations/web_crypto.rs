@@ -87,16 +87,18 @@ use crate::jwks::KeyMatcher;
 pub fn get_subtle_crypto() -> Result<SubtleCrypto> {
     // Try window first (browser context)
     if let Some(window) = web_sys::window()
-        && let Ok(crypto) = window.crypto() {
-            return Ok(crypto.subtle());
-        }
+        && let Ok(crypto) = window.crypto()
+    {
+        return Ok(crypto.subtle());
+    }
 
     // Try WorkerGlobalScope (Web Worker context)
     let global = js_sys::global();
     if let Ok(worker_scope) = global.dyn_into::<web_sys::WorkerGlobalScope>()
-        && let Ok(crypto) = worker_scope.crypto() {
-            return Ok(crypto.subtle());
-        }
+        && let Ok(crypto) = worker_scope.crypto()
+    {
+        return Ok(crypto.subtle());
+    }
 
     Err(Error::WebCrypto(
         "crypto API not available in this context".to_string(),
@@ -1203,7 +1205,7 @@ mod validation_tests {
 
     #[test]
     fn test_import_usage_validation_enforces_metadata_when_alg_present() {
-        let mut key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
+        let key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
         let key = key.with_key_ops([
             crate::jwk::KeyOperation::Sign,
             crate::jwk::KeyOperation::Sign,
