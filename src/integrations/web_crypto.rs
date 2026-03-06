@@ -713,9 +713,9 @@ pub fn build_verify_algorithm(alg: &Algorithm) -> Result<Object> {
 ///
 /// # Supported Key Types
 ///
-/// - RSA public keys (RS256, RS384, RS512, PS256, PS384, PS512) — requires `alg`
+/// - RSA public keys (RS256, RS384, RS512, PS256, PS384, PS512) - requires `alg`
 /// - EC public keys (P-256, P-384, P-521)
-/// - HMAC symmetric keys (HS256, HS384, HS512) — requires `alg`
+/// - HMAC symmetric keys (HS256, HS384, HS512) - requires `alg`
 ///
 /// # Errors
 ///

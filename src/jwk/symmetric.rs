@@ -23,7 +23,7 @@ use crate::error::{IncompatibleKeyError, InvalidKeyError, Result};
 /// # Examples
 ///
 /// ```
-/// use jwk_simple::jwk::SymmetricParams;
+/// use jwk_simple::SymmetricParams;
 ///
 /// // Parse from JSON
 /// let json = r#"{"k": "GawgguFyGrWKav7AX4VKUg"}"#;
@@ -43,7 +43,7 @@ impl SymmetricParams {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::jwk::SymmetricParams;
+    /// use jwk_simple::SymmetricParams;
     /// use jwk_simple::encoding::Base64UrlBytes;
     ///
     /// // Create a 256-bit key
@@ -82,7 +82,7 @@ impl SymmetricParams {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::jwk::SymmetricParams;
+    /// use jwk_simple::SymmetricParams;
     /// use jwk_simple::encoding::Base64UrlBytes;
     ///
     /// let valid_params = SymmetricParams::new(Base64UrlBytes::new(vec![1, 2, 3]));

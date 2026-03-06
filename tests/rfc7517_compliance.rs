@@ -261,10 +261,10 @@ mod alg_parameter {
 
     #[test]
     fn test_alg_ec_curve_mismatch_rejected() {
-        // ES256 requires P-256 curve — structurally valid, but not suitable for ES256
+        // ES256 requires P-256 curve; structurally valid, but not suitable for ES256
         let json = r#"{"kty": "EC", "alg": "ES256", "crv": "P-384", "x": "iLyL6MBI9yiKz53NAu9zLRAL2F6MbEH5ElfsZ9bQGpAR9LfYP5p7Bz9p96pv1vyD", "y": "bOkP17tTpKmrbfmBdxUj6K4DFZ9LT99KyDyUjTjwbqq-Gd8MSNFTuuWJxBIqaIQW"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        // Structural validation passes — the key material is valid
+        // Structural validation passes: the key material is valid
         assert!(jwk.validate().is_ok(), "EC P-384 key is structurally valid");
         // Suitability check rejects the mismatch
         let result = jwk.validate_for_use(&Algorithm::Es256, [KeyOperation::Verify]);
@@ -276,7 +276,7 @@ mod alg_parameter {
         // RS256 requires RSA key, not symmetric
         let json = r#"{"kty": "oct", "alg": "RS256", "k": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        // Structural validation passes — symmetric key is structurally valid
+        // Structural validation passes: symmetric key is structurally valid
         assert!(
             jwk.validate().is_ok(),
             "symmetric key is structurally valid"
@@ -294,7 +294,7 @@ mod alg_parameter {
         // RS256 requires RSA modulus >= 2048 bits.
         let json = r#"{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        // Structural validation passes — key material is well-formed
+        // Structural validation passes: key material is well-formed
         assert!(
             jwk.validate().is_ok(),
             "small RSA key is structurally valid"
@@ -312,7 +312,7 @@ mod alg_parameter {
         // HS256 requires key length >= 256 bits.
         let json = r#"{"kty": "oct", "alg": "HS256", "k": "AQAB"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        // Structural validation passes — key is non-empty
+        // Structural validation passes: key is non-empty
         assert!(
             jwk.validate().is_ok(),
             "small HMAC key is structurally valid"
@@ -345,7 +345,7 @@ mod alg_parameter {
     fn test_alg_ed25519_with_ed448_curve_mismatch_rejected() {
         let json = r#"{"kty": "OKP", "alg": "Ed25519", "crv": "Ed448", "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        // Structural validation passes — Ed448 key is well-formed
+        // Structural validation passes: Ed448 key is well-formed
         assert!(jwk.validate().is_ok(), "Ed448 key is structurally valid");
         // Suitability check rejects the curve mismatch
         let result = jwk.validate_for_use(&Algorithm::Ed25519, [KeyOperation::Verify]);
@@ -359,7 +359,7 @@ mod alg_parameter {
     fn test_alg_ed448_with_ed25519_curve_mismatch_rejected() {
         let json = r#"{"kty": "OKP", "alg": "Ed448", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#;
         let jwk: Key = serde_json::from_str(json).unwrap();
-        // Structural validation passes — Ed25519 key is well-formed
+        // Structural validation passes: Ed25519 key is well-formed
         assert!(jwk.validate().is_ok(), "Ed25519 key is structurally valid");
         // Suitability check rejects the curve mismatch
         let result = jwk.validate_for_use(&Algorithm::Ed448, [KeyOperation::Verify]);
@@ -985,7 +985,7 @@ mod rsa_key_size {
 
 mod okp_extended_format {
     use super::*;
-    use jwk_simple::OkpCurve;
+    use jwk_simple::{OkpCurve, OkpParams};
 
     #[test]
     fn test_ed448_accepts_57_byte_seed() {
@@ -1006,7 +1006,7 @@ mod okp_extended_format {
     fn test_ed448_accepts_114_byte_extended() {
         // Ed448 with 114-byte private key (seed + public)
         // This is accepted by some implementations
-        let params = jwk_simple::jwk::OkpParams::new_private(
+        let params = OkpParams::new_private(
             OkpCurve::Ed448,
             jwk_simple::encoding::Base64UrlBytes::new(vec![0; 57]),
             jwk_simple::encoding::Base64UrlBytes::new(vec![1; 114]),
@@ -1016,7 +1016,7 @@ mod okp_extended_format {
 
     #[test]
     fn test_seed_extraction_from_extended() {
-        let params = jwk_simple::jwk::OkpParams::new_private(
+        let params = OkpParams::new_private(
             OkpCurve::Ed448,
             jwk_simple::encoding::Base64UrlBytes::new(vec![0; 57]),
             jwk_simple::encoding::Base64UrlBytes::new(vec![1; 114]),
@@ -1193,7 +1193,7 @@ mod permissive_parsing {
         // supported ranges." Malformed keys with known kty are silently
         // skipped, preserving the valid keys.
 
-        // RSA key missing required "n" and "e" parameters — should be skipped
+        // RSA key missing required "n" and "e" parameters: should be skipped
         let json = r#"{
             "keys": [
                 {"kty": "RSA", "kid": "valid", "n": "AQAB", "e": "AQAB"},
@@ -1211,7 +1211,7 @@ mod permissive_parsing {
             "Malformed key should be skipped"
         );
 
-        // EC key missing required "crv" parameter — should result in empty set
+        // EC key missing required "crv" parameter: should result in empty set
         let json = r#"{
             "keys": [
                 {"kty": "EC", "kid": "missing-curve", "x": "AQAB", "y": "AQAB"}

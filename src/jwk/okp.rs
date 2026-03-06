@@ -100,7 +100,7 @@ impl Display for OkpCurve {
 /// # Examples
 ///
 /// ```
-/// use jwk_simple::jwk::{OkpParams, OkpCurve};
+/// use jwk_simple::{OkpParams, OkpCurve};
 ///
 /// // Parse from JSON
 /// let json = r#"{

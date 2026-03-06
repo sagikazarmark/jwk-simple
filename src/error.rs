@@ -5,10 +5,10 @@
 //!
 //! Key validation errors are split into two categories:
 //!
-//! - [`InvalidKeyError`] — the JWK is malformed (invalid encoding, missing
+//! - [`InvalidKeyError`] - the JWK is malformed (invalid encoding, missing
 //!   parameters, inconsistent fields). These mean "reject this key entirely."
 //!
-//! - [`IncompatibleKeyError`] — the JWK is well-formed but incompatible with
+//! - [`IncompatibleKeyError`] - the JWK is well-formed but incompatible with
 //!   the requested use (wrong key type for algorithm, insufficient strength,
 //!   operation not permitted by metadata). These mean "valid key, wrong context."
 
@@ -25,7 +25,7 @@ pub enum Error {
     /// Failed to parse JSON.
     Parse(ParseError),
 
-    /// The JWK is malformed — missing parameters, invalid encoding, or
+    /// The JWK is malformed: missing parameters, invalid encoding, or
     /// inconsistent fields.
     InvalidKey(InvalidKeyError),
 

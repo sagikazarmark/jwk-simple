@@ -655,7 +655,7 @@ impl From<OkpParams> for KeyParams {
 /// # Examples
 ///
 /// ```
-/// use jwk_simple::jwk::{Key, KeyType};
+/// use jwk_simple::{Key, KeyType};
 ///
 /// // Parse from JSON
 /// let json = r#"{"kty":"RSA","n":"AQAB","e":"AQAB"}"#;
@@ -716,7 +716,7 @@ impl Key {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::jwk::{Key, KeyType, KeyParams, RsaParams, KeyUse, Algorithm};
+    /// use jwk_simple::{Key, KeyType, KeyParams, RsaParams, KeyUse, Algorithm};
     /// use jwk_simple::encoding::Base64UrlBytes;
     ///
     /// let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
@@ -831,7 +831,7 @@ impl Key {
     /// fields are properly encoded and match the key material.
     ///
     /// This method does **not** check algorithm suitability, key strength for
-    /// a specific algorithm, or operation intent — even if the `alg` field is
+    /// a specific algorithm, or operation intent, even if the `alg` field is
     /// set on the key. A key with `"alg": "RS256"` on a symmetric key type
     /// passes `validate()` because the key material itself is structurally
     /// valid; the algorithm mismatch is a suitability concern.
@@ -1028,7 +1028,7 @@ impl Key {
     ///
     /// The `alg` parameter controls which algorithm constraints are applied
     /// (key type, minimum strength). It is independent of the key's own `alg`
-    /// field — no cross-check is performed. Callers are responsible for
+    /// field; no cross-check is performed. Callers are responsible for
     /// ensuring the supplied algorithm is consistent with the key's declared
     /// algorithm, if any.
     ///
@@ -1041,8 +1041,7 @@ impl Key {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::{Key, Algorithm};
-    /// use jwk_simple::jwk::KeyOperation;
+    /// use jwk_simple::{Key, Algorithm, KeyOperation};
     ///
     /// let json = r#"{"kty":"oct","k":"c2VjcmV0LWtleS1tYXRlcmlhbC10aGF0LWlzLWxvbmctZW5vdWdo"}"#;
     /// let key: Key = serde_json::from_str(json).unwrap();
@@ -1100,8 +1099,7 @@ impl Key {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::Key;
-    /// use jwk_simple::jwk::KeyOperation;
+    /// use jwk_simple::{Key, KeyOperation};
     ///
     /// let json = r#"{"kty":"oct","use":"sig","k":"c2VjcmV0LWtleS1tYXRlcmlhbC10aGF0LWlzLWxvbmctZW5vdWdo"}"#;
     /// let key: Key = serde_json::from_str(json).unwrap();
@@ -1119,7 +1117,7 @@ impl Key {
             ));
         }
         // Consistency and uniqueness checks must run here since this is a
-        // standalone public method — callers may not have called `validate()`.
+        // standalone public method: callers may not have called `validate()`.
         self.validate_use_key_ops_consistency()?;
         self.validate_key_ops_unique()?;
         self.validate_operation_intent_for_all(operations)
@@ -2415,7 +2413,7 @@ mod tests {
             Base64UrlBytes::new(vec![0u8; 31]),
         )));
 
-        // Baseline JWK validation (structure) still passes — key is structurally valid.
+        // Baseline JWK validation (structure) still passes: key is structurally valid.
         assert!(weak_hmac_key.validate().is_ok());
 
         // Algorithm suitability check enforces HS256 minimum key strength.

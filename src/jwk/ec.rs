@@ -82,7 +82,7 @@ impl Display for EcCurve {
 /// # Examples
 ///
 /// ```
-/// use jwk_simple::jwk::{EcParams, EcCurve};
+/// use jwk_simple::{EcParams, EcCurve};
 ///
 /// // Parse from JSON
 /// let json = r#"{

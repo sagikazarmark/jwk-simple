@@ -100,7 +100,7 @@ impl Debug for RsaOtherPrime {
 /// # Examples
 ///
 /// ```
-/// use jwk_simple::jwk::RsaParams;
+/// use jwk_simple::RsaParams;
 ///
 /// // Parse from JSON
 /// let json = r#"{
@@ -172,7 +172,7 @@ impl RsaParams {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::jwk::RsaParams;
+    /// use jwk_simple::RsaParams;
     /// use jwk_simple::encoding::Base64UrlBytes;
     ///
     /// let params = RsaParams::builder(
@@ -430,7 +430,7 @@ impl RsaParams {
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::jwk::RsaParams;
+    /// use jwk_simple::RsaParams;
     /// use jwk_simple::encoding::Base64UrlBytes;
     ///
     /// let mut modulus = vec![0; 256];
@@ -488,7 +488,7 @@ impl RsaParams {
 /// # Examples
 ///
 /// ```
-/// use jwk_simple::jwk::RsaParams;
+/// use jwk_simple::RsaParams;
 /// use jwk_simple::encoding::Base64UrlBytes;
 ///
 /// // Build a private key with CRT parameters
