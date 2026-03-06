@@ -65,9 +65,36 @@ pub struct FetchKeyStore {
     url: Url,
 }
 
+fn require_https(url: &Url) -> Result<()> {
+    if url.scheme() != "https" {
+        return Err(Error::InvalidUrl(
+            "URL scheme must be 'https'; use new_insecure() to allow HTTP for local development or testing".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 impl FetchKeyStore {
     /// Creates a new `FetchKeyStore` from a URL.
+    ///
+    /// The URL must use the `https` scheme. To allow plain HTTP (e.g. in local development
+    /// or testing), use [`new_insecure`](Self::new_insecure).
     pub fn new(url: impl AsRef<str>) -> Result<Self> {
+        let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        require_https(&url)?;
+
+        Ok(Self { url })
+    }
+
+    /// Creates a new `FetchKeyStore` without enforcing HTTPS.
+    ///
+    /// # Warning
+    ///
+    /// This constructor skips the HTTPS scheme check and is intended **only** for local
+    /// development or testing where HTTPS is not available. Do **not** use this in
+    /// production — plain HTTP connections allow network attackers to tamper with
+    /// JWKS responses and inject attacker-controlled keys.
+    pub fn new_insecure(url: impl AsRef<str>) -> Result<Self> {
         let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
 
         Ok(Self { url })
@@ -246,5 +273,23 @@ mod tests {
     fn test_fetch_keystore_new_rejects_invalid_url() {
         let err = FetchKeyStore::new("not a valid url").unwrap_err();
         assert!(matches!(err, Error::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_fetch_keystore_new_rejects_http_url() {
+        let err = FetchKeyStore::new("http://example.com/.well-known/jwks.json").unwrap_err();
+        assert!(matches!(err, Error::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_fetch_keystore_new_accepts_https_url() {
+        assert!(FetchKeyStore::new("https://example.com/.well-known/jwks.json").is_ok());
+    }
+
+    #[test]
+    fn test_fetch_keystore_new_insecure_accepts_http_url() {
+        assert!(
+            FetchKeyStore::new_insecure("http://example.com/.well-known/jwks.json").is_ok()
+        );
     }
 }

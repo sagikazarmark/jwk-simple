@@ -66,8 +66,20 @@ pub struct HttpKeyStore {
     client: reqwest::Client,
 }
 
+fn require_https(url: &Url) -> Result<()> {
+    if url.scheme() != "https" {
+        return Err(Error::InvalidUrl(
+            "URL scheme must be 'https'; use new_insecure() or new_with_client_insecure() to allow HTTP for local development or testing".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 impl HttpKeyStore {
     /// Creates a new `HttpKeyStore` from a URL.
+    ///
+    /// The URL must use the `https` scheme. To allow plain HTTP (e.g. in local development
+    /// or testing), use [`new_insecure`](Self::new_insecure).
     ///
     /// On native targets, uses a default HTTP client with a 30-second timeout.
     /// On `wasm32`, reqwest uses the browser/Fetch backend where client-level
@@ -83,6 +95,9 @@ impl HttpKeyStore {
     }
 
     /// Creates a new `HttpKeyStore` with a custom HTTP client.
+    ///
+    /// The URL must use the `https` scheme. To allow plain HTTP, use
+    /// [`new_with_client_insecure`](Self::new_with_client_insecure).
     ///
     /// Use this to configure custom headers, proxies, TLS settings, and (on native
     /// targets) custom timeouts.
@@ -107,6 +122,38 @@ impl HttpKeyStore {
     /// )?;
     /// ```
     pub fn new_with_client(url: impl AsRef<str>, client: reqwest::Client) -> Result<Self> {
+        let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        require_https(&url)?;
+
+        Ok(Self { url, client })
+    }
+
+    /// Creates a new `HttpKeyStore` without enforcing HTTPS.
+    ///
+    /// # Warning
+    ///
+    /// This constructor skips the HTTPS scheme check and is intended **only** for local
+    /// development or testing where HTTPS is not available. Do **not** use this in
+    /// production — plain HTTP connections allow network attackers to tamper with
+    /// JWKS responses and inject attacker-controlled keys.
+    pub fn new_insecure(url: impl AsRef<str>) -> Result<Self> {
+        let builder = reqwest::Client::builder();
+        #[cfg(not(target_arch = "wasm32"))]
+        let builder = builder.timeout(DEFAULT_TIMEOUT);
+        let client = builder.build()?;
+
+        Self::new_with_client_insecure(url, client)
+    }
+
+    /// Creates a new `HttpKeyStore` with a custom HTTP client, without enforcing HTTPS.
+    ///
+    /// # Warning
+    ///
+    /// This constructor skips the HTTPS scheme check and is intended **only** for local
+    /// development or testing where HTTPS is not available. Do **not** use this in
+    /// production — plain HTTP connections allow network attackers to tamper with
+    /// JWKS responses and inject attacker-controlled keys.
+    pub fn new_with_client_insecure(url: impl AsRef<str>, client: reqwest::Client) -> Result<Self> {
         let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
 
         Ok(Self { url, client })
@@ -177,7 +224,7 @@ mod tests {
         );
         let url = spawn_single_response_server(response).await;
 
-        let store = HttpKeyStore::new(url).unwrap();
+        let store = HttpKeyStore::new_insecure(url).unwrap();
         let keyset = store.get_keyset().await.unwrap();
         assert_eq!(keyset.len(), 1);
         assert!(keyset.get_by_kid("k1").is_some());
@@ -193,7 +240,7 @@ mod tests {
         );
         let url = spawn_single_response_server(response).await;
 
-        let store = HttpKeyStore::new(url).unwrap();
+        let store = HttpKeyStore::new_insecure(url).unwrap();
         let err = store.get_keyset().await.unwrap_err();
         match err {
             Error::Http(e) => {
@@ -213,7 +260,7 @@ mod tests {
         );
         let url = spawn_single_response_server(response).await;
 
-        let store = HttpKeyStore::new(url).unwrap();
+        let store = HttpKeyStore::new_insecure(url).unwrap();
         let err = store.get_keyset().await.unwrap_err();
         assert!(matches!(err, Error::Parse(ParseError::Json(_))));
     }
@@ -224,7 +271,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         drop(listener);
 
-        let store = HttpKeyStore::new(format!("http://{}", addr)).unwrap();
+        let store = HttpKeyStore::new_insecure(format!("http://{}", addr)).unwrap();
         let err = store.get_keyset().await.unwrap_err();
         match err {
             Error::Http(e) => {
@@ -258,7 +305,7 @@ mod tests {
             .timeout(Duration::from_millis(50))
             .build()
             .unwrap();
-        let store = HttpKeyStore::new_with_client(format!("http://{}", addr), client).unwrap();
+        let store = HttpKeyStore::new_with_client_insecure(format!("http://{}", addr), client).unwrap();
         let err = store.get_keyset().await.unwrap_err();
         match err {
             Error::Http(e) => {
@@ -279,5 +326,51 @@ mod tests {
         let client = reqwest::Client::new();
         let err = HttpKeyStore::new_with_client("not a valid url", client).unwrap_err();
         assert!(matches!(err, Error::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_http_keystore_new_rejects_http_url() {
+        let err = HttpKeyStore::new("http://example.com/.well-known/jwks.json").unwrap_err();
+        assert!(matches!(err, Error::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_http_keystore_new_with_client_rejects_http_url() {
+        let client = reqwest::Client::new();
+        let err = HttpKeyStore::new_with_client("http://example.com/.well-known/jwks.json", client)
+            .unwrap_err();
+        assert!(matches!(err, Error::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_http_keystore_new_accepts_https_url() {
+        // Construction succeeds; no network call is made here.
+        assert!(HttpKeyStore::new("https://example.com/.well-known/jwks.json").is_ok());
+    }
+
+    #[test]
+    fn test_http_keystore_new_with_client_accepts_https_url() {
+        let client = reqwest::Client::new();
+        // Construction succeeds; no network call is made here.
+        assert!(HttpKeyStore::new_with_client(
+            "https://example.com/.well-known/jwks.json",
+            client
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn test_http_keystore_new_insecure_accepts_http_url() {
+        assert!(HttpKeyStore::new_insecure("http://example.com/.well-known/jwks.json").is_ok());
+    }
+
+    #[test]
+    fn test_http_keystore_new_with_client_insecure_accepts_http_url() {
+        let client = reqwest::Client::new();
+        assert!(HttpKeyStore::new_with_client_insecure(
+            "http://example.com/.well-known/jwks.json",
+            client
+        )
+        .is_ok());
     }
 }
