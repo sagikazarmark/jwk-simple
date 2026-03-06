@@ -840,6 +840,7 @@ impl Key {
     /// This method does **not** perform PKIX trust/path validation for `x5c`
     /// chains (trust anchors, validity period, key usage/EKU, revocation, etc.).
     /// PKIX trust validation is application-defined and out of scope for this crate.
+    #[must_use = "validation result must be checked"]
     pub fn validate(&self) -> Result<()> {
         // Structural key-material validation (key-type-specific).
         self.params.validate()?;
@@ -1049,6 +1050,7 @@ impl Key {
     /// // Validate for HMAC signing
     /// assert!(key.validate_for_use(&Algorithm::Hs256, [KeyOperation::Sign]).is_ok());
     /// ```
+    #[must_use = "validation result must be checked"]
     pub fn validate_for_use(
         &self,
         alg: &Algorithm,
@@ -1600,6 +1602,18 @@ impl Debug for Key {
 /// and key material parameters. X.509 certificate fields (`x5c`, `x5t`,
 /// `x5t#S256`, `x5u`) are **not** compared, because two representations
 /// of the same cryptographic key may carry different certificate metadata.
+///
+/// # Security Note
+///
+/// This comparison is **not** constant-time. It uses short-circuit
+/// byte-by-byte comparison of key material, including private key
+/// components. Do not use `==` on [`Key`] values in security-sensitive
+/// decisions where one side is attacker-controlled, as timing differences
+/// may leak information about secret key material (CWE-208).
+///
+/// For constant-time comparison of symmetric key material, use
+/// [`SymmetricParams::ct_eq`]. For the underlying byte buffers, use
+/// [`Base64UrlBytes::ct_eq`](crate::encoding::Base64UrlBytes::ct_eq).
 impl PartialEq for Key {
     fn eq(&self, other: &Self) -> bool {
         self.kty() == other.kty()

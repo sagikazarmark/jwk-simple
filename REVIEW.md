@@ -401,6 +401,19 @@ Copy this block for new items:
 - Revisit signal: Error taxonomy refactor or need for structured `oth` validation errors.
 - Suggested future action: Add `InvalidKeyError::InvalidOtherPrime { index: usize, source: Box<InvalidKeyError> }` variant, or preserve the source chain via `InconsistentParameters` with a `source` field.
 
+## PartialEq on Key performs non-constant-time comparison of secret key material
+- Date added: 2026-03-06
+- Source: security review
+- Validity: CONFIRMED
+- Trigger likelihood: RARE
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: The library itself does not use `Key` equality in any security-sensitive path. `PartialEq` is useful for legitimate non-secret comparisons (e.g., public key deduplication in sets/maps). Constant-time helpers already exist on the lower-level types (`SymmetricParams::ct_eq`, `Base64UrlBytes::ct_eq`). A doc comment warning has been added to the `PartialEq` impl.
+- Preconditions/Trigger: Application code uses `==` to compare `Key` values where one side is attacker-controlled input, enabling a timing oracle over private key bytes.
+- Risk if not fixed: Downstream users may unknowingly perform timing-vulnerable comparisons of secret key material.
+- Revisit signal: Requests for a `Key`-level constant-time comparison API, or evidence of downstream misuse.
+- Suggested future action: Consider adding `Key::ct_eq` that delegates to the underlying params' constant-time comparison methods.
+
 ## Ignored Findings
 
 (No active ignored findings.)
