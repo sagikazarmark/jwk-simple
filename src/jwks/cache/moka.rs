@@ -67,8 +67,8 @@ impl KeyCache for MokaKeyCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Key;
     use crate::error::Error;
-    use crate::jwk::Key;
     use crate::jwks::{CachedKeyStore, KeyStore};
     use std::sync::atomic::{AtomicUsize, Ordering};
 

@@ -88,7 +88,7 @@ fn build_okp_canonical(params: &OkpParams) -> String {
 mod tests {
     use super::*;
     use crate::encoding::Base64UrlBytes;
-    use crate::jwk::{EcCurve, OkpCurve};
+    use crate::{EcCurve, OkpCurve};
 
     #[test]
     fn test_rsa_canonical_order() {

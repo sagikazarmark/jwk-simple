@@ -1281,7 +1281,7 @@ mod tests {
         // EC P-256 key with x coordinate of wrong length (4 bytes instead of 32).
         // Constructed programmatically to bypass JWKS parse-time filtering.
         use crate::encoding::Base64UrlBytes;
-        use crate::jwk::{EcCurve, EcParams, KeyParams};
+        use crate::{EcCurve, EcParams, KeyParams};
 
         let bad_ec = Key::new(KeyParams::Ec(EcParams::new_public(
             EcCurve::P256,
