@@ -425,7 +425,7 @@ fn key_operation_for_usage(usage: KeyUsage) -> KeyOperation {
 /// Key usage category for determining the appropriate algorithm.
 ///
 /// This is used by the low-level [`import_key_for_usage`] and
-/// [`import_key_for_usage_for_alg`] functions to select the correct
+/// [`import_key_for_usage_with_alg`] functions to select the correct
 /// WebCrypto algorithm parameters at import time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -777,7 +777,7 @@ pub async fn import_sign_key(key: &Key) -> Result<CryptoKey> {
 ///
 /// This requires the key's `alg` field to be set for RSA and symmetric keys,
 /// because WebCrypto requires the import algorithm to be specified.
-/// For keys without an `alg` field, use [`import_key_for_usage_for_alg`]
+/// For keys without an `alg` field, use [`import_key_for_usage_with_alg`]
 /// with [`KeyUsage::Encrypt`] and an explicit algorithm.
 ///
 /// # Supported Key Types
@@ -804,7 +804,7 @@ pub async fn import_encrypt_key(key: &Key) -> Result<CryptoKey> {
 /// This requires a private key (RSA) or symmetric key.
 /// This also requires the key's `alg` field to be set for RSA and symmetric keys,
 /// because WebCrypto requires the import algorithm to be specified.
-/// For keys without an `alg` field, use [`import_key_for_usage_for_alg`]
+/// For keys without an `alg` field, use [`import_key_for_usage_with_alg`]
 /// with [`KeyUsage::Decrypt`] and an explicit algorithm.
 ///
 /// # Errors
@@ -825,7 +825,7 @@ pub async fn import_decrypt_key(key: &Key) -> Result<CryptoKey> {
 ///
 /// This requires the key's `alg` field to be set for RSA and symmetric keys,
 /// because WebCrypto requires the import algorithm to be specified.
-/// For keys without an `alg` field, use [`import_key_for_usage_for_alg`]
+/// For keys without an `alg` field, use [`import_key_for_usage_with_alg`]
 /// with [`KeyUsage::WrapKey`] and an explicit algorithm.
 ///
 /// # Supported Key Types
@@ -846,7 +846,7 @@ pub async fn import_wrap_key(key: &Key) -> Result<CryptoKey> {
 ///
 /// This requires the key's `alg` field to be set for RSA and symmetric keys,
 /// because WebCrypto requires the import algorithm to be specified.
-/// For keys without an `alg` field, use [`import_key_for_usage_for_alg`]
+/// For keys without an `alg` field, use [`import_key_for_usage_with_alg`]
 /// with [`KeyUsage::UnwrapKey`] and an explicit algorithm.
 ///
 /// # Supported Key Types
@@ -892,7 +892,7 @@ pub async fn import_unwrap_key(key: &Key) -> Result<CryptoKey> {
 /// let crypto_key = web_crypto::import_verify_key_for_alg(key, &Algorithm::Rs384).await?;
 /// ```
 pub async fn import_verify_key_for_alg(key: &Key, alg: &Algorithm) -> Result<CryptoKey> {
-    import_key_for_usage_for_alg(key, KeyUsage::Verify, alg).await
+    import_key_for_usage_with_alg(key, KeyUsage::Verify, alg).await
 }
 
 /// Imports a JWK as a [`CryptoKey`] for signing with an explicit algorithm.
@@ -905,14 +905,14 @@ pub async fn import_verify_key_for_alg(key: &Key, alg: &Algorithm) -> Result<Cry
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
 /// - [`Error::WebCrypto`] if the import operation fails
 pub async fn import_sign_key_for_alg(key: &Key, alg: &Algorithm) -> Result<CryptoKey> {
-    import_key_for_usage_for_alg(key, KeyUsage::Sign, alg).await
+    import_key_for_usage_with_alg(key, KeyUsage::Sign, alg).await
 }
 
 /// Imports a JWK as a [`CryptoKey`] for a typed key usage.
 ///
 /// The key must have an `alg` field set so that the correct WebCrypto algorithm
 /// parameters can be determined. For RSA and HMAC keys without an `alg` field,
-/// use [`import_key_for_usage_for_alg`] instead.
+/// use [`import_key_for_usage_with_alg`] instead.
 ///
 /// # Errors
 ///
@@ -937,7 +937,7 @@ pub async fn import_key_for_usage(key: &Key, usage: KeyUsage) -> Result<CryptoKe
 ///
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
 /// - [`Error::WebCrypto`] if the import operation fails
-pub async fn import_key_for_usage_for_alg(
+pub async fn import_key_for_usage_with_alg(
     key: &Key,
     usage: KeyUsage,
     alg: &Algorithm,
