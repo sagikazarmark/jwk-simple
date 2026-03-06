@@ -89,31 +89,31 @@ Copy this block for new items:
 - Revisit signal: Confusing compliance test failures or refactors in validation error taxonomy.
 - Suggested future action: Add specific error-variant assertions to highest-value rule-focused tests first.
 
-## Weak conversion tests rely on non-empty output checks
+## Conversion tests still include coarse assertions in a few paths
 - Date added: 2026-03-03
 - Source: second-opinion review
-- Validity: PLAUSIBLE
+- Validity: CONFIRMED
 - Trigger likelihood: RARE
 - Severity: HIGH -> LOW/MEDIUM
 - Decision: DEFER
-- Rationale: Broader behavioral conversion tests are now present; remaining non-empty checks are narrow and mostly diagnostic.
-- Preconditions/Trigger: A conversion-specific regression escapes behavioral token sign/verify checks while still producing non-empty output.
-- Risk if not fixed: Residual blind spots in conversion-path diagnostics rather than broad semantic coverage gaps.
+- Rationale: Broader behavioral conversion tests are now present; remaining coarse checks (for example non-empty output and broad `is_ok`) are narrow and mostly diagnostic.
+- Preconditions/Trigger: A conversion-specific regression escapes behavioral token sign/verify checks while still satisfying coarse assertions.
+- Risk if not fixed: Residual blind spots and weaker failure localization in conversion-path diagnostics rather than broad semantic coverage gaps.
 - Revisit signal: Conversion-related bug where behavioral tests pass but format/output assumptions are wrong.
-- Suggested future action: Replace non-empty assertions with token verify/reject behavioral checks.
+- Suggested future action: Replace remaining non-empty and broad `is_ok` conversion assertions with focused behavioral checks (verify/reject, type/shape expectations).
 
-## parse_jwt format test does not assert parsed fields
+## Example parse_jwt format test does not assert parsed fields
 - Date added: 2026-03-03
 - Source: second-opinion review
 - Validity: CONFIRMED
 - Trigger likelihood: UNCOMMON
 - Severity: HIGH -> LOW
 - Decision: DEFER
-- Rationale: Test robustness issue only; no immediate production behavior change required.
-- Preconditions/Trigger: `parse_jwt` returns incorrect header/claims/signing input while test still passes.
-- Risk if not fixed: False confidence in parsing correctness.
-- Revisit signal: Parser changes or bug reports around JWT segment handling.
-- Suggested future action: Assert ParsedJwt fields and specific error variants for malformed inputs.
+- Rationale: Applies to an example-scoped test (`examples/webcrypto_jwt_verify.rs`) rather than core library tests; still worth tightening if the example remains a reference path.
+- Preconditions/Trigger: Example `parse_jwt` returns incorrect header/claims/signing input while the format test still passes.
+- Risk if not fixed: False confidence in example parser correctness (not core crate behavior).
+- Revisit signal: Example parser changes or user reports based on the example workflow.
+- Suggested future action: Assert parsed fields and specific malformed-input errors in the example test, or remove the test if the example parser is not intended for robustness guarantees.
 
 ## Moka expiration test has tight timing margins
 - Date added: 2026-03-03
@@ -140,19 +140,6 @@ Copy this block for new items:
 - Risk if not fixed: Direct lookup regressions may be slower to detect.
 - Revisit signal: Changes to thumbprint comparison or lookup iteration behavior.
 - Suggested future action: Add direct positive/negative/multi-key lookup tests for `get_by_thumbprint`.
-
-## Convenience conversion test uses broad is_ok checks
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: Primarily diagnostics/readability; current test still catches gross failures.
-- Preconditions/Trigger: Semantic regressions still return `Ok`.
-- Risk if not fixed: Coarse failure localization and weaker semantic guarantees.
-- Revisit signal: Conversion refactors or recurring ambiguous test failures.
-- Suggested future action: Split into focused per-method tests with behavioral post-conditions.
 
 ## EC parameter validation is structural only
 - Date added: 2026-03-03
