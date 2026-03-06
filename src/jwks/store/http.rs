@@ -69,7 +69,7 @@ pub struct HttpKeyStore {
 fn require_https(url: &Url) -> Result<()> {
     if url.scheme() != "https" {
         return Err(Error::InvalidUrl(
-            "URL scheme must be 'https'; use new_insecure() to allow HTTP for local development or testing".to_string(),
+            "URL scheme must be 'https'; use new_insecure() or new_with_client_insecure() to allow HTTP for local development or testing".to_string(),
         ));
     }
     Ok(())
@@ -346,6 +346,17 @@ mod tests {
     fn test_http_keystore_new_accepts_https_url() {
         // Construction succeeds; no network call is made here.
         assert!(HttpKeyStore::new("https://example.com/.well-known/jwks.json").is_ok());
+    }
+
+    #[test]
+    fn test_http_keystore_new_with_client_accepts_https_url() {
+        let client = reqwest::Client::new();
+        // Construction succeeds; no network call is made here.
+        assert!(HttpKeyStore::new_with_client(
+            "https://example.com/.well-known/jwks.json",
+            client
+        )
+        .is_ok());
     }
 
     #[test]
