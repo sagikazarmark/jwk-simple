@@ -64,7 +64,8 @@ use web_sys::{CryptoKey, SubtleCrypto};
 
 use crate::error::{Error, Result};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams};
-use crate::jwks::{KeyMatcher, KeySet};
+#[cfg(test)]
+use crate::jwks::KeyMatcher;
 
 // ============================================================================
 // SubtleCrypto Access
@@ -423,8 +424,8 @@ fn key_operation_for_usage(usage: KeyUsage) -> KeyOperation {
 
 /// Key usage category for determining the appropriate algorithm.
 ///
-/// This is used by the low-level [`import_key_with_usages`] and
-/// [`import_key_with_usages_for_alg`] functions to select the correct
+/// This is used by the low-level [`import_key_for_usage`] and
+/// [`import_key_for_usage_for_alg`] functions to select the correct
 /// WebCrypto algorithm parameters at import time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -441,6 +442,17 @@ pub enum KeyUsage {
     WrapKey,
     /// The key will be used for unwrapping other keys.
     UnwrapKey,
+}
+
+fn usage_strings_for_usage(usage: KeyUsage) -> &'static [&'static str] {
+    match usage {
+        KeyUsage::Sign => &["sign"],
+        KeyUsage::Verify => &["verify"],
+        KeyUsage::Encrypt => &["encrypt"],
+        KeyUsage::Decrypt => &["decrypt"],
+        KeyUsage::WrapKey => &["wrapKey"],
+        KeyUsage::UnwrapKey => &["unwrapKey"],
+    }
 }
 
 /// Builds an RSA algorithm object.
@@ -735,7 +747,7 @@ pub fn build_verify_algorithm(alg: &Algorithm) -> Result<Object> {
 /// let crypto_key = web_crypto::import_verify_key(key).await?;
 /// ```
 pub async fn import_verify_key(key: &Key) -> Result<CryptoKey> {
-    import_key_with_usages(key, &["verify"], KeyUsage::Verify).await
+    import_key_for_usage(key, KeyUsage::Verify).await
 }
 
 /// Imports a JWK as a [`CryptoKey`] for signing.
@@ -758,14 +770,14 @@ pub async fn import_verify_key(key: &Key) -> Result<CryptoKey> {
 /// let crypto_key = web_crypto::import_sign_key(&private_key).await?;
 /// ```
 pub async fn import_sign_key(key: &Key) -> Result<CryptoKey> {
-    import_key_with_usages(key, &["sign"], KeyUsage::Sign).await
+    import_key_for_usage(key, KeyUsage::Sign).await
 }
 
 /// Imports a JWK as a [`CryptoKey`] for encryption.
 ///
 /// This requires the key's `alg` field to be set for RSA and symmetric keys,
 /// because WebCrypto requires the import algorithm to be specified.
-/// For keys without an `alg` field, use [`import_key_with_usages_for_alg`]
+/// For keys without an `alg` field, use [`import_key_for_usage_for_alg`]
 /// with [`KeyUsage::Encrypt`] and an explicit algorithm.
 ///
 /// # Supported Key Types
@@ -784,7 +796,7 @@ pub async fn import_encrypt_key(key: &Key) -> Result<CryptoKey> {
                      use ECDH key agreement (deriveKey/deriveBits) instead",
         });
     }
-    import_key_with_usages(key, &["encrypt"], KeyUsage::Encrypt).await
+    import_key_for_usage(key, KeyUsage::Encrypt).await
 }
 
 /// Imports a JWK as a [`CryptoKey`] for decryption.
@@ -792,7 +804,7 @@ pub async fn import_encrypt_key(key: &Key) -> Result<CryptoKey> {
 /// This requires a private key (RSA) or symmetric key.
 /// This also requires the key's `alg` field to be set for RSA and symmetric keys,
 /// because WebCrypto requires the import algorithm to be specified.
-/// For keys without an `alg` field, use [`import_key_with_usages_for_alg`]
+/// For keys without an `alg` field, use [`import_key_for_usage_for_alg`]
 /// with [`KeyUsage::Decrypt`] and an explicit algorithm.
 ///
 /// # Errors
@@ -806,14 +818,14 @@ pub async fn import_decrypt_key(key: &Key) -> Result<CryptoKey> {
                      use ECDH key agreement (deriveKey/deriveBits) instead",
         });
     }
-    import_key_with_usages(key, &["decrypt"], KeyUsage::Decrypt).await
+    import_key_for_usage(key, KeyUsage::Decrypt).await
 }
 
 /// Imports a JWK as a [`CryptoKey`] for key wrapping.
 ///
 /// This requires the key's `alg` field to be set for RSA and symmetric keys,
 /// because WebCrypto requires the import algorithm to be specified.
-/// For keys without an `alg` field, use [`import_key_with_usages_for_alg`]
+/// For keys without an `alg` field, use [`import_key_for_usage_for_alg`]
 /// with [`KeyUsage::WrapKey`] and an explicit algorithm.
 ///
 /// # Supported Key Types
@@ -827,14 +839,14 @@ pub async fn import_wrap_key(key: &Key) -> Result<CryptoKey> {
                      use ECDH key agreement (deriveKey/deriveBits) instead",
         });
     }
-    import_key_with_usages(key, &["wrapKey"], KeyUsage::WrapKey).await
+    import_key_for_usage(key, KeyUsage::WrapKey).await
 }
 
 /// Imports a JWK as a [`CryptoKey`] for key unwrapping.
 ///
 /// This requires the key's `alg` field to be set for RSA and symmetric keys,
 /// because WebCrypto requires the import algorithm to be specified.
-/// For keys without an `alg` field, use [`import_key_with_usages_for_alg`]
+/// For keys without an `alg` field, use [`import_key_for_usage_for_alg`]
 /// with [`KeyUsage::UnwrapKey`] and an explicit algorithm.
 ///
 /// # Supported Key Types
@@ -848,7 +860,7 @@ pub async fn import_unwrap_key(key: &Key) -> Result<CryptoKey> {
                      use ECDH key agreement (deriveKey/deriveBits) instead",
         });
     }
-    import_key_with_usages(key, &["unwrapKey"], KeyUsage::UnwrapKey).await
+    import_key_for_usage(key, KeyUsage::UnwrapKey).await
 }
 
 /// Imports a JWK as a [`CryptoKey`] for signature verification with an explicit algorithm.
@@ -880,7 +892,7 @@ pub async fn import_unwrap_key(key: &Key) -> Result<CryptoKey> {
 /// let crypto_key = web_crypto::import_verify_key_for_alg(key, &Algorithm::Rs384).await?;
 /// ```
 pub async fn import_verify_key_for_alg(key: &Key, alg: &Algorithm) -> Result<CryptoKey> {
-    import_key_with_usages_for_alg(key, &["verify"], KeyUsage::Verify, alg).await
+    import_key_for_usage_for_alg(key, KeyUsage::Verify, alg).await
 }
 
 /// Imports a JWK as a [`CryptoKey`] for signing with an explicit algorithm.
@@ -893,48 +905,40 @@ pub async fn import_verify_key_for_alg(key: &Key, alg: &Algorithm) -> Result<Cry
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
 /// - [`Error::WebCrypto`] if the import operation fails
 pub async fn import_sign_key_for_alg(key: &Key, alg: &Algorithm) -> Result<CryptoKey> {
-    import_key_with_usages_for_alg(key, &["sign"], KeyUsage::Sign, alg).await
+    import_key_for_usage_for_alg(key, KeyUsage::Sign, alg).await
 }
 
-/// Imports a JWK as a [`CryptoKey`] with custom key usages.
-///
-/// This is the low-level function that allows specifying arbitrary key usages.
+/// Imports a JWK as a [`CryptoKey`] for a typed key usage.
 ///
 /// The key must have an `alg` field set so that the correct WebCrypto algorithm
 /// parameters can be determined. For RSA and HMAC keys without an `alg` field,
-/// use [`import_key_with_usages_for_alg`] instead.
+/// use [`import_key_for_usage_for_alg`] instead.
 ///
 /// # Errors
 ///
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
 /// - [`Error::WebCrypto`] if the import operation fails or the key is missing
 ///   a required `alg` field
-pub async fn import_key_with_usages(
-    key: &Key,
-    usages: &[&str],
-    usage: KeyUsage,
-) -> Result<CryptoKey> {
+pub async fn import_key_for_usage(key: &Key, usage: KeyUsage) -> Result<CryptoKey> {
     validate_key_for_webcrypto_usage(key, usage)?;
 
     let jwk = web_sys::JsonWebKey::try_from(key)?;
     let algorithm = build_algorithm_object(key, usage)?;
 
-    import_crypto_key(jwk, &algorithm, usages).await
+    import_crypto_key(jwk, &algorithm, usage_strings_for_usage(usage)).await
 }
 
-/// Imports a JWK as a [`CryptoKey`] with custom key usages and an explicit algorithm.
+/// Imports a JWK as a [`CryptoKey`] for a typed key usage and an explicit algorithm.
 ///
-/// This is the low-level function that allows specifying arbitrary key usages
-/// and an explicit algorithm. The `alg` parameter overrides the key's own `alg`
+/// The `alg` parameter overrides the key's own `alg`
 /// field, ensuring the correct WebCrypto algorithm parameters are used at import time.
 ///
 /// # Errors
 ///
 /// - [`Error::UnsupportedForWebCrypto`] if the key type is not supported
 /// - [`Error::WebCrypto`] if the import operation fails
-pub async fn import_key_with_usages_for_alg(
+pub async fn import_key_for_usage_for_alg(
     key: &Key,
-    usages: &[&str],
     usage: KeyUsage,
     alg: &Algorithm,
 ) -> Result<CryptoKey> {
@@ -950,7 +954,7 @@ pub async fn import_key_with_usages_for_alg(
 
     let algorithm = build_algorithm_object_for_alg(key, alg, usage)?;
 
-    import_crypto_key(jwk, &algorithm, usages).await
+    import_crypto_key(jwk, &algorithm, usage_strings_for_usage(usage)).await
 }
 
 /// Internal helper that performs the actual SubtleCrypto.importKey() call.

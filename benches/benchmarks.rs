@@ -1,7 +1,7 @@
 //! Benchmarks for jwk-simple operations.
 
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use jwk_simple::{Algorithm, KeySet, KeyType};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use jwk_simple::{Algorithm, KeyFilter, KeySet, KeyType};
 use std::hint::black_box;
 
 /// Sample JWKS with multiple keys for benchmarking.
@@ -124,14 +124,18 @@ fn bench_lookup(c: &mut Criterion) {
 
     group.bench_function("find_by_alg", |b| {
         b.iter(|| {
-            let keys = jwks.find_by_alg(black_box(&Algorithm::Rs256)).count();
+            let keys = jwks
+                .find(black_box(&KeyFilter::new().with_alg(Algorithm::Rs256)))
+                .count();
             black_box(keys)
         })
     });
 
     group.bench_function("find_by_kty", |b| {
         b.iter(|| {
-            let keys = jwks.find_by_kty(black_box(KeyType::Rsa)).count();
+            let keys = jwks
+                .find(black_box(&KeyFilter::new().with_kty(KeyType::Rsa)))
+                .count();
             black_box(keys)
         })
     });

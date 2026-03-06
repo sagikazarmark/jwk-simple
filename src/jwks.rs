@@ -657,51 +657,6 @@ impl KeySet {
         self.keys.iter().find(|k| k.kid.as_deref() == Some(kid))
     }
 
-    /// Finds all keys with the specified algorithm.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use jwk_simple::{Algorithm, KeySet};
-    ///
-    /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// let rs256_keys: Vec<_> = jwks.find_by_alg(&Algorithm::Rs256).collect();
-    /// assert_eq!(rs256_keys.len(), 1);
-    /// ```
-    pub fn find_by_alg<'a>(&'a self, alg: &Algorithm) -> impl Iterator<Item = &'a Key> + 'a {
-        let alg = alg.clone();
-        self.keys
-            .iter()
-            .filter(move |k| k.alg.as_ref() == Some(&alg))
-    }
-
-    /// Finds all keys with the specified key type.
-    pub fn find_by_kty(&self, kty: KeyType) -> impl Iterator<Item = &Key> {
-        self.keys.iter().filter(move |k| k.kty() == kty)
-    }
-
-    /// Finds all keys with the specified use.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use jwk_simple::{KeyUse, KeySet};
-    ///
-    /// let json = r#"{"keys": [{"kty": "RSA", "use": "sig", "n": "AQAB", "e": "AQAB"}]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// let signing_keys: Vec<_> = jwks.find_by_use(&KeyUse::Signature).collect();
-    /// assert_eq!(signing_keys.len(), 1);
-    /// ```
-    pub fn find_by_use<'a>(&'a self, key_use: &KeyUse) -> impl Iterator<Item = &'a Key> + 'a {
-        let key_use = key_use.clone();
-        self.keys
-            .iter()
-            .filter(move |k| k.key_use.as_ref() == Some(&key_use))
-    }
-
     /// Finds all signing keys.
     ///
     /// A key is considered a signing key if:
@@ -756,26 +711,6 @@ impl KeySet {
     /// ```
     pub fn first_signing_key(&self) -> Option<&Key> {
         self.signing_keys().next()
-    }
-
-    /// Returns the first key matching the specified algorithm, if any.
-    ///
-    /// This is a convenience method that returns a single key instead of the
-    /// iterator returned by [`KeySet::find_by_alg`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use jwk_simple::{Algorithm, KeySet};
-    ///
-    /// let json = r#"{"keys": [{"kty": "RSA", "alg": "RS256", "n": "AQAB", "e": "AQAB"}]}"#;
-    /// let jwks: KeySet = serde_json::from_str(json).unwrap();
-    ///
-    /// let key = jwks.find_first_by_alg(&Algorithm::Rs256);
-    /// assert!(key.is_some());
-    /// ```
-    pub fn find_first_by_alg(&self, alg: &Algorithm) -> Option<&Key> {
-        self.keys.iter().find(|k| k.alg.as_ref() == Some(alg))
     }
 
     /// Returns the first key, if any.
@@ -1670,16 +1605,24 @@ mod tests {
     fn test_find_by_alg() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert_eq!(jwks.find_by_alg(&Algorithm::Rs256).count(), 1);
-        assert_eq!(jwks.find_by_alg(&Algorithm::Es256).count(), 1);
+        assert_eq!(jwks.find(&KeyFilter::new().with_alg(Algorithm::Rs256)).count(), 1);
+        assert_eq!(jwks.find(&KeyFilter::new().with_alg(Algorithm::Es256)).count(), 1);
     }
 
     #[test]
     fn test_find_by_use() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert_eq!(jwks.find_by_use(&KeyUse::Signature).count(), 2);
-        assert_eq!(jwks.find_by_use(&KeyUse::Encryption).count(), 1);
+        assert_eq!(
+            jwks.find(&KeyFilter::new().with_key_use(KeyUse::Signature))
+                .count(),
+            2
+        );
+        assert_eq!(
+            jwks.find(&KeyFilter::new().with_key_use(KeyUse::Encryption))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1708,15 +1651,21 @@ mod tests {
     fn test_find_first_by_alg() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        let key = jwks.find_first_by_alg(&Algorithm::Rs256);
+        let key = jwks
+            .find(&KeyFilter::new().with_alg(Algorithm::Rs256))
+            .next();
         assert!(key.is_some());
         assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-key-1"));
 
-        let key = jwks.find_first_by_alg(&Algorithm::Es256);
+        let key = jwks
+            .find(&KeyFilter::new().with_alg(Algorithm::Es256))
+            .next();
         assert!(key.is_some());
         assert_eq!(key.unwrap().kid.as_deref(), Some("ec-key-1"));
 
-        let missing = jwks.find_first_by_alg(&Algorithm::Ps512);
+        let missing = jwks
+            .find(&KeyFilter::new().with_alg(Algorithm::Ps512))
+            .next();
         assert!(missing.is_none());
     }
 
@@ -1763,8 +1712,16 @@ mod tests {
         let jwks: KeySet = serde_json::from_str(json).unwrap();
 
         // Strict alg matching only finds exact matches.
-        assert_eq!(jwks.find_by_alg(&Algorithm::Ed25519).count(), 1);
-        assert_eq!(jwks.find_by_alg(&Algorithm::EdDsa).count(), 1);
+        assert_eq!(
+            jwks.find(&KeyFilter::new().with_alg(Algorithm::Ed25519))
+                .count(),
+            1
+        );
+        assert_eq!(
+            jwks.find(&KeyFilter::new().with_alg(Algorithm::EdDsa))
+                .count(),
+            1
+        );
 
         assert_eq!(
             jwks.selector(&[])
@@ -1855,10 +1812,14 @@ mod tests {
     fn test_find_by_kty() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert_eq!(jwks.find_by_kty(KeyType::Rsa).count(), 2);
-        assert_eq!(jwks.find_by_kty(KeyType::Ec).count(), 1);
-        assert_eq!(jwks.find_by_kty(KeyType::Okp).count(), 0);
-        assert_eq!(jwks.find_by_kty(KeyType::Symmetric).count(), 0);
+        assert_eq!(jwks.find(&KeyFilter::new().with_kty(KeyType::Rsa)).count(), 2);
+        assert_eq!(jwks.find(&KeyFilter::new().with_kty(KeyType::Ec)).count(), 1);
+        assert_eq!(jwks.find(&KeyFilter::new().with_kty(KeyType::Okp)).count(), 0);
+        assert_eq!(
+            jwks.find(&KeyFilter::new().with_kty(KeyType::Symmetric))
+                .count(),
+            0
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]

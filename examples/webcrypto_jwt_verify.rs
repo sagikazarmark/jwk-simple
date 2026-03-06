@@ -230,11 +230,7 @@ mod wasm_example {
         jwt: &ParsedJwt,
         crypto_key: &web_sys::CryptoKey,
     ) -> Result<bool, JwtError> {
-        let alg: Algorithm = jwt
-            .header
-            .alg
-            .parse()
-            .unwrap_or(Algorithm::Unknown(jwt.header.alg.clone()));
+        let alg = Algorithm::from(jwt.header.alg.as_str());
         let algorithm = web_crypto::build_verify_algorithm(&alg)
             .map_err(|e| JwtError::CryptoError(e.to_string()))?;
 
@@ -367,11 +363,7 @@ mod wasm_example {
     /// Finds the appropriate key from a JWKS for verifying a JWT
     #[cfg(target_arch = "wasm32")]
     fn find_key_for_jwt<'a>(jwks: &'a KeySet, jwt: &ParsedJwt) -> Result<&'a Key, JwtError> {
-        let alg: Algorithm = jwt
-            .header
-            .alg
-            .parse()
-            .unwrap_or(Algorithm::Unknown(jwt.header.alg.clone()));
+        let alg = Algorithm::from(jwt.header.alg.as_str());
 
         // Strict selector path for JWT verification.
         jwks.selector(&[alg.clone()])
@@ -431,11 +423,7 @@ mod wasm_example {
         // 4. Import the key for verification using jwk-simple
         //    Use the algorithm from the JWT header to ensure the correct hash is used
         //    at import time, even if the key's `alg` field is absent.
-        let alg: Algorithm = jwt
-            .header
-            .alg
-            .parse()
-            .unwrap_or(Algorithm::Unknown(jwt.header.alg.clone()));
+        let alg = Algorithm::from(jwt.header.alg.as_str());
         let crypto_key = web_crypto::import_verify_key_for_alg(key, &alg)
             .await
             .map_err(|e| JwtError::CryptoError(e.to_string()))?;

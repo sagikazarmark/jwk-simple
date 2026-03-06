@@ -161,19 +161,16 @@ impl Display for KeyUse {
     }
 }
 
-impl FromStr for KeyUse {
-    type Err = std::convert::Infallible;
-
+impl From<&str> for KeyUse {
     /// Parses a key use string.
     ///
     /// Per RFC 7517, unknown key use values are accepted and stored as `Unknown`.
-    /// This function never fails - unrecognized values become `KeyUse::Unknown(s)`.
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(match s {
+    fn from(s: &str) -> Self {
+        match s {
             "sig" => KeyUse::Signature,
             "enc" => KeyUse::Encryption,
             _ => KeyUse::Unknown(s.to_string()),
-        })
+        }
     }
 }
 
@@ -191,8 +188,7 @@ impl<'de> Deserialize<'de> for KeyUse {
     where
         D: Deserializer<'de>,
     {
-        // Infallible, so unwrap is safe
-        Ok(String::deserialize(deserializer)?.parse().unwrap())
+        Ok(KeyUse::from(String::deserialize(deserializer)?.as_str()))
     }
 }
 
@@ -253,15 +249,12 @@ impl Display for KeyOperation {
     }
 }
 
-impl FromStr for KeyOperation {
-    type Err = std::convert::Infallible;
-
+impl From<&str> for KeyOperation {
     /// Parses a key operation string.
     ///
     /// Per RFC 7517, unknown key operation values are accepted and stored as `Unknown`.
-    /// This function never fails - unrecognized values become `KeyOperation::Unknown(s)`.
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(match s {
+    fn from(s: &str) -> Self {
+        match s {
             "sign" => KeyOperation::Sign,
             "verify" => KeyOperation::Verify,
             "encrypt" => KeyOperation::Encrypt,
@@ -271,7 +264,7 @@ impl FromStr for KeyOperation {
             "deriveKey" => KeyOperation::DeriveKey,
             "deriveBits" => KeyOperation::DeriveBits,
             _ => KeyOperation::Unknown(s.to_string()),
-        })
+        }
     }
 }
 
@@ -289,8 +282,7 @@ impl<'de> Deserialize<'de> for KeyOperation {
     where
         D: Deserializer<'de>,
     {
-        // Infallible, so unwrap is safe
-        Ok(String::deserialize(deserializer)?.parse().unwrap())
+        Ok(KeyOperation::from(String::deserialize(deserializer)?.as_str()))
     }
 }
 
@@ -487,15 +479,12 @@ impl Display for Algorithm {
     }
 }
 
-impl FromStr for Algorithm {
-    type Err = std::convert::Infallible;
-
+impl From<&str> for Algorithm {
     /// Parses an algorithm string.
     ///
     /// Per RFC 7517, unknown algorithm values are accepted and stored as `Unknown`.
-    /// This function never fails - unrecognized values become `Algorithm::Unknown(s)`.
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(match s {
+    fn from(s: &str) -> Self {
+        match s {
             "HS256" => Algorithm::Hs256,
             "HS384" => Algorithm::Hs384,
             "HS512" => Algorithm::Hs512,
@@ -538,7 +527,7 @@ impl FromStr for Algorithm {
             "A192GCM" => Algorithm::A192gcm,
             "A256GCM" => Algorithm::A256gcm,
             _ => Algorithm::Unknown(s.to_string()),
-        })
+        }
     }
 }
 
@@ -556,9 +545,7 @@ impl<'de> Deserialize<'de> for Algorithm {
     where
         D: Deserializer<'de>,
     {
-        String::deserialize(deserializer)?
-            .parse()
-            .map_err(serde::de::Error::custom)
+        Ok(Algorithm::from(String::deserialize(deserializer)?.as_str()))
     }
 }
 
@@ -774,8 +761,8 @@ impl Key {
 
     /// Sets the permitted key operations (`key_ops`).
     #[must_use]
-    pub fn with_key_ops(mut self, key_ops: Vec<KeyOperation>) -> Self {
-        self.key_ops = Some(key_ops);
+    pub fn with_key_ops(mut self, key_ops: impl IntoIterator<Item = KeyOperation>) -> Self {
+        self.key_ops = Some(key_ops.into_iter().collect());
         self
     }
 
@@ -1112,7 +1099,8 @@ impl Key {
     /// // Encryption is not permitted by use="sig"
     /// assert!(key.check_operations_permitted(&[KeyOperation::Encrypt]).is_err());
     /// ```
-    pub fn check_operations_permitted(&self, operations: &[KeyOperation]) -> Result<()> {
+    pub fn check_operations_permitted(&self, operations: impl AsRef<[KeyOperation]>) -> Result<()> {
+        let operations = operations.as_ref();
         if operations.is_empty() {
             return Err(Error::Other(
                 "at least one requested operation is required".to_string(),
@@ -2276,8 +2264,8 @@ mod tests {
 
     #[test]
     fn test_parse_rfc9864_ed_algorithms() {
-        assert_eq!("Ed25519".parse::<Algorithm>().unwrap(), Algorithm::Ed25519);
-        assert_eq!("Ed448".parse::<Algorithm>().unwrap(), Algorithm::Ed448);
+        assert_eq!(Algorithm::from("Ed25519"), Algorithm::Ed25519);
+        assert_eq!(Algorithm::from("Ed448"), Algorithm::Ed448);
         assert_eq!(Algorithm::Ed25519.as_str(), "Ed25519");
         assert_eq!(Algorithm::Ed448.as_str(), "Ed448");
     }
