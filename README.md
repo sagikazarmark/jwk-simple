@@ -6,7 +6,7 @@
 > [!WARNING]
 > This project is a work in progress. The API may change.
 
-A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defined in RFC 7517, with WASM compatibility and optional jwt-simple integration.
+A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defined in RFC 7517, with WASM compatibility and optional [`jwt-simple`](https://github.com/jedisct1/rust-jwt-simple) integration.
 
 ## Features
 
@@ -14,7 +14,7 @@ A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defin
 - **Multiple key types**: RSA, EC (P-256, P-384, P-521, secp256k1), Symmetric (HMAC), and OKP (Ed25519, Ed448, X25519, X448)
 - **WASM compatible**: Core functionality works in WebAssembly environments
 - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
-- **jwt-simple integration**: Optional feature for converting JWKs to jwt-simple key types
+- **jwt-simple integration**: Optional feature for converting JWKs to [`jwt-simple`](https://github.com/jedisct1/rust-jwt-simple) key types
 - **Remote fetching**: Load JWKS from HTTP endpoints with caching support
 - **Caching**: Optional TTL-based caching of fetched JWKS (`KeySet`) data
 
@@ -263,7 +263,7 @@ This crate prioritizes security:
 - **Debug redaction**: Debug output redacts sensitive key material
 - **Panic-free APIs**: All fallible operations return `Result` types — standard trait implementations like `Index` follow normal Rust semantics and may panic on invalid input (e.g., out-of-bounds indexing)
 - **Input validation**: Key parameters are validated for correct sizes
-- **Trust boundary clarity**: `Key::validate_structure` performs structural and metadata consistency checks only; PKIX trust validation (chain path, trust anchors, validity, EKU/KU, revocation) must be provided by your application
+- **Trust boundary clarity**: `Key::validate` performs structural and metadata consistency checks only, while `Key::validate_for_use` adds algorithm suitability and operation intent checks; PKIX trust validation (chain path, trust anchors, validity, EKU/KU, revocation) must be provided by your application
 
 When enabling the optional `jwt-simple` integration, note that some `jwt-simple`
 dependency chains may pull in `rsa` versions affected by
