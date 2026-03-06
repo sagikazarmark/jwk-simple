@@ -74,7 +74,7 @@ fn main() {
     // Find keys by type
     println!(
         "\nFound {} RSA keys",
-        jwks.find(&KeyFilter::new().with_kty(KeyType::Rsa)).count()
+        jwks.find(KeyFilter::new().with_kty(KeyType::Rsa)).count()
     );
 
     // Get the first signing key (common pattern)

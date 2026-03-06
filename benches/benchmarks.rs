@@ -125,7 +125,7 @@ fn bench_lookup(c: &mut Criterion) {
     group.bench_function("find_by_alg", |b| {
         b.iter(|| {
             let keys = jwks
-                .find(black_box(&KeyFilter::new().with_alg(Algorithm::Rs256)))
+                .find(black_box(KeyFilter::new().with_alg(Algorithm::Rs256)))
                 .count();
             black_box(keys)
         })
@@ -134,7 +134,7 @@ fn bench_lookup(c: &mut Criterion) {
     group.bench_function("find_by_kty", |b| {
         b.iter(|| {
             let keys = jwks
-                .find(black_box(&KeyFilter::new().with_kty(KeyType::Rsa)))
+                .find(black_box(KeyFilter::new().with_kty(KeyType::Rsa)))
                 .count();
             black_box(keys)
         })

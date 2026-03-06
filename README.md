@@ -80,8 +80,8 @@ let jwks: KeySet = serde_json::from_str(json)?;
 
 // Find keys by various criteria
 let key = jwks.get_by_kid("key-id");
-let rsa_keys = jwks.find(&KeyFilter::new().with_kty(KeyType::Rsa));
-let signing_keys = jwks.find(&KeyFilter::new().with_key_use(KeyUse::Signature));
+let rsa_keys = jwks.find(KeyFilter::for_kty(KeyType::Rsa));
+let signing_keys = jwks.find(KeyFilter::for_use(KeyUse::Signature));
 
 // Get the first signing key (common pattern)
 let first_signing = jwks.first_signing_key();
