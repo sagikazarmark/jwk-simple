@@ -45,6 +45,7 @@ pub use rsa::{RsaOtherPrime, RsaParams, RsaParamsBuilder};
 pub use symmetric::SymmetricParams;
 
 use std::collections::HashSet;
+use std::convert::Infallible;
 use std::fmt::{self, Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
@@ -174,6 +175,14 @@ impl From<&str> for KeyUse {
     }
 }
 
+impl FromStr for KeyUse {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(Self::from(s))
+    }
+}
+
 impl Serialize for KeyUse {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -265,6 +274,14 @@ impl From<&str> for KeyOperation {
             "deriveBits" => KeyOperation::DeriveBits,
             _ => KeyOperation::Unknown(s.to_string()),
         }
+    }
+}
+
+impl FromStr for KeyOperation {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(Self::from(s))
     }
 }
 
@@ -530,6 +547,14 @@ impl From<&str> for Algorithm {
             "A256GCM" => Algorithm::A256gcm,
             _ => Algorithm::Unknown(s.to_string()),
         }
+    }
+}
+
+impl FromStr for Algorithm {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(Self::from(s))
     }
 }
 
@@ -2323,8 +2348,30 @@ mod tests {
     fn test_parse_rfc9864_ed_algorithms() {
         assert_eq!(Algorithm::from("Ed25519"), Algorithm::Ed25519);
         assert_eq!(Algorithm::from("Ed448"), Algorithm::Ed448);
+        assert_eq!("Ed25519".parse::<Algorithm>().unwrap(), Algorithm::Ed25519);
+        assert_eq!("Ed448".parse::<Algorithm>().unwrap(), Algorithm::Ed448);
         assert_eq!(Algorithm::Ed25519.as_str(), "Ed25519");
         assert_eq!(Algorithm::Ed448.as_str(), "Ed448");
+    }
+
+    #[test]
+    fn test_parse_key_use_and_operation_with_from_str() {
+        assert_eq!("sig".parse::<KeyUse>().unwrap(), KeyUse::Signature);
+        assert_eq!("enc".parse::<KeyUse>().unwrap(), KeyUse::Encryption);
+        assert_eq!(
+            "private-use".parse::<KeyUse>().unwrap(),
+            KeyUse::Unknown("private-use".to_string())
+        );
+
+        assert_eq!("sign".parse::<KeyOperation>().unwrap(), KeyOperation::Sign);
+        assert_eq!(
+            "verify".parse::<KeyOperation>().unwrap(),
+            KeyOperation::Verify
+        );
+        assert_eq!(
+            "custom-op".parse::<KeyOperation>().unwrap(),
+            KeyOperation::Unknown("custom-op".to_string())
+        );
     }
 
     #[test]
