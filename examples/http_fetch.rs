@@ -38,12 +38,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // You can also look up a specific key by kid
-    if let Some(key) = jwks.first() {
-        if let Some(kid) = key.kid() {
-            println!("\n--- Looking up key by kid ---");
-            let found = remote.get_key(kid).await?;
-            println!("Found key: {:?}", found.is_some());
-        }
+    if let Some(key) = jwks.first()
+        && let Some(kid) = key.kid()
+    {
+        println!("\n--- Looking up key by kid ---");
+        let found = remote.get_key(kid).await?;
+        println!("Found key: {:?}", found.is_some());
     }
 
     #[cfg(feature = "moka")]

@@ -2638,7 +2638,9 @@ mod tests {
         let result = key.validate_for_use(&Algorithm::Rs256, [KeyOperation::Sign]);
         assert!(matches!(
             result,
-            Err(Error::IncompatibleKey(IncompatibleKeyError::OperationNotPermitted { .. }))
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
         ));
     }
 
@@ -2652,7 +2654,9 @@ mod tests {
         let result = key.validate_for_use(&Algorithm::Ed25519, [KeyOperation::Sign]);
         assert!(matches!(
             result,
-            Err(Error::IncompatibleKey(IncompatibleKeyError::OperationNotPermitted { .. }))
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
         ));
     }
 

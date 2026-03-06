@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::error::{Error, IncompatibleKeyError, Result};
+use crate::error::{Error, IncompatibleKeyError, InvalidKeyError, Result};
 use crate::jwk::{Algorithm, Key, KeyOperation, KeyType, KeyUse};
 
 mod cache;
@@ -45,6 +45,8 @@ pub enum SelectionError {
     },
     /// Key metadata (`use` / `key_ops`) does not permit the requested operation.
     IntentMismatch,
+    /// Key metadata is internally invalid (for example duplicate `key_ops`).
+    InvalidKeyMetadata(InvalidKeyError),
     /// Key material type/curve is incompatible with the requested algorithm.
     IncompatibleKeyType,
     /// Key failed algorithm suitability check (strength/parameter constraints).
@@ -103,6 +105,9 @@ impl std::fmt::Display for SelectionError {
             SelectionError::IntentMismatch => {
                 write!(f, "key metadata does not permit requested operation")
             }
+            SelectionError::InvalidKeyMetadata(e) => {
+                write!(f, "key metadata is invalid: {}", e)
+            }
             SelectionError::IncompatibleKeyType => {
                 write!(f, "key type/curve is incompatible with requested algorithm")
             }
@@ -120,6 +125,7 @@ impl std::fmt::Display for SelectionError {
 impl std::error::Error for SelectionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            SelectionError::InvalidKeyMetadata(e) => Some(e),
             SelectionError::KeySuitabilityFailed(e) => Some(e),
             _ => None,
         }
@@ -273,7 +279,8 @@ impl<'a> KeySelector<'a> {
     ///
     /// If `kid` is present and no candidate survives, the most specific error
     /// is returned in this order: `AlgorithmMismatch` -> `IntentMismatch`
-    /// -> `KeySuitabilityFailed` -> `IncompatibleKeyType` -> `NoMatchingKey`.
+    /// -> `InvalidKeyMetadata` -> `KeySuitabilityFailed`
+    /// -> `IncompatibleKeyType` -> `NoMatchingKey`.
     ///
     /// If `kid` is absent and no candidate survives, candidate-level
     /// diagnostics are suppressed and selection returns `NoMatchingKey`.
@@ -347,6 +354,7 @@ impl<'a> KeySelector<'a> {
         let mut incompatible_for_known_kid = false;
         let mut saw_alg_mismatch: Option<(Algorithm, Algorithm)> = None;
         let mut saw_intent_mismatch = false;
+        let mut saw_invalid_key_metadata: Option<InvalidKeyError> = None;
         let mut saw_suitability_error: Option<IncompatibleKeyError> = None;
 
         for key in self.keyset.keys.iter() {
@@ -375,12 +383,21 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
-            if key
-                .check_operation_intent(std::slice::from_ref(&matcher.op))
-                .is_err()
-            {
+            if let Err(err) = key.check_operation_intent(std::slice::from_ref(&matcher.op)) {
                 if matcher.kid.is_some() {
-                    saw_intent_mismatch = true;
+                    match err {
+                        Error::IncompatibleKey(IncompatibleKeyError::OperationNotPermitted {
+                            ..
+                        }) => saw_intent_mismatch = true,
+                        Error::InvalidKey(invalid) => {
+                            if saw_invalid_key_metadata.is_none() {
+                                saw_invalid_key_metadata = Some(invalid);
+                            }
+                        }
+                        // Conservatively map any future intent-check error to intent mismatch.
+                        Error::IncompatibleKey(_) => saw_intent_mismatch = true,
+                        _ => incompatible_for_known_kid = true,
+                    }
                 }
                 continue;
             }
@@ -431,6 +448,9 @@ impl<'a> KeySelector<'a> {
             }
             if saw_intent_mismatch {
                 return Err(SelectionError::IntentMismatch);
+            }
+            if let Some(invalid) = saw_invalid_key_metadata {
+                return Err(SelectionError::InvalidKeyMetadata(invalid));
             }
             if let Some(suitability) = saw_suitability_error {
                 return Err(SelectionError::KeySuitabilityFailed(suitability));
@@ -979,7 +999,8 @@ fn is_signing_key(key: &Key) -> bool {
 ///
 /// When `key_ops` is present it is treated as authoritative: the key must
 /// include [`KeyOperation::Encrypt`], [`KeyOperation::Decrypt`],
-/// [`KeyOperation::WrapKey`], or [`KeyOperation::UnwrapKey`].
+/// [`KeyOperation::WrapKey`], [`KeyOperation::UnwrapKey`],
+/// [`KeyOperation::DeriveKey`], or [`KeyOperation::DeriveBits`].
 /// When `key_ops` is absent, `key_use` is consulted: the key is an
 /// encryption key if `use` is `"enc"`.
 fn is_encryption_key(key: &Key) -> bool {
@@ -988,6 +1009,8 @@ fn is_encryption_key(key: &Key) -> bool {
             || ops.contains(&KeyOperation::Decrypt)
             || ops.contains(&KeyOperation::WrapKey)
             || ops.contains(&KeyOperation::UnwrapKey)
+            || ops.contains(&KeyOperation::DeriveKey)
+            || ops.contains(&KeyOperation::DeriveBits)
     } else {
         key.key_use() == Some(&KeyUse::Encryption)
     }
@@ -1311,6 +1334,29 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::IntentMismatch));
+    }
+
+    #[test]
+    fn test_selector_invalid_key_metadata_for_known_kid() {
+        let bad_key = Key::new(crate::jwk::KeyParams::Rsa(
+            crate::jwk::RsaParams::new_public(
+                crate::encoding::Base64UrlBytes::new(vec![1, 2, 3]),
+                crate::encoding::Base64UrlBytes::new(vec![1, 0, 1]),
+            ),
+        ))
+        .with_kid("dup-ops")
+        .with_alg(Algorithm::Rs256)
+        .with_key_ops([KeyOperation::Verify, KeyOperation::Verify]);
+
+        let mut jwks = KeySet::new();
+        jwks.add_key(bad_key);
+        let selector = jwks.selector(&[Algorithm::Rs256]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("dup-ops"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::InvalidKeyMetadata(_)));
     }
 
     #[test]
@@ -1658,6 +1704,13 @@ mod tests {
             "key metadata does not permit requested operation"
         );
         assert_eq!(
+            SelectionError::InvalidKeyMetadata(InvalidKeyError::InconsistentParameters(
+                "duplicate key_ops".to_string()
+            ))
+            .to_string(),
+            "key metadata is invalid: inconsistent key parameters: duplicate key_ops"
+        );
+        assert_eq!(
             SelectionError::IncompatibleKeyType.to_string(),
             "key type/curve is incompatible with requested algorithm"
         );
@@ -1738,6 +1791,22 @@ mod tests {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
         assert_eq!(jwks.encryption_keys().count(), 1);
+    }
+
+    #[test]
+    fn test_encryption_keys_include_derive_ops() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "derive-key", "key_ops": ["deriveKey"], "n": "AQAB", "e": "AQAB"},
+            {"kty": "RSA", "kid": "derive-bits", "key_ops": ["deriveBits"], "n": "AQAB", "e": "AQAB"},
+            {"kty": "RSA", "kid": "verify-only", "key_ops": ["verify"], "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+
+        let kids: Vec<_> = jwks.encryption_keys().filter_map(Key::kid).collect();
+
+        assert_eq!(kids.len(), 2);
+        assert!(kids.contains(&"derive-key"));
+        assert!(kids.contains(&"derive-bits"));
     }
 
     #[test]

@@ -55,6 +55,12 @@ pub trait KeyCache {
 /// the store refetches from the underlying source. This handles key rotation gracefully:
 /// newly added keys are discovered automatically without waiting for cache expiration.
 ///
+/// # Async and Send Bounds
+///
+/// On native targets, `CachedKeyStore` requires `Send + Sync` for both cache
+/// and source store to match the native [`KeyStore`] contract.
+/// On `wasm32`, these bounds are relaxed to match the `?Send` async model.
+///
 /// # Examples
 ///
 /// ```ignore
@@ -95,12 +101,48 @@ impl<C: KeyCache, S: KeyStore> CachedKeyStore<C, S> {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait::async_trait]
 impl<C, S> KeyStore for CachedKeyStore<C, S>
 where
     C: KeyCache + Send + Sync,
     S: KeyStore + Send + Sync,
+{
+    async fn get_keyset(&self) -> Result<KeySet> {
+        // Try cache first
+        if let Some(keyset) = self.cache.get().await? {
+            return Ok(keyset);
+        }
+
+        // No cache hit: fetch from source and cache
+        let keyset = self.store.get_keyset().await?;
+        self.cache.set(keyset.clone()).await?;
+
+        Ok(keyset)
+    }
+
+    async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
+        // Try cache first
+        if let Some(keyset) = self.cache.get().await?
+            && let Some(key) = keyset.get_by_kid(kid)
+        {
+            return Ok(Some(key.clone()));
+        }
+
+        // Key not in cached set: refetch
+        let keyset = self.store.get_keyset().await?;
+        self.cache.set(keyset.clone()).await?;
+
+        Ok(keyset.get_by_kid(kid).cloned())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[async_trait::async_trait(?Send)]
+impl<C, S> KeyStore for CachedKeyStore<C, S>
+where
+    C: KeyCache,
+    S: KeyStore,
 {
     async fn get_keyset(&self) -> Result<KeySet> {
         // Try cache first

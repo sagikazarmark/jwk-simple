@@ -533,14 +533,14 @@ mod tests {
         let jwk: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
         let key: RS256PublicKey = (&jwk).try_into().unwrap();
         // Just verify it doesn't panic - the key was successfully converted
-        assert!(key.to_der().expect("to_der failed").len() > 0);
+        assert!(!key.to_der().expect("to_der failed").is_empty());
     }
 
     #[test]
     fn test_ec_public_key_conversion() {
         let jwk: Key = serde_json::from_str(RFC_EC_PUBLIC_KEY).unwrap();
         let key: ES256PublicKey = (&jwk).try_into().unwrap();
-        assert!(key.to_bytes().len() > 0);
+        assert!(!key.to_bytes().is_empty());
     }
 
     #[test]
