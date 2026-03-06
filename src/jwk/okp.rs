@@ -128,11 +128,13 @@ pub struct OkpParams {
 
 impl OkpParams {
     /// Creates new OKP public key parameters.
+    #[must_use]
     pub fn new_public(crv: OkpCurve, x: Base64UrlBytes) -> Self {
         Self { crv, x, d: None }
     }
 
     /// Creates new OKP private key parameters.
+    #[must_use]
     pub fn new_private(crv: OkpCurve, x: Base64UrlBytes, d: Base64UrlBytes) -> Self {
         Self { crv, x, d: Some(d) }
     }

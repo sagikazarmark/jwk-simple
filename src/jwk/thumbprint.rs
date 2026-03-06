@@ -155,8 +155,8 @@ mod tests {
             Base64UrlBytes::new(vec![1, 0, 1]),
         )))
         .with_kid("different-kid")
-        .with_use(crate::jwk::KeyUse::Signature)
-        .with_alg(crate::jwk::Algorithm::Rs256);
+        .with_use(crate::KeyUse::Signature)
+        .with_alg(crate::Algorithm::Rs256);
 
         // Same key material, different optional fields = same thumbprint
         assert_eq!(calculate_thumbprint(&jwk1), calculate_thumbprint(&jwk2));

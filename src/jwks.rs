@@ -1335,12 +1335,10 @@ mod tests {
 
     #[test]
     fn test_selector_invalid_key_metadata_for_known_kid() {
-        let bad_key = Key::new(crate::jwk::KeyParams::Rsa(
-            crate::jwk::RsaParams::new_public(
-                crate::encoding::Base64UrlBytes::new(vec![1, 2, 3]),
-                crate::encoding::Base64UrlBytes::new(vec![1, 0, 1]),
-            ),
-        ))
+        let bad_key = Key::new(crate::KeyParams::Rsa(crate::RsaParams::new_public(
+            crate::encoding::Base64UrlBytes::new(vec![1, 2, 3]),
+            crate::encoding::Base64UrlBytes::new(vec![1, 0, 1]),
+        )))
         .with_kid("dup-ops")
         .with_alg(Algorithm::Rs256)
         .with_key_ops([KeyOperation::Verify, KeyOperation::Verify]);

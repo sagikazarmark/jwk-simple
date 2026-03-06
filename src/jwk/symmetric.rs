@@ -51,6 +51,7 @@ impl SymmetricParams {
     /// let params = SymmetricParams::new(Base64UrlBytes::new(key_bytes));
     /// assert_eq!(params.key_size_bits(), 256);
     /// ```
+    #[must_use]
     pub fn new(k: Base64UrlBytes) -> Self {
         Self { k }
     }

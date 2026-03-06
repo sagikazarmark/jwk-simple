@@ -114,11 +114,13 @@ pub struct EcParams {
 
 impl EcParams {
     /// Creates new EC public key parameters.
+    #[must_use]
     pub fn new_public(crv: EcCurve, x: Base64UrlBytes, y: Base64UrlBytes) -> Self {
         Self { crv, x, y, d: None }
     }
 
     /// Creates new EC private key parameters.
+    #[must_use]
     pub fn new_private(
         crv: EcCurve,
         x: Base64UrlBytes,
