@@ -401,6 +401,19 @@ Copy this block for new items:
 - Revisit signal: Requests for a `Key`-level constant-time comparison API, or evidence of downstream misuse.
 - Suggested future action: Consider adding `Key::ct_eq` that delegates to the underlying params' constant-time comparison methods.
 
+## Selector suitability bucket conflates capability and strength failures
+- Date added: 2026-03-06
+- Source: post-merge feedback review
+- Validity: CONFIRMED
+- Trigger likelihood: UNCOMMON
+- Severity: LOW/MEDIUM -> LOW/MEDIUM
+- Decision: DEFER
+- Rationale: Current behavior is safe and still programmatically distinguishable through inner `IncompatibleKeyError` variants (`OperationNotPermitted` vs `InsufficientKeyStrength`). Splitting top-level `SelectionError` variants now would expand public taxonomy with limited immediate benefit.
+- Preconditions/Trigger: Caller branches only on top-level `SelectionError::KeySuitabilityFailed` and does not inspect its inner `IncompatibleKeyError`.
+- Risk if not fixed: Coarser selector error handling and less direct diagnostics at the top-level error enum.
+- Revisit signal: Requests for finer-grained selector telemetry/routing or broader selector error taxonomy redesign.
+- Suggested future action: Consider adding dedicated selector variants for capability vs strength failures (or an explicit sub-classification wrapper) while keeping backward compatibility strategy in mind.
+
 ## Ignored Findings
 
 (No active ignored findings.)

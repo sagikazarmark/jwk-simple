@@ -49,7 +49,7 @@ pub enum SelectionError {
     InvalidKeyMetadata(InvalidKeyError),
     /// Key material type/curve is incompatible with the requested algorithm.
     IncompatibleKeyType,
-    /// Key failed algorithm suitability check (strength/parameter constraints).
+    /// Key failed cryptographic suitability checks (strength/parameter/capability constraints).
     KeySuitabilityFailed(IncompatibleKeyError),
     /// More than one key satisfies strict selection criteria.
     AmbiguousSelection {
@@ -402,7 +402,7 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
-            if let Err(e) = key.check_operation_capability(std::slice::from_ref(&matcher.op)) {
+            if let Err(e) = key.check_algorithm_suitability(&matcher.alg) {
                 if matcher.kid.is_some() {
                     match e {
                         Error::IncompatibleKey(suitability) => {
@@ -416,7 +416,7 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
-            if let Err(e) = key.check_algorithm_suitability(&matcher.alg) {
+            if let Err(e) = key.check_operation_capability(std::slice::from_ref(&matcher.op)) {
                 if matcher.kid.is_some() {
                     match e {
                         Error::IncompatibleKey(suitability) => {
@@ -424,12 +424,9 @@ impl<'a> KeySelector<'a> {
                                 saw_suitability_error = Some(suitability);
                             }
                         }
-                        // `check_algorithm_suitability` can return `Error::InvalidKey`
-                        // from `params.validate()` for structurally malformed keys
-                        // added programmatically (bypassing parse-time filtering).
+                        // Conservatively map any future non-incompatible errors
+                        // to generic incompatibility in strict selection.
                         Error::InvalidKey(_) => incompatible_for_known_kid = true,
-                        // Catch-all for any future error variants. Treated
-                        // conservatively as incompatibility in strict selection.
                         _ => incompatible_for_known_kid = true,
                     }
                 }
@@ -1571,13 +1568,28 @@ mod tests {
     #[test]
     fn test_selector_rejects_public_key_for_sign_with_known_kid() {
         let json = r#"{"keys": [
-            {"kty": "RSA", "kid": "rsa-pub", "use": "sig", "alg": "RS256", "n": "AQAB", "e": "AQAB"}
+            {"kty": "RSA", "kid": "rsa-pub", "use": "sig", "alg": "RS256", "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw", "e": "AQAB"}
         ]}"#;
         let jwks: KeySet = serde_json::from_str(json).unwrap();
         let selector = jwks.selector(&[]);
 
         let err = selector
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("rsa-pub"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::KeySuitabilityFailed(_)));
+    }
+
+    #[test]
+    fn test_selector_rejects_public_ec_key_for_sign_with_known_kid() {
+        let json = r#"{"keys": [
+            {"kty": "EC", "kid": "ec-pub", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-pub"))
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::KeySuitabilityFailed(_)));

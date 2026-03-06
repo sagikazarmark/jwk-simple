@@ -57,8 +57,8 @@ pub trait KeyCache {
 ///
 /// # Async and Send Bounds
 ///
-/// On native targets, `CachedKeyStore` requires `Send + Sync` for both cache
-/// and source store to match the native [`KeyStore`] contract.
+/// On native targets, the `KeyStore` implementation for `CachedKeyStore`
+/// requires `Send + Sync` for both cache and source store for thread-safe usage.
 /// On `wasm32`, these bounds are relaxed to match the `?Send` async model.
 ///
 /// # Examples

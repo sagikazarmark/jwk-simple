@@ -2661,6 +2661,23 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_for_use_rejects_sign_with_public_ec_key() {
+        let key = Key::new(KeyParams::Ec(EcParams::new_public(
+            EcCurve::P256,
+            Base64UrlBytes::new(vec![0u8; 32]),
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )));
+
+        let result = key.validate_for_use(&Algorithm::Es256, [KeyOperation::Sign]);
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
+    }
+
+    #[test]
     fn test_check_operation_intent_rejects_inconsistent_use_and_key_ops() {
         let key = Key::new(KeyParams::Rsa(RsaParams::new_public(
             Base64UrlBytes::new(vec![1, 2, 3]),
