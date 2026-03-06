@@ -313,7 +313,8 @@ mod wasm_example {
         // Check expiration
         if options.validate_exp {
             if let Some(exp) = claims.exp {
-                if now > exp + options.clock_skew {
+                let exp_with_skew = exp.saturating_add(options.clock_skew);
+                if now > exp_with_skew {
                     return Err(JwtError::Expired);
                 }
             }
@@ -322,7 +323,8 @@ mod wasm_example {
         // Check not-before
         if options.validate_nbf {
             if let Some(nbf) = claims.nbf {
-                if now + options.clock_skew < nbf {
+                let now_with_skew = now.saturating_add(options.clock_skew);
+                if now_with_skew < nbf {
                     return Err(JwtError::NotYetValid);
                 }
             }
