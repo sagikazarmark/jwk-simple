@@ -17,6 +17,8 @@
 //! for details. No upstream fix is currently available.
 
 use jwt_simple::prelude::*;
+use pkcs1::der::Encode;
+use pkcs1::{RsaPrivateKey as Pkcs1RsaPrivateKey, RsaPublicKey as Pkcs1RsaPublicKey, UintRef};
 use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
@@ -35,27 +37,16 @@ use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams, OkpCurve, Rsa
 ///     publicExponent    INTEGER   -- e
 /// }
 /// ```
-fn build_rsa_public_key_der(params: &RsaParams) -> Vec<u8> {
-    let n = params.n.as_bytes();
-    let e = params.e.as_bytes();
+fn build_rsa_public_key_der(params: &RsaParams) -> Result<Vec<u8>> {
+    let modulus = uint_ref(params.n.as_bytes(), "n")?;
+    let public_exponent = uint_ref(params.e.as_bytes(), "e")?;
 
-    // Build DER-encoded integers (with leading zero if high bit is set)
-    let n_der = encode_der_integer(n);
-    let e_der = encode_der_integer(e);
-
-    // Build SEQUENCE
-    let content_len = n_der.len() + e_der.len();
-    let mut der = Vec::with_capacity(4 + content_len);
-
-    // SEQUENCE tag and length
-    der.push(0x30);
-    encode_der_length(&mut der, content_len);
-
-    // Content
-    der.extend_from_slice(&n_der);
-    der.extend_from_slice(&e_der);
-
-    der
+    Pkcs1RsaPublicKey {
+        modulus,
+        public_exponent,
+    }
+    .to_der()
+    .map_err(|e| Error::Other(format!("failed to encode PKCS#1 RSA public key: {e}")))
 }
 
 /// Builds a DER-encoded RSA private key from JWK parameters.
@@ -106,104 +97,30 @@ fn build_rsa_private_key_der(params: &RsaParams) -> Result<Zeroizing<Vec<u8>>> {
         .as_ref()
         .ok_or(Error::MissingField { field: "qi" })?;
 
-    // Build DER-encoded integers.
-    // Each intermediate buffer is wrapped in Zeroizing to ensure private key
-    // components are erased from memory when no longer needed.
-    let version_der = encode_der_integer(&[0]); // version 0 (not secret)
-    let n_der = encode_der_integer(params.n.as_bytes());
-    let e_der = encode_der_integer(params.e.as_bytes());
-    let d_der = encode_der_integer(d.as_bytes());
-    let p_der = encode_der_integer(p.as_bytes());
-    let q_der = encode_der_integer(q.as_bytes());
-    let dp_der = encode_der_integer(dp.as_bytes());
-    let dq_der = encode_der_integer(dq.as_bytes());
-    let qi_der = encode_der_integer(qi.as_bytes());
-
-    let content_len = version_der.len()
-        + n_der.len()
-        + e_der.len()
-        + d_der.len()
-        + p_der.len()
-        + q_der.len()
-        + dp_der.len()
-        + dq_der.len()
-        + qi_der.len();
-
-    let mut der = Zeroizing::new(Vec::with_capacity(4 + content_len));
-
-    // SEQUENCE tag and length
-    der.push(0x30);
-    encode_der_length(&mut der, content_len);
-
-    // Content
-    der.extend_from_slice(&version_der);
-    der.extend_from_slice(&n_der);
-    der.extend_from_slice(&e_der);
-    der.extend_from_slice(&d_der);
-    der.extend_from_slice(&p_der);
-    der.extend_from_slice(&q_der);
-    der.extend_from_slice(&dp_der);
-    der.extend_from_slice(&dq_der);
-    der.extend_from_slice(&qi_der);
-
-    Ok(der)
-}
-
-/// Encodes a byte slice as a DER INTEGER.
-///
-/// Returns a `Zeroizing<Vec<u8>>` so that private key component bytes
-/// are automatically erased from memory when the buffer is dropped.
-fn encode_der_integer(bytes: &[u8]) -> Zeroizing<Vec<u8>> {
-    if bytes.is_empty() {
-        // Encode zero: INTEGER tag, length 1, value 0x00
-        return Zeroizing::new(vec![0x02, 0x01, 0x00]);
-    }
-
-    // Skip leading zeros (but keep at least one byte)
-    let bytes = {
-        let mut start = 0;
-        while start < bytes.len() - 1 && bytes[start] == 0 {
-            start += 1;
-        }
-        &bytes[start..]
+    let private_key = Pkcs1RsaPrivateKey {
+        modulus: uint_ref(params.n.as_bytes(), "n")?,
+        public_exponent: uint_ref(params.e.as_bytes(), "e")?,
+        private_exponent: uint_ref(d.as_bytes(), "d")?,
+        prime1: uint_ref(p.as_bytes(), "p")?,
+        prime2: uint_ref(q.as_bytes(), "q")?,
+        exponent1: uint_ref(dp.as_bytes(), "dp")?,
+        exponent2: uint_ref(dq.as_bytes(), "dq")?,
+        coefficient: uint_ref(qi.as_bytes(), "qi")?,
+        other_prime_infos: None,
     };
 
-    // Add leading zero if high bit is set (to keep positive)
-    let needs_padding = !bytes.is_empty() && (bytes[0] & 0x80) != 0;
-
-    let len = bytes.len() + if needs_padding { 1 } else { 0 };
-    let mut der = Zeroizing::new(Vec::with_capacity(2 + len + 2)); // tag + length + content
-
-    // INTEGER tag
-    der.push(0x02);
-    encode_der_length(&mut der, len);
-
-    // Content
-    if needs_padding {
-        der.push(0x00);
-    }
-    der.extend_from_slice(bytes);
-
-    der
+    private_key
+        .to_der()
+        .map(Zeroizing::new)
+        .map_err(|e| Error::Other(format!("failed to encode PKCS#1 RSA private key: {e}")))
 }
 
-/// Encodes a length in DER format.
-fn encode_der_length(der: &mut Vec<u8>, len: usize) {
-    if len < 128 {
-        der.push(len as u8);
-    } else if len < 256 {
-        der.push(0x81);
-        der.push(len as u8);
-    } else if len < 65536 {
-        der.push(0x82);
-        der.push((len >> 8) as u8);
-        der.push(len as u8);
-    } else {
-        der.push(0x83);
-        der.push((len >> 16) as u8);
-        der.push((len >> 8) as u8);
-        der.push(len as u8);
-    }
+fn uint_ref<'a>(bytes: &'a [u8], field: &'static str) -> Result<UintRef<'a>> {
+    UintRef::new(bytes).map_err(|e| {
+        Error::Other(format!(
+            "invalid RSA integer '{field}' for PKCS#1 encoding: {e}"
+        ))
+    })
 }
 
 // Macro to implement RSA public key conversions
@@ -225,7 +142,7 @@ macro_rules! impl_rsa_public_key_conversion {
 
                 jwk.validate_for_use(&$alg, [KeyOperation::Verify])?;
 
-                let der = build_rsa_public_key_der(params);
+                let der = build_rsa_public_key_der(params)?;
                 <$key_type>::from_der(&der).map_err(|e| Error::Other(e.to_string()))
             }
         }
@@ -745,13 +662,6 @@ mod tests {
         let jwk: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
         let result: Result<RS256KeyPair> = (&jwk).try_into();
         assert!(matches!(result, Err(Error::MissingPrivateKey)));
-    }
-
-    #[test]
-    fn test_encode_der_integer_empty_bytes() {
-        // Encoding an empty byte slice should produce DER INTEGER 0, not panic
-        let result = encode_der_integer(&[]);
-        assert_eq!(*result, vec![0x02, 0x01, 0x00]);
     }
 
     #[test]
