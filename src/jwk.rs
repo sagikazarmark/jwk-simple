@@ -1103,9 +1103,11 @@ impl Key {
     ///
     /// This is the full pre-use gate: it performs structural validation
     /// ([`Key::validate`]) followed by algorithm suitability checks
-    /// (type compatibility, key strength), operation capability checks
-    /// (key material can actually perform the operation), and
-    /// operation-intent enforcement (metadata permits the requested operations).
+    /// (type compatibility, key strength), algorithm-operation compatibility
+    /// checks (requested operation is valid for the algorithm), operation
+    /// capability checks (key material can actually perform the operation),
+    /// and operation-intent enforcement (metadata permits the requested
+    /// operations).
     ///
     /// The `alg` parameter controls which algorithm constraints are applied
     /// (key type, minimum strength). It is independent of the key's own `alg`
@@ -1152,6 +1154,7 @@ impl Key {
         // algorithm-specific checks directly to avoid redundant structural work.
         self.validate_algorithm_key_type_match(alg)?;
         self.validate_algorithm_key_strength(alg)?;
+        self.validate_operation_algorithm_compatibility_for_all(alg, &ops)?;
 
         // Operation capability: key material can perform requested operations.
         self.validate_operation_capability_for_all(&ops)?;
@@ -1341,6 +1344,33 @@ impl Key {
             reason:
                 "requested operation(s) require private key material, but key contains only public parameters"
                     .to_string(),
+        }
+        .into())
+    }
+
+    fn validate_operation_algorithm_compatibility_for_all(
+        &self,
+        alg: &Algorithm,
+        operations: &[KeyOperation],
+    ) -> Result<()> {
+        debug_assert!(!operations.is_empty());
+
+        let incompatible: Vec<KeyOperation> = operations
+            .iter()
+            .filter(|op| !is_operation_compatible_with_algorithm(op, alg))
+            .cloned()
+            .collect();
+
+        if incompatible.is_empty() {
+            return Ok(());
+        }
+
+        Err(IncompatibleKeyError::OperationNotPermitted {
+            operations: incompatible,
+            reason: format!(
+                "requested operation(s) are not compatible with algorithm '{}'",
+                alg.as_str()
+            ),
         }
         .into())
     }
@@ -2090,6 +2120,73 @@ fn is_encryption_operation(operation: &KeyOperation) -> bool {
     )
 }
 
+pub(crate) fn is_operation_compatible_with_algorithm(
+    operation: &KeyOperation,
+    alg: &Algorithm,
+) -> bool {
+    if matches!(operation, KeyOperation::Unknown(_)) {
+        return true;
+    }
+
+    match alg {
+        Algorithm::Rs256
+        | Algorithm::Rs384
+        | Algorithm::Rs512
+        | Algorithm::Ps256
+        | Algorithm::Ps384
+        | Algorithm::Ps512
+        | Algorithm::Es256
+        | Algorithm::Es384
+        | Algorithm::Es512
+        | Algorithm::Es256k
+        | Algorithm::EdDsa
+        | Algorithm::Ed25519
+        | Algorithm::Ed448
+        | Algorithm::Hs256
+        | Algorithm::Hs384
+        | Algorithm::Hs512 => matches!(operation, KeyOperation::Sign | KeyOperation::Verify),
+        Algorithm::RsaOaep
+        | Algorithm::RsaOaep256
+        | Algorithm::RsaOaep384
+        | Algorithm::RsaOaep512
+        | Algorithm::Rsa1_5 => matches!(
+            operation,
+            KeyOperation::Encrypt
+                | KeyOperation::Decrypt
+                | KeyOperation::WrapKey
+                | KeyOperation::UnwrapKey
+        ),
+        Algorithm::A128kw
+        | Algorithm::A192kw
+        | Algorithm::A256kw
+        | Algorithm::A128gcmkw
+        | Algorithm::A192gcmkw
+        | Algorithm::A256gcmkw
+        | Algorithm::Pbes2Hs256A128kw
+        | Algorithm::Pbes2Hs384A192kw
+        | Algorithm::Pbes2Hs512A256kw => {
+            matches!(operation, KeyOperation::WrapKey | KeyOperation::UnwrapKey)
+        }
+        Algorithm::Dir
+        | Algorithm::A128cbcHs256
+        | Algorithm::A192cbcHs384
+        | Algorithm::A256cbcHs512
+        | Algorithm::A128gcm
+        | Algorithm::A192gcm
+        | Algorithm::A256gcm => matches!(operation, KeyOperation::Encrypt | KeyOperation::Decrypt),
+        Algorithm::EcdhEs
+        | Algorithm::EcdhEsA128kw
+        | Algorithm::EcdhEsA192kw
+        | Algorithm::EcdhEsA256kw => {
+            matches!(
+                operation,
+                KeyOperation::DeriveKey | KeyOperation::DeriveBits
+            )
+        }
+        Algorithm::Unknown(_) => false,
+    }
+}
+
 /// Encodes a byte slice as a DER INTEGER.
 fn encode_der_integer(bytes: &[u8]) -> Vec<u8> {
     if bytes.is_empty() {
@@ -2704,6 +2801,21 @@ mod tests {
             result,
             Err(Error::IncompatibleKey(
                 IncompatibleKeyError::IncompatibleAlgorithm { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_for_use_rejects_operation_algorithm_mismatch() {
+        let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )));
+
+        let result = key.validate_for_use(&Algorithm::Hs256, [KeyOperation::Encrypt]);
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
             ))
         ));
     }

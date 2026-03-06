@@ -144,7 +144,8 @@
 //!   though standard trait implementations like `Index` follow normal Rust
 //!   semantics and may panic on invalid input (e.g., out-of-bounds indexing)
 //! - [`Key::validate`] performs structural and consistency checks only.
-//!   [`Key::validate_for_use`] adds algorithm suitability and operation intent.
+//!   [`Key::validate_for_use`] adds algorithm suitability,
+//!   operation/algorithm compatibility, and operation intent.
 //!   PKIX trust validation for `x5c` chains is application-defined and out of
 //!   scope for this crate.
 

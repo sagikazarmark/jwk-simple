@@ -7,7 +7,9 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::{Error, IncompatibleKeyError, InvalidKeyError, Result};
-use crate::jwk::{Algorithm, Key, KeyOperation, KeyType, KeyUse};
+use crate::jwk::{
+    Algorithm, Key, KeyOperation, KeyType, KeyUse, is_operation_compatible_with_algorithm,
+};
 
 mod cache;
 #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
@@ -34,6 +36,13 @@ pub enum SelectionError {
     UnknownAlgorithm,
     /// The requested operation is unknown/private and strict selection rejects it.
     UnknownOperation,
+    /// The requested operation is not compatible with the requested algorithm.
+    OperationAlgorithmMismatch {
+        /// Operation requested by the caller.
+        operation: KeyOperation,
+        /// Algorithm requested by the caller.
+        algorithm: Algorithm,
+    },
     /// The requested verification algorithm is not permitted by the allowlist.
     AlgorithmNotAllowed,
     /// The requested algorithm conflicts with a key's declared `alg` value.
@@ -78,6 +87,30 @@ impl std::fmt::Display for SelectionError {
             }
             SelectionError::UnknownAlgorithm => write!(f, "unknown or unsupported algorithm"),
             SelectionError::UnknownOperation => write!(f, "unknown or unsupported operation"),
+            SelectionError::OperationAlgorithmMismatch {
+                operation,
+                algorithm,
+            } => {
+                let operation_display = match operation {
+                    KeyOperation::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => operation.to_string(),
+                };
+
+                let algorithm_display = match algorithm {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => algorithm.to_string(),
+                };
+
+                write!(
+                    f,
+                    "operation/algorithm mismatch: operation {} is not valid for algorithm {}",
+                    operation_display, algorithm_display
+                )
+            }
             SelectionError::AlgorithmNotAllowed => {
                 write!(f, "algorithm is not allowed for verification")
             }
@@ -268,14 +301,15 @@ impl<'a> KeySelector<'a> {
     ///
     /// In kid-less mode, candidate-level mismatch diagnostics are intentionally
     /// suppressed. Early policy errors still surface (`UnknownAlgorithm`,
-    /// `UnknownOperation`, allowlist failures).
+    /// `UnknownOperation`, `OperationAlgorithmMismatch`, allowlist failures).
     ///
     /// Error precedence is deterministic:
     /// 1. `UnknownAlgorithm`
     /// 2. `UnknownOperation`
-    /// 3. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
-    /// 4. Candidate evaluation
-    /// 5. If multiple candidates survive: `AmbiguousSelection`
+    /// 3. `OperationAlgorithmMismatch`
+    /// 4. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
+    /// 5. Candidate evaluation
+    /// 6. If multiple candidates survive: `AmbiguousSelection`
     ///
     /// If `kid` is present and no candidate survives, the most specific error
     /// is returned in this order: `AlgorithmMismatch` -> `IntentMismatch`
@@ -334,6 +368,13 @@ impl<'a> KeySelector<'a> {
 
         if matcher.op.is_unknown() {
             return Err(SelectionError::UnknownOperation);
+        }
+
+        if !is_operation_compatible_with_algorithm(&matcher.op, &matcher.alg) {
+            return Err(SelectionError::OperationAlgorithmMismatch {
+                operation: matcher.op,
+                algorithm: matcher.alg,
+            });
         }
 
         if matcher.op == KeyOperation::Verify {
@@ -1247,6 +1288,24 @@ mod tests {
     }
 
     #[test]
+    fn test_selector_operation_algorithm_mismatch_rejected() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Encrypt, Algorithm::Rs256))
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            SelectionError::OperationAlgorithmMismatch {
+                operation: KeyOperation::Encrypt,
+                algorithm: Algorithm::Rs256
+            }
+        ));
+    }
+
+    #[test]
     fn test_selector_incompatible_key_type_for_known_kid() {
         let json = r#"{"keys": [
             {"kty": "oct", "kid": "oct-1", "k": "AQAB"}
@@ -1704,6 +1763,14 @@ mod tests {
         assert_eq!(
             SelectionError::UnknownOperation.to_string(),
             "unknown or unsupported operation"
+        );
+        assert_eq!(
+            SelectionError::OperationAlgorithmMismatch {
+                operation: KeyOperation::Encrypt,
+                algorithm: Algorithm::Rs256,
+            }
+            .to_string(),
+            "operation/algorithm mismatch: operation encrypt is not valid for algorithm RS256"
         );
         assert_eq!(
             SelectionError::AlgorithmNotAllowed.to_string(),

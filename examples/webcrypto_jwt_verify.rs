@@ -71,10 +71,6 @@ mod wasm_example {
         pub alg: String,
         /// Key ID (used to find the right key in JWKS)
         pub kid: Option<String>,
-        /// Token type (usually "JWT")
-        #[serde(default)]
-        #[allow(dead_code)]
-        pub typ: Option<String>,
     }
 
     /// Standard JWT claims (minimal set)
@@ -535,7 +531,6 @@ mod wasm_example {
                 header: JwtHeader {
                     alg: "RS256".to_string(),
                     kid: Some("test-key-1".to_string()),
-                    typ: Some("JWT".to_string()),
                 },
                 claims: JwtClaims {
                     iss: None,
@@ -562,7 +557,6 @@ mod wasm_example {
                 header: JwtHeader {
                     alg: "BADALG".to_string(),
                     kid: Some("test-key-1".to_string()),
-                    typ: Some("JWT".to_string()),
                 },
                 claims: JwtClaims {
                     iss: None,
