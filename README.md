@@ -88,7 +88,7 @@ let first_signing = jwks.first_signing_key();
 
 // Iterate over all keys
 for key in &jwks {
-    println!("Key: {:?}", key.kid);
+    println!("Key: {:?}", key.kid());
 }
 ```
 

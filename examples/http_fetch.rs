@@ -31,15 +31,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for key in &jwks {
         println!(
             "  - kid: {}, kty: {:?}, alg: {:?}",
-            key.kid.as_deref().unwrap_or("(none)"),
+            key.kid().unwrap_or("(none)"),
             key.kty(),
-            key.alg
+            key.alg()
         );
     }
 
     // You can also look up a specific key by kid
     if let Some(key) = jwks.first() {
-        if let Some(kid) = &key.kid {
+        if let Some(kid) = key.kid() {
             println!("\n--- Looking up key by kid ---");
             let found = remote.get_key(kid).await?;
             println!("Found key: {:?}", found.is_some());

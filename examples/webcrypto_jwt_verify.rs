@@ -541,7 +541,7 @@ mod wasm_example {
             };
 
             let key = find_key_for_jwt(&jwks, &jwt).unwrap();
-            assert_eq!(key.kid.as_deref(), Some("test-key-1"));
+            assert_eq!(key.kid(), Some("test-key-1"));
         }
     }
 }

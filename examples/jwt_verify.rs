@@ -30,9 +30,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Find the key we want to use
     let jwk = jwks.get_by_kid("my-signing-key").ok_or("Key not found")?;
 
-    println!("Found key: {:?}", jwk.kid);
+    println!("Found key: {:?}", jwk.kid());
     println!("Key type: {:?}", jwk.kty());
-    println!("Algorithm: {:?}", jwk.alg);
+    println!("Algorithm: {:?}", jwk.alg());
 
     // Convert to jwt-simple key type
     // Method 1: Using TryFrom/TryInto

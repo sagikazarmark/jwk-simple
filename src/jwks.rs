@@ -307,7 +307,7 @@ impl<'a> KeySelector<'a> {
     ///   .selector(&[Algorithm::Rs256, Algorithm::Es256])
     ///   .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-kid"))
     ///   .unwrap();
-    /// assert_eq!(key.kid.as_deref(), Some("my-kid"));
+    /// assert_eq!(key.kid(), Some("my-kid"));
     /// ```
     ///
     /// Sign selection (allowlist is not consulted for signing):
@@ -324,7 +324,7 @@ impl<'a> KeySelector<'a> {
     ///   .selector(&[])
     ///   .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("sign-kid"))
     ///   .unwrap();
-    /// assert_eq!(key.kid.as_deref(), Some("sign-kid"));
+    /// assert_eq!(key.kid(), Some("sign-kid"));
     /// ```
     pub fn select(&self, matcher: KeyMatcher<'_>) -> std::result::Result<&'a Key, SelectionError> {
         if matcher.alg.is_unknown() {
@@ -360,12 +360,12 @@ impl<'a> KeySelector<'a> {
             // For kid-less selection, failing candidates are skipped and final
             // outcome is resolved by surviving cardinality.
             if let Some(kid) = matcher.kid
-                && key.kid.as_deref() != Some(kid)
+                && key.kid() != Some(kid)
             {
                 continue;
             }
 
-            if let Some(declared_alg) = &key.alg
+            if let Some(declared_alg) = key.alg()
                 && declared_alg != &matcher.alg
             {
                 if matcher.kid.is_some() && saw_alg_mismatch.is_none() {
@@ -598,7 +598,7 @@ impl<'de> Deserialize<'de> for KeySet {
             // Attempt to parse each key, then validate key parameters.
             // Skip any key that fails either phase.
             if let Ok(key) = serde_json::from_value::<Key>(value)
-                && key.params.validate().is_ok()
+                && key.params().validate().is_ok()
             {
                 keys.push(key);
             }
@@ -654,7 +654,7 @@ impl KeySet {
 
     /// Removes and returns a key by its ID.
     pub fn remove_by_kid(&mut self, kid: &str) -> Option<Key> {
-        if let Some(pos) = self.keys.iter().position(|k| k.kid.as_deref() == Some(kid)) {
+        if let Some(pos) = self.keys.iter().position(|k| k.kid() == Some(kid)) {
             Some(self.keys.remove(pos))
         } else {
             None
@@ -678,7 +678,7 @@ impl KeySet {
     /// assert!(missing.is_none());
     /// ```
     pub fn get_by_kid(&self, kid: &str) -> Option<&Key> {
-        self.keys.iter().find(|k| k.kid.as_deref() == Some(kid))
+        self.keys.iter().find(|k| k.kid() == Some(kid))
     }
 
     /// Finds all signing keys.
@@ -843,7 +843,7 @@ impl KeySet {
 
         self.keys.iter().filter(move |k| {
             if let Some(kid) = kid.as_deref()
-                && k.kid.as_deref() != Some(kid)
+                && k.kid() != Some(kid)
             {
                 return false;
             }
@@ -855,23 +855,23 @@ impl KeySet {
             }
 
             if let Some(alg) = &alg
-                && k.alg.as_ref() != Some(alg)
+                && k.alg() != Some(alg)
             {
                 return false;
             }
 
             if let Some(key_use) = &key_use
-                && k.key_use.as_ref() != Some(key_use)
+                && k.key_use() != Some(key_use)
             {
                 return false;
             }
 
             if let Some(op) = &op {
-                if let Some(key_ops) = &k.key_ops {
+                if let Some(key_ops) = k.key_ops() {
                     if !key_ops.contains(op) {
                         return false;
                     }
-                } else if let Some(key_use) = &k.key_use {
+                } else if let Some(key_use) = k.key_use() {
                     let allowed_by_use = match op {
                         KeyOperation::Sign | KeyOperation::Verify => key_use == &KeyUse::Signature,
                         KeyOperation::Encrypt
@@ -960,10 +960,10 @@ impl std::ops::Index<usize> for KeySet {
 /// When `key_ops` is absent, `key_use` is consulted: the key is a signing
 /// key if `use` is `"sig"` or unset.
 fn is_signing_key(key: &Key) -> bool {
-    if let Some(ref ops) = key.key_ops {
+    if let Some(ops) = key.key_ops() {
         ops.contains(&KeyOperation::Sign) || ops.contains(&KeyOperation::Verify)
     } else {
-        key.key_use.is_none() || key.key_use.as_ref() == Some(&KeyUse::Signature)
+        key.key_use().is_none() || key.key_use() == Some(&KeyUse::Signature)
     }
 }
 
@@ -975,13 +975,13 @@ fn is_signing_key(key: &Key) -> bool {
 /// When `key_ops` is absent, `key_use` is consulted: the key is an
 /// encryption key if `use` is `"enc"`.
 fn is_encryption_key(key: &Key) -> bool {
-    if let Some(ref ops) = key.key_ops {
+    if let Some(ops) = key.key_ops() {
         ops.contains(&KeyOperation::Encrypt)
             || ops.contains(&KeyOperation::Decrypt)
             || ops.contains(&KeyOperation::WrapKey)
             || ops.contains(&KeyOperation::UnwrapKey)
     } else {
-        key.key_use.as_ref() == Some(&KeyUse::Encryption)
+        key.key_use() == Some(&KeyUse::Encryption)
     }
 }
 
@@ -1145,7 +1145,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-key-1"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(key.kid(), Some("rsa-key-1"));
     }
 
     #[test]
@@ -1429,7 +1429,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("ec-key-1"));
+        assert_eq!(key.kid(), Some("ec-key-1"));
     }
 
     #[test]
@@ -1460,7 +1460,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Ed25519).with_kid("ed-key"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("ed-key"));
+        assert_eq!(key.kid(), Some("ed-key"));
     }
 
     #[test]
@@ -1475,7 +1475,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Ed25519).with_kid("ed-sign"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("ed-sign"));
+        assert_eq!(key.kid(), Some("ed-sign"));
     }
 
     #[test]
@@ -1508,7 +1508,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("rsa-key-1"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(key.kid(), Some("rsa-key-1"));
     }
 
     #[test]
@@ -1520,7 +1520,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-key-1"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("ec-key-1"));
+        assert_eq!(key.kid(), Some("ec-key-1"));
     }
 
     #[test]
@@ -1563,7 +1563,7 @@ mod tests {
 
         let keys: Vec<_> = jwks.find(filter).collect();
         assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0].kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(keys[0].kid(), Some("rsa-key-1"));
     }
 
     #[test]
@@ -1700,7 +1700,7 @@ mod tests {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
         let first = jwks.first_signing_key().unwrap();
-        assert_eq!(first.kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(first.kid(), Some("rsa-key-1"));
     }
 
     #[test]
@@ -1711,13 +1711,13 @@ mod tests {
             .find(KeyFilter::new().with_alg(Algorithm::Rs256))
             .next();
         assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("rsa-key-1"));
+        assert_eq!(key.unwrap().kid(), Some("rsa-key-1"));
 
         let key = jwks
             .find(KeyFilter::new().with_alg(Algorithm::Es256))
             .next();
         assert!(key.is_some());
-        assert_eq!(key.unwrap().kid.as_deref(), Some("ec-key-1"));
+        assert_eq!(key.unwrap().kid(), Some("ec-key-1"));
 
         let missing = jwks
             .find(KeyFilter::new().with_alg(Algorithm::Ps512))
@@ -1785,8 +1785,7 @@ mod tests {
                     KeyMatcher::new(KeyOperation::Sign, Algorithm::Ed25519).with_kid("ed25519-key")
                 )
                 .unwrap()
-                .kid
-                .as_deref(),
+                .kid(),
             Some("ed25519-key")
         );
         assert_eq!(
@@ -1795,8 +1794,7 @@ mod tests {
                     KeyMatcher::new(KeyOperation::Sign, Algorithm::EdDsa).with_kid("legacy-eddsa")
                 )
                 .unwrap()
-                .kid
-                .as_deref(),
+                .kid(),
             Some("legacy-eddsa")
         );
     }
@@ -1826,7 +1824,7 @@ mod tests {
         let count = jwks.iter().count();
         assert_eq!(count, 3);
 
-        let kids: Vec<_> = jwks.iter().filter_map(|k| k.kid.as_deref()).collect();
+        let kids: Vec<_> = jwks.iter().filter_map(Key::kid).collect();
         assert!(kids.contains(&"rsa-key-1"));
     }
 
@@ -1834,7 +1832,7 @@ mod tests {
     fn test_index() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
         let first = &jwks[0];
-        assert_eq!(first.kid, Some("rsa-key-1".to_string()));
+        assert_eq!(first.kid(), Some("rsa-key-1"));
     }
 
     #[test]
@@ -1855,7 +1853,7 @@ mod tests {
 
         let removed = jwks.remove_by_kid("ec-key-1");
         assert!(removed.is_some());
-        assert_eq!(removed.unwrap().kid.as_deref(), Some("ec-key-1"));
+        assert_eq!(removed.unwrap().kid(), Some("ec-key-1"));
         assert_eq!(jwks.len(), 2);
         assert!(jwks.get_by_kid("ec-key-1").is_none());
 
@@ -1893,7 +1891,7 @@ mod tests {
         // Test get_key
         let key = store.get_key("test-key").await.unwrap();
         assert!(key.is_some());
-        assert_eq!(key.unwrap().kid, Some("test-key".to_string()));
+        assert_eq!(key.unwrap().kid(), Some("test-key"));
 
         // Test missing key
         let missing = store.get_key("nonexistent").await.unwrap();

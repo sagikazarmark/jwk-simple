@@ -28,7 +28,7 @@
 //! }"#;
 //!
 //! let jwk: Key = serde_json::from_str(json)?;
-//! assert_eq!(jwk.kid.as_deref(), Some("my-key-id"));
+//! assert_eq!(jwk.kid(), Some("my-key-id"));
 //! # Ok(())
 //! # }
 //! ```
@@ -658,39 +658,39 @@ impl From<OkpParams> for KeyParams {
 pub struct Key {
     /// The key ID.
     #[zeroize(skip)]
-    pub kid: Option<String>,
+    kid: Option<String>,
 
     /// The intended use of the key.
     #[zeroize(skip)]
-    pub key_use: Option<KeyUse>,
+    key_use: Option<KeyUse>,
 
     /// The permitted operations for the key.
     #[zeroize(skip)]
-    pub key_ops: Option<Vec<KeyOperation>>,
+    key_ops: Option<Vec<KeyOperation>>,
 
     /// The algorithm intended for use with the key.
     #[zeroize(skip)]
-    pub alg: Option<Algorithm>,
+    alg: Option<Algorithm>,
 
     /// The key-type-specific parameters.
-    pub params: KeyParams,
+    params: KeyParams,
 
     /// X.509 certificate chain (base64-encoded DER).
     #[zeroize(skip)]
-    pub x5c: Option<Vec<String>>,
+    x5c: Option<Vec<String>>,
 
     /// X.509 certificate SHA-1 thumbprint (base64url-encoded).
     #[zeroize(skip)]
-    pub x5t: Option<String>,
+    x5t: Option<String>,
 
     /// X.509 certificate SHA-256 thumbprint (base64url-encoded).
     #[zeroize(skip)]
     #[allow(non_snake_case)]
-    pub x5t_s256: Option<String>,
+    x5t_s256: Option<String>,
 
     /// X.509 URL.
     #[zeroize(skip)]
-    pub x5u: Option<String>,
+    x5u: Option<String>,
 }
 
 impl Key {
@@ -717,7 +717,7 @@ impl Key {
     /// .with_use(KeyUse::Signature);
     ///
     /// assert_eq!(key.kty(), KeyType::Rsa);
-    /// assert_eq!(key.kid.as_deref(), Some("my-key-id"));
+    /// assert_eq!(key.kid(), Some("my-key-id"));
     /// ```
     #[must_use]
     pub fn new(params: KeyParams) -> Self {
@@ -745,6 +745,61 @@ impl Key {
     #[must_use]
     pub fn kty(&self) -> KeyType {
         self.params.key_type()
+    }
+
+    /// Returns the key ID (`kid`), if present.
+    #[must_use]
+    pub fn kid(&self) -> Option<&str> {
+        self.kid.as_deref()
+    }
+
+    /// Returns the intended key use (`use`), if present.
+    #[must_use]
+    pub fn key_use(&self) -> Option<&KeyUse> {
+        self.key_use.as_ref()
+    }
+
+    /// Returns the permitted operations (`key_ops`), if present.
+    #[must_use]
+    pub fn key_ops(&self) -> Option<&[KeyOperation]> {
+        self.key_ops.as_deref()
+    }
+
+    /// Returns the declared algorithm (`alg`), if present.
+    #[must_use]
+    pub fn alg(&self) -> Option<&Algorithm> {
+        self.alg.as_ref()
+    }
+
+    /// Returns the key-type-specific parameters.
+    #[must_use]
+    pub fn params(&self) -> &KeyParams {
+        &self.params
+    }
+
+    /// Returns the X.509 certificate chain (`x5c`), if present.
+    #[must_use]
+    pub fn x5c(&self) -> Option<&[String]> {
+        self.x5c.as_deref()
+    }
+
+    /// Returns the X.509 SHA-1 certificate thumbprint (`x5t`), if present.
+    #[must_use]
+    pub fn x5t(&self) -> Option<&str> {
+        self.x5t.as_deref()
+    }
+
+    /// Returns the X.509 SHA-256 certificate thumbprint (`x5t#S256`), if present.
+    #[must_use]
+    #[allow(non_snake_case)]
+    pub fn x5t_s256(&self) -> Option<&str> {
+        self.x5t_s256.as_deref()
+    }
+
+    /// Returns the X.509 URL (`x5u`), if present.
+    #[must_use]
+    pub fn x5u(&self) -> Option<&str> {
+        self.x5u.as_deref()
     }
 
     /// Sets the key ID (`kid`).

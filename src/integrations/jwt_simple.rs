@@ -130,7 +130,7 @@ macro_rules! impl_rsa_public_key_conversion {
             type Error = Error;
 
             fn try_from(jwk: &Key) -> Result<Self> {
-                let params = match &jwk.params {
+                let params = match jwk.params() {
                     KeyParams::Rsa(p) => p,
                     _ => {
                         return Err(Error::KeyTypeMismatch {
@@ -164,7 +164,7 @@ macro_rules! impl_rsa_key_pair_conversion {
             type Error = Error;
 
             fn try_from(jwk: &Key) -> Result<Self> {
-                let params = match &jwk.params {
+                let params = match jwk.params() {
                     KeyParams::Rsa(p) => p,
                     _ => {
                         return Err(Error::KeyTypeMismatch {
@@ -221,7 +221,7 @@ macro_rules! impl_ec_public_key_conversion {
             type Error = Error;
 
             fn try_from(jwk: &Key) -> Result<Self> {
-                let params = match &jwk.params {
+                let params = match jwk.params() {
                     KeyParams::Ec(p) => p,
                     _ => {
                         return Err(Error::KeyTypeMismatch {
@@ -262,7 +262,7 @@ macro_rules! impl_ec_key_pair_conversion {
             type Error = Error;
 
             fn try_from(jwk: &Key) -> Result<Self> {
-                let params = match &jwk.params {
+                let params = match jwk.params() {
                     KeyParams::Ec(p) => p,
                     _ => {
                         return Err(Error::KeyTypeMismatch {
@@ -325,7 +325,7 @@ impl TryFrom<&Key> for Ed25519PublicKey {
     type Error = Error;
 
     fn try_from(jwk: &Key) -> Result<Self> {
-        let params = match &jwk.params {
+        let params = match jwk.params() {
             KeyParams::Okp(p) => p,
             _ => {
                 return Err(Error::KeyTypeMismatch {
@@ -360,7 +360,7 @@ impl TryFrom<&Key> for Ed25519KeyPair {
     type Error = Error;
 
     fn try_from(jwk: &Key) -> Result<Self> {
-        let params = match &jwk.params {
+        let params = match jwk.params() {
             KeyParams::Okp(p) => p,
             _ => {
                 return Err(Error::KeyTypeMismatch {
@@ -402,7 +402,7 @@ impl TryFrom<&Key> for HS256Key {
     type Error = Error;
 
     fn try_from(jwk: &Key) -> Result<Self> {
-        let params = match &jwk.params {
+        let params = match jwk.params() {
             KeyParams::Symmetric(p) => p,
             _ => {
                 return Err(Error::KeyTypeMismatch {
@@ -433,7 +433,7 @@ impl TryFrom<&Key> for HS384Key {
     type Error = Error;
 
     fn try_from(jwk: &Key) -> Result<Self> {
-        let params = match &jwk.params {
+        let params = match jwk.params() {
             KeyParams::Symmetric(p) => p,
             _ => {
                 return Err(Error::KeyTypeMismatch {
@@ -464,7 +464,7 @@ impl TryFrom<&Key> for HS512Key {
     type Error = Error;
 
     fn try_from(jwk: &Key) -> Result<Self> {
-        let params = match &jwk.params {
+        let params = match jwk.params() {
             KeyParams::Symmetric(p) => p,
             _ => {
                 return Err(Error::KeyTypeMismatch {
@@ -740,7 +740,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("rsa-verify"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("rsa-verify"));
+        assert_eq!(key.kid(), Some("rsa-verify"));
 
         let err = jwks
             .selector(&[Algorithm::Rs256])
@@ -761,7 +761,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-sign"))
             .unwrap();
 
-        assert_eq!(key.kid.as_deref(), Some("ec-sign"));
+        assert_eq!(key.kid(), Some("ec-sign"));
     }
 
     #[test]
