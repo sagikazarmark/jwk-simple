@@ -105,8 +105,7 @@ impl HttpKeyStore {
     /// )?;
     /// ```
     pub fn new_with_client(url: impl AsRef<str>, client: reqwest::Client) -> Result<Self> {
-        let url = Url::parse(url.as_ref())
-            .map_err(|e| Error::Parse(ParseError::Json(format!("invalid URL: {e}"))))?;
+        let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
 
         Ok(Self { url, client })
     }
@@ -270,13 +269,13 @@ mod tests {
     #[test]
     fn test_http_keystore_new_rejects_invalid_url() {
         let err = HttpKeyStore::new("not a valid url").unwrap_err();
-        assert!(matches!(err, Error::Parse(ParseError::Json(_))));
+        assert!(matches!(err, Error::InvalidUrl(_)));
     }
 
     #[test]
     fn test_http_keystore_new_with_client_rejects_invalid_url() {
         let client = reqwest::Client::new();
         let err = HttpKeyStore::new_with_client("not a valid url", client).unwrap_err();
-        assert!(matches!(err, Error::Parse(ParseError::Json(_))));
+        assert!(matches!(err, Error::InvalidUrl(_)));
     }
 }

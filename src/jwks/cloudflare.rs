@@ -33,7 +33,7 @@ use futures::TryStreamExt;
 use url::Url;
 use worker::kv::KvStore;
 
-use crate::error::{Error, ParseError, Result};
+use crate::error::{Error, Result};
 use crate::jwks::{KeyCache, KeySet, KeyStore};
 
 /// Default TTL for KV cache entries (5 minutes).
@@ -68,8 +68,7 @@ pub struct FetchKeyStore {
 impl FetchKeyStore {
     /// Creates a new `FetchKeyStore` from a URL.
     pub fn new(url: impl AsRef<str>) -> Result<Self> {
-        let url = Url::parse(url.as_ref())
-            .map_err(|e| Error::Parse(ParseError::Json(format!("invalid URL: {e}"))))?;
+        let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
 
         Ok(Self { url })
     }
@@ -80,7 +79,7 @@ impl FetchKeyStore {
             self.url
                 .as_str()
                 .parse()
-                .map_err(|e| Error::Parse(ParseError::Json(format!("invalid URL: {}", e))))?,
+                .map_err(|e| Error::InvalidUrl(e.to_string()))?,
         )
         .send()
         .await
@@ -251,6 +250,6 @@ mod tests {
     #[test]
     fn test_fetch_keystore_new_rejects_invalid_url() {
         let err = FetchKeyStore::new("not a valid url").unwrap_err();
-        assert!(matches!(err, Error::Parse(ParseError::Json(_))));
+        assert!(matches!(err, Error::InvalidUrl(_)));
     }
 }
