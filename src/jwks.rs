@@ -234,12 +234,6 @@ impl<'a> KeyFilter<'a> {
         self
     }
 
-    /// Sets an optional key identifier (`kid`) filter.
-    pub fn with_optional_kid(mut self, kid: Option<&'a str>) -> Self {
-        self.kid = kid;
-        self
-    }
-
     /// Sets a key type filter.
     pub fn with_kty(mut self, kty: KeyType) -> Self {
         self.kty = Some(kty);
