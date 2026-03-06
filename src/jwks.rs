@@ -385,6 +385,20 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
+            if let Err(e) = key.check_operation_capability(std::slice::from_ref(&matcher.op)) {
+                if matcher.kid.is_some() {
+                    match e {
+                        Error::IncompatibleKey(suitability) => {
+                            if saw_suitability_error.is_none() {
+                                saw_suitability_error = Some(suitability);
+                            }
+                        }
+                        _ => incompatible_for_known_kid = true,
+                    }
+                }
+                continue;
+            }
+
             if let Err(e) = key.check_algorithm_suitability(&matcher.alg) {
                 if matcher.kid.is_some() {
                     match e {
@@ -1495,19 +1509,56 @@ mod tests {
 
     #[test]
     fn test_selector_sign_selects_single_key() {
-        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let json = r#"{"keys": [
+            {"kty": "EC", "kid": "ec-sign", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM", "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
         let selector = jwks.selector(&[]);
 
         let key = selector
-            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("rsa-key-1"))
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Es256).with_kid("ec-sign"))
             .unwrap();
 
-        assert_eq!(key.kid(), Some("rsa-key-1"));
+        assert_eq!(key.kid(), Some("ec-sign"));
+    }
+
+    #[test]
+    fn test_selector_rejects_public_key_for_sign_with_known_kid() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa-pub", "use": "sig", "alg": "RS256", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("rsa-pub"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::KeySuitabilityFailed(_)));
+    }
+
+    #[test]
+    fn test_selector_no_kid_public_signing_candidates_return_no_match() {
+        let json = r#"{"keys": [
+            {"kty": "RSA", "kid": "rsa-pub-1", "use": "sig", "alg": "RS256", "n": "AQAB", "e": "AQAB"},
+            {"kty": "RSA", "kid": "rsa-pub-2", "use": "sig", "alg": "RS256", "n": "AQAB", "e": "AQAB"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::NoMatchingKey));
     }
 
     #[test]
     fn test_selector_empty_verify_allowlist_does_not_block_signing() {
-        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let json = r#"{"keys": [
+            {"kty": "EC", "kid": "ec-key-1", "use": "sig", "alg": "ES256", "crv": "P-256", "x": "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", "y": "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM", "d": "870MB6gfuTJ4HtUnUvYMyJpr5eUZNP4Bk43bVdj3eAE"}
+        ]}"#;
+        let jwks: KeySet = serde_json::from_str(json).unwrap();
         let selector = jwks.selector(&[]);
 
         let key = selector
@@ -1756,8 +1807,8 @@ mod tests {
     #[test]
     fn test_rfc9864_alg_lookup_behavior() {
         let json = r#"{"keys": [
-            {"kty": "OKP", "kid": "ed25519-key", "use": "sig", "alg": "Ed25519", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"},
-            {"kty": "OKP", "kid": "legacy-eddsa", "use": "sig", "alg": "EdDSA", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}
+            {"kty": "OKP", "kid": "ed25519-key", "use": "sig", "alg": "Ed25519", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo", "d": "nWGxne_9Wm8tRcf0UjvXw9vQ3j8n0i4Q4fQx5t6k7mA"},
+            {"kty": "OKP", "kid": "legacy-eddsa", "use": "sig", "alg": "EdDSA", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo", "d": "nWGxne_9Wm8tRcf0UjvXw9vQ3j8n0i4Q4fQx5t6k7mA"}
         ]}"#;
         let jwks: KeySet = serde_json::from_str(json).unwrap();
 
