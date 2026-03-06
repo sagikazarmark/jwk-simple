@@ -138,7 +138,7 @@ let client = reqwest::Client::builder()
 let remote = HttpKeyStore::new_with_client(
     "https://example.com/.well-known/jwks.json",
     client,
-);
+)?;
 
 // Fetch the JWKS
 let jwks = remote.get_keyset().await?;

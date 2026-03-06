@@ -1098,14 +1098,8 @@ mod tests {
 
         assert_eq!(jwks.find(KeyFilter::for_alg(Algorithm::Rs256)).count(), 1);
         assert_eq!(jwks.find(KeyFilter::for_kty(KeyType::Rsa)).count(), 2);
-        assert_eq!(
-            jwks.find(KeyFilter::for_use(KeyUse::Signature)).count(),
-            2
-        );
-        assert_eq!(
-            jwks.find(KeyFilter::for_op(KeyOperation::Sign)).count(),
-            2
-        );
+        assert_eq!(jwks.find(KeyFilter::for_use(KeyUse::Signature)).count(), 2);
+        assert_eq!(jwks.find(KeyFilter::for_op(KeyOperation::Sign)).count(), 2);
         assert_eq!(
             jwks.find(KeyFilter::for_use_alg(KeyUse::Signature, Algorithm::Rs256))
                 .count(),
@@ -1659,8 +1653,16 @@ mod tests {
     fn test_find_by_alg() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert_eq!(jwks.find(KeyFilter::new().with_alg(Algorithm::Rs256)).count(), 1);
-        assert_eq!(jwks.find(KeyFilter::new().with_alg(Algorithm::Es256)).count(), 1);
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_alg(Algorithm::Rs256))
+                .count(),
+            1
+        );
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_alg(Algorithm::Es256))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1866,9 +1868,15 @@ mod tests {
     fn test_find_by_kty() {
         let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
 
-        assert_eq!(jwks.find(KeyFilter::new().with_kty(KeyType::Rsa)).count(), 2);
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_kty(KeyType::Rsa)).count(),
+            2
+        );
         assert_eq!(jwks.find(KeyFilter::new().with_kty(KeyType::Ec)).count(), 1);
-        assert_eq!(jwks.find(KeyFilter::new().with_kty(KeyType::Okp)).count(), 0);
+        assert_eq!(
+            jwks.find(KeyFilter::new().with_kty(KeyType::Okp)).count(),
+            0
+        );
         assert_eq!(
             jwks.find(KeyFilter::new().with_kty(KeyType::Symmetric))
                 .count(),

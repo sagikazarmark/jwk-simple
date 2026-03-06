@@ -282,7 +282,9 @@ impl<'de> Deserialize<'de> for KeyOperation {
     where
         D: Deserializer<'de>,
     {
-        Ok(KeyOperation::from(String::deserialize(deserializer)?.as_str()))
+        Ok(KeyOperation::from(
+            String::deserialize(deserializer)?.as_str(),
+        ))
     }
 }
 

@@ -1,6 +1,6 @@
 //! Benchmarks for jwk-simple operations.
 
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use jwk_simple::{Algorithm, KeyFilter, KeySet, KeyType};
 use std::hint::black_box;
 

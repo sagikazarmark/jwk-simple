@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
-    let remote = HttpKeyStore::new_with_client(google_jwks_url, client);
+    let remote = HttpKeyStore::new_with_client(google_jwks_url, client)?;
 
     // Fetch the JWKS
     let jwks = remote.get_keyset().await?;

@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::error::{Error, ParseError, Result};
 use crate::jwks::{KeySet, KeyStore};
+use url::Url;
 
 /// Default timeout for HTTP requests (30 seconds).
 #[cfg(not(target_arch = "wasm32"))]
@@ -61,7 +62,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// ```
 #[derive(Debug, Clone)]
 pub struct HttpKeyStore {
-    url: String,
+    url: Url,
     client: reqwest::Client,
 }
 
@@ -70,16 +71,13 @@ impl HttpKeyStore {
     ///
     /// Uses a default HTTP client with a 30-second timeout. To customize the client,
     /// use [`new_with_client`](Self::new_with_client).
-    pub fn new(url: impl Into<String>) -> Result<Self> {
+    pub fn new(url: impl AsRef<str>) -> Result<Self> {
         let builder = reqwest::Client::builder();
         #[cfg(not(target_arch = "wasm32"))]
         let builder = builder.timeout(DEFAULT_TIMEOUT);
         let client = builder.build()?;
 
-        Ok(Self {
-            url: url.into(),
-            client,
-        })
+        Self::new_with_client(url, client)
     }
 
     /// Creates a new `HttpKeyStore` with a custom HTTP client.
@@ -104,20 +102,20 @@ impl HttpKeyStore {
     /// let store = HttpKeyStore::new_with_client(
     ///     "https://example.com/.well-known/jwks.json",
     ///     client,
-    /// );
+    /// )?;
     /// ```
-    pub fn new_with_client(url: impl Into<String>, client: reqwest::Client) -> Self {
-        Self {
-            url: url.into(),
-            client,
-        }
+    pub fn new_with_client(url: impl AsRef<str>, client: reqwest::Client) -> Result<Self> {
+        let url = Url::parse(url.as_ref())
+            .map_err(|e| Error::Parse(ParseError::Json(format!("invalid URL: {e}"))))?;
+
+        Ok(Self { url, client })
     }
 
     /// Fetches the JWKS from the remote endpoint.
     async fn fetch(&self) -> Result<KeySet> {
         let response = self
             .client
-            .get(&self.url)
+            .get(self.url.as_str())
             .send()
             .await?
             .error_for_status()?;
@@ -259,7 +257,7 @@ mod tests {
             .timeout(Duration::from_millis(50))
             .build()
             .unwrap();
-        let store = HttpKeyStore::new_with_client(format!("http://{}", addr), client);
+        let store = HttpKeyStore::new_with_client(format!("http://{}", addr), client).unwrap();
         let err = store.get_keyset().await.unwrap_err();
         match err {
             Error::Http(e) => {
@@ -267,5 +265,18 @@ mod tests {
             }
             other => panic!("expected timeout transport error, got: {}", other),
         }
+    }
+
+    #[test]
+    fn test_http_keystore_new_rejects_invalid_url() {
+        let err = HttpKeyStore::new("not a valid url").unwrap_err();
+        assert!(matches!(err, Error::Parse(ParseError::Json(_))));
+    }
+
+    #[test]
+    fn test_http_keystore_new_with_client_rejects_invalid_url() {
+        let client = reqwest::Client::new();
+        let err = HttpKeyStore::new_with_client("not a valid url", client).unwrap_err();
+        assert!(matches!(err, Error::Parse(ParseError::Json(_))));
     }
 }
