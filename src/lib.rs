@@ -62,19 +62,22 @@
 //!
 //! With the `jwt-simple` feature enabled, you can convert JWKs to jwt-simple key types:
 //!
-//! ```
+#![cfg_attr(feature = "jwt-simple", doc = "```no_run")]
+#![cfg_attr(not(feature = "jwt-simple"), doc = "```ignore")]
 //! use jwk_simple::KeySet;
 //! use jwt_simple::prelude::*;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let json = "{}";
+//! # let token = "";
 //! let keyset: KeySet = serde_json::from_str(json)?;
-//! let jwk = keyset.get_by_kid("my-key-id")?;
+//! let jwk = keyset.get_by_kid("my-key-id").ok_or("key not found")?.clone();
 //!
 //! // Convert to jwt-simple key
 //! let key: RS256PublicKey = jwk.try_into()?;
 //!
 //! // Use for JWT verification
-//! let claims: NoCustomClaims = key.verify_token(&token, None)?;
+//! let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -84,10 +87,19 @@
 //! With the `web-crypto` feature enabled, you can use JWKs with the browser's
 //! native SubtleCrypto API:
 //!
-//! ```ignore
+#![cfg_attr(
+    all(feature = "web-crypto", any(target_arch = "wasm32", docsrs)),
+    doc = "```no_run"
+)]
+#![cfg_attr(
+    not(all(feature = "web-crypto", any(target_arch = "wasm32", docsrs))),
+    doc = "```ignore"
+)]
 //! use jwk_simple::{Algorithm, KeySet};
 //! use std::convert::TryInto;
 //!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # let json = r#"{"keys":[{"kty":"RSA","kid":"my-key-id","n":"0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw","e":"AQAB"}]}"#;
 //! // Parse a JWKS
 //! let keyset: KeySet = serde_json::from_str(json)?;
 //! let key = keyset.get_by_kid("my-key-id").unwrap();
@@ -104,6 +116,8 @@
 //!     // Or get the JsonWebKey directly
 //!     let jwk: web_sys::JsonWebKey = key.try_into()?;
 //! }
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! If the key's `alg` field is present, you can use the simpler
@@ -124,9 +138,10 @@
 //! - All fallible operations return `Result` types. The crate avoids panics,
 //!   though standard trait implementations like `Index` follow normal Rust
 //!   semantics and may panic on invalid input (e.g., out-of-bounds indexing)
-//! - `Key::validate_structure` performs structural and consistency checks
-//!   only. PKIX trust validation for `x5c` chains is application-defined and
-//!   out of scope for this crate.
+//! - [`Key::validate`] performs structural and consistency checks only.
+//!   [`Key::validate_for_use`] adds algorithm suitability and operation intent.
+//!   PKIX trust validation for `x5c` chains is application-defined and out of
+//!   scope for this crate.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
@@ -155,7 +170,7 @@ pub mod jwk;
 pub mod jwks;
 
 // Re-exports for convenience
-pub use error::{Error, Result, ValidationError};
+pub use error::{Error, IncompatibleKeyError, InvalidKeyError, Result};
 pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
     OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,

@@ -2,8 +2,19 @@
 //!
 //! This module provides a comprehensive error type that covers all failure
 //! modes in the library. All fallible operations return `Result<T, Error>`.
+//!
+//! Key validation errors are split into two categories:
+//!
+//! - [`InvalidKeyError`] — the JWK is malformed (invalid encoding, missing
+//!   parameters, inconsistent fields). These mean "reject this key entirely."
+//!
+//! - [`IncompatibleKeyError`] — the JWK is well-formed but incompatible with
+//!   the requested use (wrong key type for algorithm, insufficient strength,
+//!   operation not permitted by metadata). These mean "valid key, wrong context."
 
 use std::fmt;
+
+use crate::jwk::KeyOperation;
 
 /// The main error type for this crate.
 ///
@@ -14,8 +25,12 @@ pub enum Error {
     /// Failed to parse JSON.
     Parse(ParseError),
 
-    /// Key validation failed.
-    Validation(ValidationError),
+    /// The JWK is malformed — missing parameters, invalid encoding, or
+    /// inconsistent fields.
+    InvalidKey(InvalidKeyError),
+
+    /// The JWK is well-formed but incompatible with the requested use.
+    IncompatibleKey(IncompatibleKeyError),
 
     /// Base64 decoding failed.
     Base64(base64ct::Error),
@@ -81,7 +96,8 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Parse(e) => write!(f, "parse error: {}", e),
-            Error::Validation(e) => write!(f, "validation error: {}", e),
+            Error::InvalidKey(e) => write!(f, "invalid key: {}", e),
+            Error::IncompatibleKey(e) => write!(f, "incompatible key: {}", e),
             Error::Base64(e) => write!(f, "base64 decoding error: {:?}", e),
             Error::KeyTypeMismatch { expected, actual } => {
                 write!(
@@ -125,11 +141,24 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::Parse(e) => Some(e),
-            Error::Validation(e) => Some(e),
+            Error::InvalidKey(e) => Some(e),
+            Error::IncompatibleKey(e) => Some(e),
             #[cfg(feature = "http")]
             Error::Http(e) => Some(e),
             _ => None,
         }
+    }
+}
+
+impl From<InvalidKeyError> for Error {
+    fn from(e: InvalidKeyError) -> Self {
+        Error::InvalidKey(e)
+    }
+}
+
+impl From<IncompatibleKeyError> for Error {
+    fn from(e: IncompatibleKeyError) -> Self {
+        Error::IncompatibleKey(e)
     }
 }
 
@@ -175,11 +204,15 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-/// Errors that occur during key validation.
+/// The JWK is malformed.
+///
+/// These errors indicate the key material or metadata is invalid regardless
+/// of how the key is used. A key producing an `InvalidKeyError` should be
+/// rejected entirely.
 #[derive(Debug, PartialEq)]
 #[non_exhaustive]
-pub enum ValidationError {
-    /// Invalid key size for the specified algorithm.
+pub enum InvalidKeyError {
+    /// Invalid key size for the key type or curve.
     InvalidKeySize {
         /// Expected size in bytes.
         expected: usize,
@@ -201,10 +234,10 @@ pub enum ValidationError {
     },
 }
 
-impl fmt::Display for ValidationError {
+impl fmt::Display for InvalidKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ValidationError::InvalidKeySize {
+            InvalidKeyError::InvalidKeySize {
                 expected,
                 actual,
                 context,
@@ -215,20 +248,112 @@ impl fmt::Display for ValidationError {
                     context, expected, actual
                 )
             }
-            ValidationError::MissingParameter(param) => {
+            InvalidKeyError::MissingParameter(param) => {
                 write!(f, "missing required parameter: {}", param)
             }
-            ValidationError::InconsistentParameters(msg) => {
+            InvalidKeyError::InconsistentParameters(msg) => {
                 write!(f, "inconsistent key parameters: {}", msg)
             }
-            ValidationError::InvalidParameter { name, reason } => {
+            InvalidKeyError::InvalidParameter { name, reason } => {
                 write!(f, "invalid parameter '{}': {}", name, reason)
             }
         }
     }
 }
 
-impl std::error::Error for ValidationError {}
+impl std::error::Error for InvalidKeyError {}
+
+/// The JWK is well-formed but incompatible with the requested use.
+///
+/// These errors indicate the key is structurally valid but cannot be used
+/// in the requested context. A key producing an `IncompatibleKeyError` may
+/// be perfectly valid for a different algorithm or operation.
+#[derive(Debug, PartialEq)]
+#[non_exhaustive]
+pub enum IncompatibleKeyError {
+    /// Algorithm is not compatible with the key type or curve.
+    IncompatibleAlgorithm {
+        /// The algorithm that was requested.
+        algorithm: String,
+        /// The key type that is incompatible.
+        key_type: String,
+    },
+    /// Key is too weak for the requested algorithm.
+    InsufficientKeyStrength {
+        /// Minimum required size in bits.
+        minimum_bits: usize,
+        /// Actual key size in bits.
+        actual_bits: usize,
+        /// What was being validated.
+        context: &'static str,
+    },
+    /// Key size does not match the exact size required by the algorithm.
+    KeySizeMismatch {
+        /// Required size in bits.
+        required_bits: usize,
+        /// Actual key size in bits.
+        actual_bits: usize,
+        /// What was being validated.
+        context: &'static str,
+    },
+    /// Key metadata does not permit the requested operation(s).
+    OperationNotPermitted {
+        /// The disallowed operations.
+        operations: Vec<KeyOperation>,
+        /// Why the operations are not permitted.
+        reason: String,
+    },
+}
+
+impl fmt::Display for IncompatibleKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IncompatibleKeyError::IncompatibleAlgorithm {
+                algorithm,
+                key_type,
+            } => {
+                write!(
+                    f,
+                    "algorithm '{}' is not compatible with key type '{}'",
+                    algorithm, key_type
+                )
+            }
+            IncompatibleKeyError::InsufficientKeyStrength {
+                minimum_bits,
+                actual_bits,
+                context,
+            } => {
+                write!(
+                    f,
+                    "insufficient key strength for {}: need {} bits, got {}",
+                    context, minimum_bits, actual_bits
+                )
+            }
+            IncompatibleKeyError::KeySizeMismatch {
+                required_bits,
+                actual_bits,
+                context,
+            } => {
+                write!(
+                    f,
+                    "key size mismatch for {}: expected {} bits, got {}",
+                    context, required_bits, actual_bits
+                )
+            }
+            IncompatibleKeyError::OperationNotPermitted { operations, reason } => {
+                let ops: Vec<&str> = operations.iter().map(|op| op.as_str()).collect();
+                write!(
+                    f,
+                    "operation(s) not permitted ({}): {}",
+                    ops.join(", "),
+                    reason
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for IncompatibleKeyError {}
 
 /// A type alias for `Result<T, Error>`.
 pub type Result<T> = std::result::Result<T, Error>;

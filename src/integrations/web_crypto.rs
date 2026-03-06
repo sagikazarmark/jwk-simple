@@ -389,7 +389,7 @@ fn validate_key_for_webcrypto_usage_with_alg(
     alg: &Algorithm,
 ) -> Result<()> {
     validate_usage_algorithm_compatibility(usage, alg)?;
-    key.validate_for_operation(alg, key_operation_for_usage(usage))
+    key.validate_for_use(alg, [key_operation_for_usage(usage)])
 }
 
 fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
@@ -397,12 +397,14 @@ fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
 
     if let Some(alg) = key.alg.as_ref() {
         validate_usage_algorithm_compatibility(usage, alg)?;
-        key.validate_structure()?;
-        key.validate_operation_intent_for_all(std::slice::from_ref(&requested_op))?;
+        key.validate_for_use(alg, [requested_op])?;
         return Ok(());
     }
 
-    key.validate_structure()?;
+    // No algorithm on key: structural validation + operation intent only.
+    // `validate()` already enforced `use`/`key_ops` consistency and uniqueness,
+    // so we call the intent-only helper directly.
+    key.validate()?;
     key.validate_operation_intent_for_all(std::slice::from_ref(&requested_op))?;
 
     Ok(())

@@ -11,7 +11,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 
 use js_sys::{Object, Reflect, Uint8Array};
 use jwk_simple::Key;
-use jwk_simple::error::ValidationError;
+use jwk_simple::error::IncompatibleKeyError;
 use jwk_simple::web_crypto;
 use std::convert::TryFrom;
 
@@ -271,7 +271,7 @@ async fn test_import_verify_key_for_alg_rejects_weak_hs256_key_without_alg() {
 
     assert!(matches!(
         err,
-        jwk_simple::Error::Validation(ValidationError::InvalidKeySize { .. })
+        jwk_simple::Error::IncompatibleKey(IncompatibleKeyError::InsufficientKeyStrength { .. })
     ));
 }
 

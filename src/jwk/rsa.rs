@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::encoding::Base64UrlBytes;
-use crate::error::{Error, Result, ValidationError};
+use crate::error::{IncompatibleKeyError, InvalidKeyError, Result};
 
 /// Validates that a Base64urlUInt value uses canonical encoding.
 ///
@@ -20,22 +20,24 @@ use crate::error::{Error, Result, ValidationError};
 fn validate_base64url_uint(value: &Base64UrlBytes, name: &str) -> Result<()> {
     let bytes = value.as_bytes();
     if bytes.is_empty() {
-        return Err(Error::Validation(ValidationError::InvalidParameter {
+        return Err(InvalidKeyError::InvalidParameter {
             name: "Base64urlUInt",
             reason: format!(
                 "RFC 7518: '{}' must be a non-empty Base64urlUInt value",
                 name
             ),
-        }));
+        }
+        .into());
     }
     if bytes.len() > 1 && bytes[0] == 0 {
-        return Err(Error::Validation(ValidationError::InvalidParameter {
+        return Err(InvalidKeyError::InvalidParameter {
             name: "Base64urlUInt",
             reason: format!(
                 "RFC 7518: '{}' has non-canonical Base64urlUInt encoding (leading zero bytes)",
                 name
             ),
-        }));
+        }
+        .into());
     }
     Ok(())
 }
@@ -65,19 +67,13 @@ impl RsaOtherPrime {
     /// Validates the other prime parameters.
     pub fn validate(&self) -> Result<()> {
         if self.r.is_empty() {
-            return Err(Error::Validation(ValidationError::MissingParameter(
-                "oth.r",
-            )));
+            return Err(InvalidKeyError::MissingParameter("oth.r").into());
         }
         if self.d.is_empty() {
-            return Err(Error::Validation(ValidationError::MissingParameter(
-                "oth.d",
-            )));
+            return Err(InvalidKeyError::MissingParameter("oth.d").into());
         }
         if self.t.is_empty() {
-            return Err(Error::Validation(ValidationError::MissingParameter(
-                "oth.t",
-            )));
+            return Err(InvalidKeyError::MissingParameter("oth.t").into());
         }
         validate_base64url_uint(&self.r, "oth.r")?;
         validate_base64url_uint(&self.d, "oth.d")?;
@@ -295,12 +291,12 @@ impl RsaParams {
     pub fn validate(&self) -> Result<()> {
         // Modulus must not be empty
         if self.n.is_empty() {
-            return Err(Error::Validation(ValidationError::MissingParameter("n")));
+            return Err(InvalidKeyError::MissingParameter("n").into());
         }
 
         // Exponent must not be empty
         if self.e.is_empty() {
-            return Err(Error::Validation(ValidationError::MissingParameter("e")));
+            return Err(InvalidKeyError::MissingParameter("e").into());
         }
 
         // RFC 7518 Section 2: Base64urlUInt values MUST use the minimum number
@@ -312,10 +308,11 @@ impl RsaParams {
         // Basic RSA public parameter sanity checks.
         // n must be non-zero; e must be odd and at least 3.
         if self.n.as_bytes().iter().all(|&b| b == 0) {
-            return Err(Error::Validation(ValidationError::InvalidParameter {
+            return Err(InvalidKeyError::InvalidParameter {
                 name: "n",
                 reason: "RSA modulus must be non-zero".to_string(),
-            }));
+            }
+            .into());
         }
 
         let e_bytes = self.e.as_bytes();
@@ -327,10 +324,11 @@ impl RsaParams {
         };
 
         if !ge_three || !is_odd {
-            return Err(Error::Validation(ValidationError::InvalidParameter {
+            return Err(InvalidKeyError::InvalidParameter {
                 name: "e",
                 reason: "RSA public exponent must be odd and >= 3".to_string(),
-            }));
+            }
+            .into());
         }
 
         if let Some(ref d) = self.d {
@@ -368,34 +366,37 @@ impl RsaParams {
                 && self.qi.is_some();
 
             if has_crt && !has_all_crt {
-                return Err(Error::Validation(ValidationError::InconsistentParameters(
+                return Err(InvalidKeyError::InconsistentParameters(
                     "RSA CRT parameters must all be present or all be absent".to_string(),
-                )));
+                )
+                .into());
             }
 
             // RFC 7518 Section 6.3.2.7: oth requires all CRT parameters
             if self.oth.is_some() && !has_all_crt {
-                return Err(Error::Validation(ValidationError::InconsistentParameters(
+                return Err(InvalidKeyError::InconsistentParameters(
                     "RSA 'oth' parameter requires all CRT parameters (p, q, dp, dq, qi)"
                         .to_string(),
-                )));
+                )
+                .into());
             }
 
             // Validate each entry in oth
             if let Some(ref oth) = self.oth {
                 if oth.is_empty() {
-                    return Err(Error::Validation(ValidationError::InvalidParameter {
+                    return Err(InvalidKeyError::InvalidParameter {
                         name: "oth",
                         reason: "RFC 7518: 'oth' must contain one or more entries when present"
                             .to_string(),
-                    }));
+                    }
+                    .into());
                 }
                 for (i, prime) in oth.iter().enumerate() {
                     prime.validate().map_err(|e| {
-                        Error::Validation(ValidationError::InconsistentParameters(format!(
+                        InvalidKeyError::InconsistentParameters(format!(
                             "Invalid oth[{}]: {}",
                             i, e
-                        )))
+                        ))
                     })?;
                 }
             }
@@ -408,9 +409,10 @@ impl RsaParams {
                 || self.qi.is_some()
                 || self.oth.is_some()
             {
-                return Err(Error::Validation(ValidationError::InconsistentParameters(
+                return Err(InvalidKeyError::InconsistentParameters(
                     "CRT parameters present without private exponent d".to_string(),
-                )));
+                )
+                .into());
             }
         }
 
@@ -443,11 +445,12 @@ impl RsaParams {
     pub fn validate_key_size(&self, min_bits: usize) -> Result<()> {
         let actual_bits = self.key_size_bits();
         if actual_bits < min_bits {
-            return Err(Error::Validation(ValidationError::InvalidKeySize {
-                expected: min_bits / 8,
-                actual: self.n.len(),
+            return Err(IncompatibleKeyError::InsufficientKeyStrength {
+                minimum_bits: min_bits,
+                actual_bits,
                 context: "RSA modulus",
-            }));
+            }
+            .into());
         }
         Ok(())
     }

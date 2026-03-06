@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::encoding::Base64UrlBytes;
-use crate::error::{Error, ParseError, Result, ValidationError};
+use crate::error::{Error, InvalidKeyError, ParseError, Result};
 
 /// Supported elliptic curves (RFC 7518 Section 6.2.1.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -156,31 +156,34 @@ impl EcParams {
 
         // Validate x coordinate size
         if self.x.len() != expected_size {
-            return Err(Error::Validation(ValidationError::InvalidKeySize {
+            return Err(InvalidKeyError::InvalidKeySize {
                 expected: expected_size,
                 actual: self.x.len(),
                 context: "EC x coordinate",
-            }));
+            }
+            .into());
         }
 
         // Validate y coordinate size
         if self.y.len() != expected_size {
-            return Err(Error::Validation(ValidationError::InvalidKeySize {
+            return Err(InvalidKeyError::InvalidKeySize {
                 expected: expected_size,
                 actual: self.y.len(),
                 context: "EC y coordinate",
-            }));
+            }
+            .into());
         }
 
         // Validate d parameter size if present
         if let Some(ref d) = self.d
             && d.len() != expected_size
         {
-            return Err(Error::Validation(ValidationError::InvalidKeySize {
+            return Err(InvalidKeyError::InvalidKeySize {
                 expected: expected_size,
                 actual: d.len(),
                 context: "EC private key d",
-            }));
+            }
+            .into());
         }
 
         Ok(())

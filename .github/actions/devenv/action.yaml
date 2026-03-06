@@ -10,7 +10,7 @@ inputs:
   use-flake:
     description: "Install devenv from flake"
     required: false
-    default: "false"
+    default: "true"
   build:
     description: "Build the environment"
     required: false
@@ -34,7 +34,7 @@ runs:
       id: package
       with:
         cond: ${{ inputs.use-flake == 'true' }}
-        if_true: "github:cachix/devenv/latest#devenv"
+        if_true: "github:cachix/devenv/v1.11.2#devenv"
         if_false: "nixpkgs#devenv"
 
     - name: Install devenv

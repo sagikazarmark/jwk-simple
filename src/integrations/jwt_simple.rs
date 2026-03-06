@@ -201,7 +201,7 @@ macro_rules! impl_rsa_public_key_conversion {
                     }
                 };
 
-                jwk.validate_for_operation(&$alg, KeyOperation::Verify)?;
+                jwk.validate_for_use(&$alg, [KeyOperation::Verify])?;
 
                 let der = build_rsa_public_key_der(params);
                 <$key_type>::from_der(&der).map_err(|e| Error::Other(e.to_string()))
@@ -239,7 +239,7 @@ macro_rules! impl_rsa_key_pair_conversion {
                     return Err(Error::MissingPrivateKey);
                 }
 
-                jwk.validate_for_operation(&$alg, KeyOperation::Sign)?;
+                jwk.validate_for_use(&$alg, [KeyOperation::Sign])?;
 
                 let der = build_rsa_private_key_der(params)?;
                 <$key_type>::from_der(&der).map_err(|e| Error::Other(e.to_string()))
@@ -299,7 +299,7 @@ macro_rules! impl_ec_public_key_conversion {
                     });
                 }
 
-                jwk.validate_for_operation(&$alg, KeyOperation::Verify)?;
+                jwk.validate_for_use(&$alg, [KeyOperation::Verify])?;
 
                 let bytes = params.to_uncompressed_point();
                 <$key_type>::from_bytes(&bytes).map_err(|e| Error::Other(e.to_string()))
@@ -340,7 +340,7 @@ macro_rules! impl_ec_key_pair_conversion {
                     });
                 }
 
-                jwk.validate_for_operation(&$alg, KeyOperation::Sign)?;
+                jwk.validate_for_use(&$alg, [KeyOperation::Sign])?;
 
                 let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
 
@@ -403,7 +403,7 @@ impl TryFrom<&Key> for Ed25519PublicKey {
             });
         }
 
-        jwk.validate_for_operation(&Algorithm::Ed25519, KeyOperation::Verify)?;
+        jwk.validate_for_use(&Algorithm::Ed25519, [KeyOperation::Verify])?;
 
         Ed25519PublicKey::from_bytes(params.x.as_bytes()).map_err(|e| Error::Other(e.to_string()))
     }
@@ -438,7 +438,7 @@ impl TryFrom<&Key> for Ed25519KeyPair {
             });
         }
 
-        jwk.validate_for_operation(&Algorithm::Ed25519, KeyOperation::Sign)?;
+        jwk.validate_for_use(&Algorithm::Ed25519, [KeyOperation::Sign])?;
 
         let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
 
@@ -473,9 +473,9 @@ impl TryFrom<&Key> for HS256Key {
             }
         };
 
-        jwk.validate_for_operations(
+        jwk.validate_for_use(
             &Algorithm::Hs256,
-            &[KeyOperation::Sign, KeyOperation::Verify],
+            [KeyOperation::Sign, KeyOperation::Verify],
         )?;
 
         Ok(HS256Key::from_bytes(params.k.as_bytes()))
@@ -504,9 +504,9 @@ impl TryFrom<&Key> for HS384Key {
             }
         };
 
-        jwk.validate_for_operations(
+        jwk.validate_for_use(
             &Algorithm::Hs384,
-            &[KeyOperation::Sign, KeyOperation::Verify],
+            [KeyOperation::Sign, KeyOperation::Verify],
         )?;
 
         Ok(HS384Key::from_bytes(params.k.as_bytes()))
@@ -535,9 +535,9 @@ impl TryFrom<&Key> for HS512Key {
             }
         };
 
-        jwk.validate_for_operations(
+        jwk.validate_for_use(
             &Algorithm::Hs512,
-            &[KeyOperation::Sign, KeyOperation::Verify],
+            [KeyOperation::Sign, KeyOperation::Verify],
         )?;
 
         Ok(HS512Key::from_bytes(params.k.as_bytes()))
@@ -860,8 +860,8 @@ mod tests {
         let result: Result<RS256KeyPair> = (&jwk).try_into();
         assert!(matches!(
             result,
-            Err(Error::Validation(
-                crate::error::ValidationError::InconsistentParameters(_)
+            Err(Error::IncompatibleKey(
+                crate::error::IncompatibleKeyError::OperationNotPermitted { .. }
             ))
         ));
     }

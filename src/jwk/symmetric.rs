@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::encoding::Base64UrlBytes;
-use crate::error::{Error, Result, ValidationError};
+use crate::error::{IncompatibleKeyError, InvalidKeyError, Result};
 
 /// Symmetric key parameters (RFC 7518 Section 6.4).
 ///
@@ -93,26 +93,27 @@ impl SymmetricParams {
     /// ```
     pub fn validate(&self) -> Result<()> {
         if self.k.is_empty() {
-            return Err(Error::Validation(ValidationError::MissingParameter("k")));
+            return Err(InvalidKeyError::MissingParameter("k").into());
         }
         Ok(())
     }
 
-    /// Validates that the key size is appropriate for the given algorithm.
+    /// Validates that the key meets the minimum size requirement.
     ///
     /// # Errors
     ///
     /// Returns an error if the key is smaller than required.
-    pub fn validate_min_size(&self, min_bits: usize) -> Result<()> {
+    pub fn validate_min_size(&self, min_bits: usize, context: &'static str) -> Result<()> {
         self.validate()?;
 
         let actual_bits = self.key_size_bits();
         if actual_bits < min_bits {
-            return Err(Error::Validation(ValidationError::InvalidKeySize {
-                expected: min_bits / 8,
-                actual: self.k.len(),
-                context: "symmetric key",
-            }));
+            return Err(IncompatibleKeyError::InsufficientKeyStrength {
+                minimum_bits: min_bits,
+                actual_bits,
+                context,
+            }
+            .into());
         }
         Ok(())
     }
@@ -127,11 +128,12 @@ impl SymmetricParams {
 
         let actual_bits = self.key_size_bits();
         if actual_bits != exact_bits {
-            return Err(Error::Validation(ValidationError::InvalidKeySize {
-                expected: exact_bits / 8,
-                actual: self.k.len(),
+            return Err(IncompatibleKeyError::KeySizeMismatch {
+                required_bits: exact_bits,
+                actual_bits,
                 context,
-            }));
+            }
+            .into());
         }
 
         Ok(())
@@ -172,8 +174,8 @@ mod tests {
     #[test]
     fn test_validate_min_size() {
         let small_key = SymmetricParams::new(Base64UrlBytes::new(vec![0; 16]));
-        assert!(small_key.validate_min_size(128).is_ok());
-        assert!(small_key.validate_min_size(256).is_err());
+        assert!(small_key.validate_min_size(128, "test").is_ok());
+        assert!(small_key.validate_min_size(256, "test").is_err());
     }
 
     #[test]
