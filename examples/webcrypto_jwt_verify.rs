@@ -53,7 +53,9 @@ fn main() {}
 mod wasm_example {
     use base64ct::{Base64UrlUnpadded, Encoding};
     use js_sys::Uint8Array;
-    use jwk_simple::{Algorithm, Key, KeyMatcher, KeyOperation, KeySet, web_crypto};
+    use jwk_simple::{
+        Algorithm, Key, KeyMatcher, KeyOperation, KeySet, SelectionError, web_crypto,
+    };
     use serde::{Deserialize, Serialize};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::JsFuture;
@@ -359,7 +361,27 @@ mod wasm_example {
             selector.select(matcher)
         };
 
-        result.map_err(|_| JwtError::KeyNotFound)
+        result.map_err(|err| match err {
+            SelectionError::UnknownAlgorithm => {
+                JwtError::UnsupportedKey("unsupported jwt alg".to_string())
+            }
+            SelectionError::NoMatchingKey => JwtError::KeyNotFound,
+            SelectionError::AlgorithmNotAllowed => {
+                JwtError::UnsupportedKey("jwt alg is not allowed for verification".to_string())
+            }
+            SelectionError::UnknownOperation => {
+                JwtError::UnsupportedKey("unsupported key operation".to_string())
+            }
+            SelectionError::IncompatibleKeyType | SelectionError::KeySuitabilityFailed(_) => {
+                JwtError::UnsupportedKey("no compatible key for jwt alg".to_string())
+            }
+            SelectionError::AmbiguousSelection { .. }
+            | SelectionError::AlgorithmMismatch { .. }
+            | SelectionError::IntentMismatch
+            | SelectionError::InvalidKeyMetadata(_)
+            | SelectionError::EmptyVerifyAllowlist
+            | _ => JwtError::KeyNotFound,
+        })
     }
 
     /// Verifies a JWT token using a JWKS
@@ -528,6 +550,33 @@ mod wasm_example {
 
             let key = find_key_for_jwt(&jwks, &jwt).unwrap();
             assert_eq!(key.kid(), Some("test-key-1"));
+        }
+
+        #[test]
+        fn test_unknown_alg_is_not_reported_as_key_not_found() {
+            let jwks: KeySet = serde_json::from_str(EXAMPLE_JWKS).unwrap();
+
+            let jwt = ParsedJwt {
+                header: JwtHeader {
+                    alg: "BADALG".to_string(),
+                    kid: Some("test-key-1".to_string()),
+                    typ: Some("JWT".to_string()),
+                },
+                claims: JwtClaims {
+                    iss: None,
+                    sub: None,
+                    aud: None,
+                    exp: None,
+                    nbf: None,
+                    iat: None,
+                    jti: None,
+                },
+                signing_input: String::new(),
+                signature: vec![],
+            };
+
+            let err = find_key_for_jwt(&jwks, &jwt).unwrap_err();
+            assert!(matches!(err, JwtError::UnsupportedKey(_)));
         }
     }
 }
