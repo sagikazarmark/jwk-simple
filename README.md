@@ -130,7 +130,10 @@ With the `http` feature enabled:
 use jwk_simple::jwks::{HttpKeyStore, KeyStore};
 use std::time::Duration;
 
-// Create remote key store (uses default 30s timeout)
+// Create remote key store.
+// Native targets use a default 30s timeout.
+// On wasm32, reqwest uses the browser/Fetch backend where
+// client-level timeout configuration is not available.
 let remote = HttpKeyStore::new("https://example.com/.well-known/jwks.json")?;
 
 // For custom timeout, use a custom client.

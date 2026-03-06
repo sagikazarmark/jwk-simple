@@ -69,8 +69,10 @@ pub struct HttpKeyStore {
 impl HttpKeyStore {
     /// Creates a new `HttpKeyStore` from a URL.
     ///
-    /// Uses a default HTTP client with a 30-second timeout. To customize the client,
-    /// use [`new_with_client`](Self::new_with_client).
+    /// On native targets, uses a default HTTP client with a 30-second timeout.
+    /// On `wasm32`, reqwest uses the browser/Fetch backend where client-level
+    /// timeout configuration is not available.
+    /// To customize the client, use [`new_with_client`](Self::new_with_client).
     pub fn new(url: impl AsRef<str>) -> Result<Self> {
         let builder = reqwest::Client::builder();
         #[cfg(not(target_arch = "wasm32"))]
