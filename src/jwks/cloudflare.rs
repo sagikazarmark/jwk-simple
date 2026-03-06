@@ -75,15 +75,10 @@ impl FetchKeyStore {
 
     /// Fetches the JWKS from the remote endpoint using Cloudflare Worker's Fetch API.
     async fn fetch(&self) -> Result<KeySet> {
-        let mut response = worker::Fetch::Url(
-            self.url
-                .as_str()
-                .parse()
-                .map_err(|e| Error::InvalidUrl(e.to_string()))?,
-        )
-        .send()
-        .await
-        .map_err(|e| Error::Other(format!("fetch failed: {}", e)))?;
+        let mut response = worker::Fetch::Url(self.url.clone())
+            .send()
+            .await
+            .map_err(|e| Error::Other(format!("fetch failed: {}", e)))?;
 
         let status = response.status_code();
         if !(200..300).contains(&status) {
