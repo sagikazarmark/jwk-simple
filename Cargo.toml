@@ -16,6 +16,7 @@ base64ct = { version = "1.8", features = ["alloc"] }
 futures = "0.3"
 js-sys = { version = "0.3", optional = true }
 jwt-simple = { version = "0.12", optional = true, default-features = false }
+pkcs1 = { version = "0.7", optional = true, default-features = false, features = ["alloc"] }
 moka = { version = "0.12", optional = true, features = ["future"] }
 reqwest = { version = "0.13", optional = true, default-features = false, features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -46,7 +47,7 @@ default = []
 moka = ["dep:moka"]
 cloudflare = ["dep:worker"]
 http = ["dep:reqwest"]
-jwt-simple = ["dep:jwt-simple"]
+jwt-simple = ["dep:jwt-simple", "dep:pkcs1"]
 web-crypto = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys"]
 
 [dev-dependencies]
