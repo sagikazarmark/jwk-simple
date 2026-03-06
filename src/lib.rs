@@ -100,14 +100,16 @@
     not(all(feature = "web-crypto", any(target_arch = "wasm32", docsrs))),
     doc = "```ignore"
 )]
-//! use jwk_simple::{Algorithm, KeySet};
+//! use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 //! use std::convert::TryInto;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # let json = r#"{"keys":[{"kty":"RSA","kid":"my-key-id","n":"0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw","e":"AQAB"}]}"#;
 //! // Parse a JWKS
 //! let keyset: KeySet = serde_json::from_str(json)?;
-//! let key = keyset.get_by_kid("my-key-id").unwrap();
+//! let key = keyset
+//!     .selector(&[Algorithm::Rs256])
+//!     .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-key-id"))?;
 //!
 //! // Check if the key is WebCrypto compatible
 //! if key.is_web_crypto_compatible() {

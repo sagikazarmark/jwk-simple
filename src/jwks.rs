@@ -178,11 +178,13 @@ pub struct KeyMatcher<'a> {
 
 impl<'a> KeyMatcher<'a> {
     /// Creates strict selection criteria for an operation and algorithm.
+    #[must_use]
     pub fn new(op: KeyOperation, alg: Algorithm) -> Self {
         Self { op, alg, kid: None }
     }
 
     /// Sets a key identifier (`kid`) constraint.
+    #[must_use]
     pub fn with_kid(mut self, kid: &'a str) -> Self {
         self.kid = Some(kid);
         self
@@ -215,65 +217,77 @@ pub struct KeyFilter<'a> {
 
 impl<'a> KeyFilter<'a> {
     /// Creates an empty discovery filter.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Creates a filter for an exact algorithm match.
+    #[must_use]
     pub fn for_alg(alg: Algorithm) -> Self {
         Self::new().with_alg(alg)
     }
 
     /// Creates a filter for a specific key use.
+    #[must_use]
     pub fn for_use(key_use: KeyUse) -> Self {
         Self::new().with_key_use(key_use)
     }
 
     /// Creates a filter for a specific key type.
+    #[must_use]
     pub fn for_kty(kty: KeyType) -> Self {
         Self::new().with_kty(kty)
     }
 
     /// Creates a filter for a specific operation intent.
+    #[must_use]
     pub fn for_op(op: KeyOperation) -> Self {
         Self::new().with_op(op)
     }
 
     /// Creates a filter for key use + exact algorithm.
+    #[must_use]
     pub fn for_use_alg(key_use: KeyUse, alg: Algorithm) -> Self {
         Self::new().with_key_use(key_use).with_alg(alg)
     }
 
     /// Creates a filter for operation intent + exact algorithm.
+    #[must_use]
     pub fn for_op_alg(op: KeyOperation, alg: Algorithm) -> Self {
         Self::new().with_op(op).with_alg(alg)
     }
 
     /// Sets an operation filter.
+    #[must_use]
     pub fn with_op(mut self, op: KeyOperation) -> Self {
         self.op = Some(op);
         self
     }
 
     /// Sets an exact algorithm filter.
+    #[must_use]
     pub fn with_alg(mut self, alg: Algorithm) -> Self {
         self.alg = Some(alg);
         self
     }
 
     /// Sets a key identifier (`kid`) filter.
+    #[must_use]
     pub fn with_kid(mut self, kid: &'a str) -> Self {
         self.kid = Some(kid);
         self
     }
 
     /// Sets a key type filter.
+    #[must_use]
     pub fn with_kty(mut self, kty: KeyType) -> Self {
         self.kty = Some(kty);
         self
     }
 
     /// Sets a key use filter.
+    #[must_use]
     pub fn with_key_use(mut self, key_use: KeyUse) -> Self {
         self.key_use = Some(key_use);
         self
