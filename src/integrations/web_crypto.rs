@@ -86,19 +86,17 @@ use crate::jwks::KeyMatcher;
 /// ```
 pub fn get_subtle_crypto() -> Result<SubtleCrypto> {
     // Try window first (browser context)
-    if let Some(window) = web_sys::window() {
-        if let Ok(crypto) = window.crypto() {
+    if let Some(window) = web_sys::window()
+        && let Ok(crypto) = window.crypto() {
             return Ok(crypto.subtle());
         }
-    }
 
     // Try WorkerGlobalScope (Web Worker context)
     let global = js_sys::global();
-    if let Ok(worker_scope) = global.dyn_into::<web_sys::WorkerGlobalScope>() {
-        if let Ok(crypto) = worker_scope.crypto() {
+    if let Ok(worker_scope) = global.dyn_into::<web_sys::WorkerGlobalScope>()
+        && let Ok(crypto) = worker_scope.crypto() {
             return Ok(crypto.subtle());
         }
-    }
 
     Err(Error::WebCrypto(
         "crypto API not available in this context".to_string(),
@@ -146,7 +144,7 @@ impl TryFrom<&Key> for web_sys::JsonWebKey {
         // Validate that the key type is supported
         validate_webcrypto_support(key)?;
 
-        let jwk = web_sys::JsonWebKey::new(&key.kty().as_str());
+        let jwk = web_sys::JsonWebKey::new(key.kty().as_str());
 
         // Set common optional fields
         // Note: `kid` is not part of the WebCrypto JsonWebKey dictionary,

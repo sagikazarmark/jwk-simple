@@ -130,7 +130,7 @@ impl HttpKeyStore {
             )))
         })?;
 
-        Ok(serde_json::from_str::<KeySet>(&json)?)
+        Ok(serde_json::from_str::<KeySet>(json)?)
     }
 }
 
