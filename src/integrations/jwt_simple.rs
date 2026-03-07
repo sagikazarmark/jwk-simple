@@ -470,6 +470,13 @@ impl TryFrom<Key> for Ed25519KeyPair {
 impl TryFrom<&Key> for HS256Key {
     type Error = JwtSimpleKeyConversionError;
 
+    /// # Errors
+    ///
+    /// Returns [`JwtSimpleKeyConversionError::IncompatibleKey`] if `key_ops` is
+    /// present but does not include both [`KeyOperation::Sign`] and
+    /// [`KeyOperation::Verify`]. `HS256Key` in `jwt-simple` is bidirectional;
+    /// callers that need one-directional HMAC usage should remove `key_ops`
+    /// before converting.
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = match jwk.params() {
             KeyParams::Symmetric(p) => p,
@@ -502,6 +509,13 @@ impl TryFrom<Key> for HS256Key {
 impl TryFrom<&Key> for HS384Key {
     type Error = JwtSimpleKeyConversionError;
 
+    /// # Errors
+    ///
+    /// Returns [`JwtSimpleKeyConversionError::IncompatibleKey`] if `key_ops` is
+    /// present but does not include both [`KeyOperation::Sign`] and
+    /// [`KeyOperation::Verify`]. `HS384Key` in `jwt-simple` is bidirectional;
+    /// callers that need one-directional HMAC usage should remove `key_ops`
+    /// before converting.
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = match jwk.params() {
             KeyParams::Symmetric(p) => p,
@@ -534,6 +548,13 @@ impl TryFrom<Key> for HS384Key {
 impl TryFrom<&Key> for HS512Key {
     type Error = JwtSimpleKeyConversionError;
 
+    /// # Errors
+    ///
+    /// Returns [`JwtSimpleKeyConversionError::IncompatibleKey`] if `key_ops` is
+    /// present but does not include both [`KeyOperation::Sign`] and
+    /// [`KeyOperation::Verify`]. `HS512Key` in `jwt-simple` is bidirectional;
+    /// callers that need one-directional HMAC usage should remove `key_ops`
+    /// before converting.
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = match jwk.params() {
             KeyParams::Symmetric(p) => p,

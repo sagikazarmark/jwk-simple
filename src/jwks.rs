@@ -2105,6 +2105,61 @@ mod tests {
     }
 
     #[test]
+    fn test_from_keys_lossy_empty_vec_returns_empty_keyset() {
+        let jwks = KeySet::from_keys_lossy(Vec::new());
+        assert!(jwks.is_empty());
+    }
+
+    #[test]
+    fn test_from_keys_lossy_all_valid_preserves_all_and_order() {
+        let key1: Key = serde_json::from_str(r#"{"kty":"oct","kid":"k1","k":"AQAB"}"#).unwrap();
+        let key2: Key = serde_json::from_str(r#"{"kty":"oct","kid":"k2","k":"AQID"}"#).unwrap();
+
+        let jwks = KeySet::from_keys_lossy(vec![key1, key2]);
+
+        assert_eq!(jwks.len(), 2);
+        let kids: Vec<_> = jwks.iter().filter_map(Key::kid).collect();
+        assert_eq!(kids, vec!["k1", "k2"]);
+    }
+
+    #[test]
+    fn test_from_keys_lossy_mixed_drops_invalid_preserves_valid_order() {
+        let valid1: Key =
+            serde_json::from_str(r#"{"kty":"oct","kid":"valid-1","k":"AQAB"}"#).unwrap();
+        let valid2: Key =
+            serde_json::from_str(r#"{"kty":"oct","kid":"valid-2","k":"AQID"}"#).unwrap();
+        let invalid: Key =
+            serde_json::from_str(r#"{"kty":"oct","kid":"invalid","k":"AQAE"}"#).unwrap();
+        let invalid = invalid
+            .with_use(KeyUse::Signature)
+            .with_key_ops([KeyOperation::Encrypt]);
+
+        let jwks = KeySet::from_keys_lossy(vec![valid1, invalid, valid2]);
+
+        assert_eq!(jwks.len(), 2);
+        assert!(jwks.get_by_kid("invalid").is_none());
+        let kids: Vec<_> = jwks.iter().filter_map(Key::kid).collect();
+        assert_eq!(kids, vec!["valid-1", "valid-2"]);
+    }
+
+    #[test]
+    fn test_from_keys_lossy_all_invalid_returns_empty_keyset() {
+        let invalid1: Key =
+            serde_json::from_str(r#"{"kty":"oct","kid":"bad-1","k":"AQAE"}"#).unwrap();
+        let invalid1 = invalid1
+            .with_use(KeyUse::Signature)
+            .with_key_ops([KeyOperation::Encrypt]);
+        let invalid2: Key =
+            serde_json::from_str(r#"{"kty":"oct","kid":"bad-2","k":"AQAF"}"#).unwrap();
+        let invalid2 = invalid2
+            .with_use(KeyUse::Encryption)
+            .with_key_ops([KeyOperation::Sign]);
+
+        let jwks = KeySet::from_keys_lossy(vec![invalid1, invalid2]);
+        assert!(jwks.is_empty());
+    }
+
+    #[test]
     fn test_remove_by_kid() {
         let mut jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
         assert_eq!(jwks.len(), 3);

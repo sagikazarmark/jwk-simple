@@ -394,17 +394,13 @@ impl RsaParams {
                     .into());
                 }
                 for (i, prime) in oth.iter().enumerate() {
-                    prime.validate().map_err(|e| {
-                        if let crate::Error::InvalidKey(source) = e {
-                            InvalidKeyError::InvalidOtherPrime {
-                                index: i,
-                                source: Box::new(source),
-                            }
-                        } else {
-                            InvalidKeyError::InconsistentParameters(format!(
-                                "Invalid oth[{}]: {}",
-                                i, e
-                            ))
+                    prime.validate().map_err(|e| match e {
+                        crate::Error::InvalidKey(source) => InvalidKeyError::InvalidOtherPrime {
+                            index: i,
+                            source: Box::new(source),
+                        },
+                        _ => {
+                            unreachable!("RsaOtherPrime::validate always yields Error::InvalidKey")
                         }
                     })?;
                 }
