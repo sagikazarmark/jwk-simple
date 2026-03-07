@@ -71,9 +71,6 @@ jobs:
             target: wasm32-unknown-unknown
             features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
 
-    env:
-      CARGO_BUILD_TARGET: ${{ matrix.target }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -93,6 +90,8 @@ jobs:
 
       - name: Test
         run: cargo test --features "${{ matrix.features }}"
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.target }}
 
   lint:
     name: Lint (${{ matrix.name }})
