@@ -697,10 +697,10 @@ impl<'de> Deserialize<'de> for KeySet {
         // out of the supported ranges."
         let mut keys = Vec::with_capacity(raw.keys.len());
         for value in raw.keys {
-            // Attempt to parse each key, then validate key parameters.
+            // Attempt to parse each key, then validate.
             // Skip any key that fails either phase.
             if let Ok(key) = serde_json::from_value::<Key>(value)
-                && key.params().validate().is_ok()
+                && key.validate().is_ok()
             {
                 keys.push(key);
             }

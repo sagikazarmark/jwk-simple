@@ -97,6 +97,7 @@ impl Display for EcCurve {
 /// assert!(params.is_public_key_only());
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub struct EcParams {
     /// The elliptic curve.
     #[zeroize(skip)]

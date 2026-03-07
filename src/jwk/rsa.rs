@@ -47,6 +47,7 @@ fn validate_base64url_uint(value: &Base64UrlBytes, name: &str) -> Result<()> {
 /// When more than two prime factors are used, this structure holds the
 /// additional prime factor information.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub struct RsaOtherPrime {
     /// Prime factor.
     pub r: Base64UrlBytes,
@@ -112,6 +113,7 @@ impl Debug for RsaOtherPrime {
 /// assert!(params.is_public_key_only());
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub struct RsaParams {
     /// The modulus value for the RSA key.
     pub n: Base64UrlBytes,
@@ -513,7 +515,7 @@ impl RsaParams {
 ///
 /// assert!(params.has_private_key());
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RsaParamsBuilder {
     n: Base64UrlBytes,
     e: Base64UrlBytes,

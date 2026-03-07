@@ -771,16 +771,18 @@ mod jwk_set {
 
     #[test]
     fn test_jwks_validate_all_keys_inconsistent() {
-        // KeySet::validate() should reject keys where use and key_ops are inconsistent
+        // Keys with inconsistent use and key_ops are silently dropped during
+        // deserialization (full validation is applied per RFC 7517 Section 5).
         let json = r#"{
             "keys": [
                 {"kty": "RSA", "use": "sig", "key_ops": ["encrypt"], "n": "AQAB", "e": "AQAB"}
             ]
         }"#;
         let jwks = serde_json::from_str::<KeySet>(json).unwrap();
-        assert!(
-            jwks.validate().is_err(),
-            "JWKS with inconsistent use and key_ops should fail validation"
+        assert_eq!(
+            jwks.len(),
+            0,
+            "key with inconsistent use and key_ops should be dropped during deserialization"
         );
     }
 }

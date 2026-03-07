@@ -32,6 +32,7 @@ use crate::error::{IncompatibleKeyError, InvalidKeyError, Result};
 /// assert_eq!(params.key_size_bits(), 128);
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub struct SymmetricParams {
     /// The symmetric key value.
     pub k: Base64UrlBytes,

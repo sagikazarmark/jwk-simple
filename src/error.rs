@@ -17,7 +17,7 @@
 
 use std::fmt::{self, Display};
 
-use crate::jwk::KeyOperation;
+use crate::jwk::{Algorithm, KeyOperation, KeyType};
 
 /// The main error type for core JWK/JWKS operations.
 #[derive(Debug)]
@@ -106,8 +106,10 @@ impl std::error::Error for Error {
         match self {
             Error::Json(e) => Some(e),
             Error::Parse(e) => Some(e),
+            Error::InvalidUrl(e) => Some(e),
             Error::InvalidKey(e) => Some(e),
             Error::IncompatibleKey(e) => Some(e),
+            Error::Base64(e) => Some(e),
             #[cfg(feature = "http")]
             Error::Http(e) => Some(e),
             _ => None,
@@ -260,16 +262,16 @@ pub enum IncompatibleKeyError {
     /// Requested algorithm conflicts with the key's declared `alg` value.
     AlgorithmMismatch {
         /// The algorithm that was requested by the caller.
-        requested: String,
+        requested: Algorithm,
         /// The algorithm declared on the key.
-        declared: String,
+        declared: Algorithm,
     },
     /// Algorithm is not compatible with the key type or curve.
     IncompatibleAlgorithm {
         /// The algorithm that was requested.
-        algorithm: String,
+        algorithm: Algorithm,
         /// The key type that is incompatible.
-        key_type: String,
+        key_type: KeyType,
     },
     /// Key is too weak for the requested algorithm.
     InsufficientKeyStrength {
@@ -316,22 +318,38 @@ impl Display for IncompatibleKeyError {
                 requested,
                 declared,
             } => {
+                let requested_display = match requested {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => requested.to_string(),
+                };
+                let declared_display = match declared {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => declared.to_string(),
+                };
                 write!(
                     f,
                     "requested algorithm '{}' does not match key's declared alg '{}'",
-                    sanitize_for_display(requested),
-                    sanitize_for_display(declared)
+                    requested_display, declared_display
                 )
             }
             IncompatibleKeyError::IncompatibleAlgorithm {
                 algorithm,
                 key_type,
             } => {
+                let algorithm_display = match algorithm {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => algorithm.to_string(),
+                };
                 write!(
                     f,
                     "algorithm '{}' is not compatible with key type '{}'",
-                    sanitize_for_display(algorithm),
-                    key_type
+                    algorithm_display, key_type
                 )
             }
             IncompatibleKeyError::InsufficientKeyStrength {

@@ -189,7 +189,7 @@ pub mod jwks;
 #[cfg(feature = "jwt-simple")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
 pub use error::JwtSimpleKeyConversionError;
-pub use error::{Error, IncompatibleKeyError, InvalidKeyError, Result};
+pub use error::{Error, IncompatibleKeyError, InvalidKeyError, ParseError, Result};
 pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
     OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,

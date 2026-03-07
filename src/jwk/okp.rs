@@ -114,6 +114,7 @@ impl Display for OkpCurve {
 /// assert!(params.is_public_key_only());
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub struct OkpParams {
     /// The OKP curve.
     #[zeroize(skip)]

@@ -582,6 +582,7 @@ impl<'de> Deserialize<'de> for Algorithm {
 
 /// Key-type-specific parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub enum KeyParams {
     /// RSA key parameters.
     Rsa(RsaParams),
@@ -1500,8 +1501,8 @@ impl Key {
     fn validate_algorithm_key_type_match(&self, alg: &Algorithm) -> Result<()> {
         if !self.is_algorithm_compatible(alg) {
             return Err(IncompatibleKeyError::IncompatibleAlgorithm {
-                algorithm: alg.as_str().to_string(),
-                key_type: self.kty().as_str().to_string(),
+                algorithm: alg.clone(),
+                key_type: self.kty(),
             }
             .into());
         }
@@ -2166,8 +2167,8 @@ impl Key {
         {
             return Err(Error::IncompatibleKey(
                 IncompatibleKeyError::AlgorithmMismatch {
-                    requested: requested_alg.as_str().to_string(),
-                    declared: declared_alg.as_str().to_string(),
+                    requested: requested_alg.clone(),
+                    declared: declared_alg.clone(),
                 },
             ));
         }
