@@ -390,7 +390,10 @@ fn validate_key_for_webcrypto_usage_with_alg(
     alg: &Algorithm,
 ) -> Result<()> {
     validate_usage_algorithm_compatibility(usage, alg)?;
-    key.validate_for_use(alg, [key_operation_for_usage(usage)])
+    // Use the override variant: the caller explicitly provides the algorithm,
+    // so we must not reject keys whose declared `alg` differs from the
+    // requested one.
+    key.validate_for_use_with_alg_override(alg, [key_operation_for_usage(usage)])
 }
 
 fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {

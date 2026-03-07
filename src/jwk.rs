@@ -1170,20 +1170,53 @@ impl Key {
 
         self.validate_declared_algorithm_match(alg)?;
 
+        self.validate_for_use_inner(alg, &ops)
+    }
+
+    /// Like [`validate_for_use`](Key::validate_for_use) but skips the declared
+    /// algorithm match check.
+    ///
+    /// This is intended for callers that explicitly override the algorithm
+    /// (e.g. WebCrypto import with an explicit `alg` parameter).
+    #[cfg(feature = "web-crypto")]
+    pub(crate) fn validate_for_use_with_alg_override(
+        &self,
+        alg: &Algorithm,
+        ops: impl IntoIterator<Item = KeyOperation>,
+    ) -> Result<()> {
+        let ops: Vec<KeyOperation> = ops.into_iter().collect();
+        if ops.is_empty() {
+            return Err(Error::InvalidInput(
+                "at least one requested operation is required",
+            ));
+        }
+
+        // Structural validation first (belt-and-suspenders).
+        self.validate()?;
+
+        // Deliberately skip validate_declared_algorithm_match: the caller is
+        // explicitly overriding the algorithm.
+
+        self.validate_for_use_inner(alg, &ops)
+    }
+
+    /// Shared validation logic for [`validate_for_use`](Key::validate_for_use)
+    /// and [`validate_for_use_with_alg_override`](Key::validate_for_use_with_alg_override).
+    fn validate_for_use_inner(&self, alg: &Algorithm, ops: &[KeyOperation]) -> Result<()> {
         // Algorithm suitability: type match + strength.
         // `validate()` above already ran `params.validate()`, so we call the
         // algorithm-specific checks directly to avoid redundant structural work.
         self.validate_algorithm_key_type_match(alg)?;
         self.validate_algorithm_key_strength(alg)?;
-        self.validate_operation_algorithm_compatibility_for_all(alg, &ops)?;
+        self.validate_operation_algorithm_compatibility_for_all(alg, ops)?;
 
         // Operation capability: key material can perform requested operations.
-        self.validate_operation_capability_for_all(&ops)?;
+        self.validate_operation_capability_for_all(ops)?;
 
         // Operation intent: use/key_ops metadata permits the requested operations.
         // `validate()` above already enforced `use`/`key_ops` consistency and
         // uniqueness, so we call the intent-only helper directly.
-        self.validate_operation_intent_for_all(&ops)
+        self.validate_operation_intent_for_all(ops)
     }
 
     /// Checks whether this key's metadata permits the requested operation(s).
