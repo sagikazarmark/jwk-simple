@@ -51,7 +51,7 @@
 //!
 //! | Feature | Platform | Description |
 //! |---------|----------|-------------|
-//! | `jwt-simple` | all targets | Integration with the jwt-simple crate |
+//! | `jwt-simple` | all targets | Integration with the jwt-simple crate (requires a `jwt-simple` backend feature such as `jwt-simple/pure-rust`) |
 //! | `http` | all targets | Async HTTP fetching with `HttpKeyStore` |
 //! | `web-crypto` | `wasm32` only | WebCrypto integration for browser/WASM environments |
 //! | `cloudflare` | `wasm32` only | Cloudflare Workers support (Fetch API + KV cache) |
@@ -62,7 +62,9 @@
 //!
 //! ## Converting to jwt-simple keys
 //!
-//! With the `jwt-simple` feature enabled, you can convert JWKs to jwt-simple key types:
+//! With the `jwt-simple` feature enabled, you can convert JWKs to jwt-simple key types.
+//! Make sure your crate also enables a concrete `jwt-simple` backend feature
+//! (for example `jwt-simple/pure-rust`).
 //!
 #![cfg_attr(feature = "jwt-simple", doc = "```no_run")]
 #![cfg_attr(not(feature = "jwt-simple"), doc = "```ignore")]
@@ -79,6 +81,7 @@
 //!     .clone();
 //!
 //! // Convert to jwt-simple key
+//! // Conversion failures use `JwtSimpleKeyConversionError`.
 //! let key: RS256PublicKey = jwk.try_into()?;
 //!
 //! // Use for JWT verification
@@ -100,14 +103,16 @@
     not(all(feature = "web-crypto", any(target_arch = "wasm32", docsrs))),
     doc = "```ignore"
 )]
-//! use jwk_simple::{Algorithm, KeySet};
+//! use jwk_simple::{Algorithm, KeyMatcher, KeyOperation, KeySet};
 //! use std::convert::TryInto;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # let json = r#"{"keys":[{"kty":"RSA","kid":"my-key-id","n":"0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw","e":"AQAB"}]}"#;
 //! // Parse a JWKS
 //! let keyset: KeySet = serde_json::from_str(json)?;
-//! let key = keyset.get_by_kid("my-key-id").unwrap();
+//! let key = keyset
+//!     .selector(&[Algorithm::Rs256])
+//!     .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("my-key-id"))?;
 //!
 //! // Check if the key is WebCrypto compatible
 //! if key.is_web_crypto_compatible() {
@@ -126,11 +131,11 @@
 //! ```
 //!
 //! If the key's `alg` field is present, you can use the simpler
-//! [`Key::import_as_verify_key`] instead. EC keys always work without an explicit
+//! `Key::import_as_verify_key` instead. EC keys always work without an explicit
 //! algorithm since the curve determines the WebCrypto parameters.
 //!
 //! **Note:** WebCrypto does not support OKP keys (Ed25519, Ed448, X25519, X448)
-//! or the secp256k1 curve. Use [`Key::is_web_crypto_compatible()`] to check
+//! or the secp256k1 curve. Use `Key::is_web_crypto_compatible()` to check
 //! compatibility before attempting to use a key with WebCrypto.
 //!
 //! ## Security
@@ -143,8 +148,14 @@
 //! - All fallible operations return `Result` types. The crate avoids panics,
 //!   though standard trait implementations like `Index` follow normal Rust
 //!   semantics and may panic on invalid input (e.g., out-of-bounds indexing)
-//! - [`Key::validate`] performs structural and consistency checks only.
-//!   [`Key::validate_for_use`] adds algorithm suitability and operation intent.
+//! - Validation entry points are layered:
+//!
+//!   | API | Structural key params | `use`/`key_ops` consistency | Cert metadata (`x5u`/`x5c`/`x5t`) | Alg suitability/strength | Op/alg compatibility | Private material capability | Selection policy |
+//!   |-----|------------------------|-----------------------------|-----------------------------------|--------------------------|----------------------|-----------------------------|------------------|
+//!   | [`Key::validate`] | yes | yes | yes | no | no | no | no |
+//!   | [`Key::validate_for_use`] | yes | yes | yes | yes | yes | yes | no |
+//!   | [`KeySet::selector(...).select(...)`](crate::jwks::KeySelector::select) | yes, per candidate | yes, per candidate | yes, per candidate | yes, per candidate | yes, up front | yes, per candidate | yes |
+//!
 //!   PKIX trust validation for `x5c` chains is application-defined and out of
 //!   scope for this crate.
 
@@ -175,7 +186,10 @@ pub mod jwk;
 pub mod jwks;
 
 // Re-exports for convenience
-pub use error::{Error, IncompatibleKeyError, InvalidKeyError, Result};
+#[cfg(feature = "jwt-simple")]
+#[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
+pub use error::JwtSimpleKeyConversionError;
+pub use error::{Error, IncompatibleKeyError, InvalidKeyError, ParseError, Result};
 pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
     OkpParams, RsaOtherPrime, RsaParams, RsaParamsBuilder, SymmetricParams,

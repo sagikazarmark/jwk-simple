@@ -4,10 +4,14 @@
 //! and discovery. This module also defines the [`KeyStore`] trait, which abstracts
 //! over different sources of JWK keys.
 
+use std::fmt::{self, Display};
+
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::{Error, IncompatibleKeyError, InvalidKeyError, Result};
-use crate::jwk::{Algorithm, Key, KeyOperation, KeyType, KeyUse};
+use crate::jwk::{
+    Algorithm, Key, KeyOperation, KeyType, KeyUse, is_operation_compatible_with_algorithm,
+};
 
 mod cache;
 #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
@@ -25,7 +29,7 @@ pub use store::http::HttpKeyStore;
 pub use store::http::DEFAULT_TIMEOUT;
 
 /// Errors returned by strict key selection.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SelectionError {
     /// Verification selection was requested without a configured allowlist.
@@ -34,6 +38,13 @@ pub enum SelectionError {
     UnknownAlgorithm,
     /// The requested operation is unknown/private and strict selection rejects it.
     UnknownOperation,
+    /// The requested operation is not compatible with the requested algorithm.
+    OperationAlgorithmMismatch {
+        /// Operation requested by the caller.
+        operation: KeyOperation,
+        /// Algorithm requested by the caller.
+        algorithm: Algorithm,
+    },
     /// The requested verification algorithm is not permitted by the allowlist.
     AlgorithmNotAllowed,
     /// The requested algorithm conflicts with a key's declared `alg` value.
@@ -45,8 +56,8 @@ pub enum SelectionError {
     },
     /// Key metadata (`use` / `key_ops`) does not permit the requested operation.
     IntentMismatch,
-    /// Key metadata is internally invalid (for example duplicate `key_ops`).
-    InvalidKeyMetadata(InvalidKeyError),
+    /// The matched key is structurally invalid.
+    InvalidKey(InvalidKeyError),
     /// Key material type/curve is incompatible with the requested algorithm.
     IncompatibleKeyType,
     /// Key failed cryptographic suitability checks (strength/parameter/capability constraints).
@@ -60,17 +71,9 @@ pub enum SelectionError {
     NoMatchingKey,
 }
 
-impl std::fmt::Display for SelectionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        const MAX_DISPLAY_IDENTIFIER_CHARS: usize = 256;
-
-        fn sanitize_for_display(value: &str) -> String {
-            value
-                .chars()
-                .take(MAX_DISPLAY_IDENTIFIER_CHARS)
-                .map(|ch| if ch.is_control() { ' ' } else { ch })
-                .collect()
-        }
+impl Display for SelectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use crate::error::sanitize_for_display;
 
         match self {
             SelectionError::EmptyVerifyAllowlist => {
@@ -78,6 +81,30 @@ impl std::fmt::Display for SelectionError {
             }
             SelectionError::UnknownAlgorithm => write!(f, "unknown or unsupported algorithm"),
             SelectionError::UnknownOperation => write!(f, "unknown or unsupported operation"),
+            SelectionError::OperationAlgorithmMismatch {
+                operation,
+                algorithm,
+            } => {
+                let operation_display = match operation {
+                    KeyOperation::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => operation.to_string(),
+                };
+
+                let algorithm_display = match algorithm {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => algorithm.to_string(),
+                };
+
+                write!(
+                    f,
+                    "operation/algorithm mismatch: operation {} is not valid for algorithm {}",
+                    operation_display, algorithm_display
+                )
+            }
             SelectionError::AlgorithmNotAllowed => {
                 write!(f, "algorithm is not allowed for verification")
             }
@@ -105,8 +132,8 @@ impl std::fmt::Display for SelectionError {
             SelectionError::IntentMismatch => {
                 write!(f, "key metadata does not permit requested operation")
             }
-            SelectionError::InvalidKeyMetadata(e) => {
-                write!(f, "key metadata is invalid: {}", e)
+            SelectionError::InvalidKey(e) => {
+                write!(f, "key is invalid: {}", e)
             }
             SelectionError::IncompatibleKeyType => {
                 write!(f, "key type/curve is incompatible with requested algorithm")
@@ -125,7 +152,7 @@ impl std::fmt::Display for SelectionError {
 impl std::error::Error for SelectionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SelectionError::InvalidKeyMetadata(e) => Some(e),
+            SelectionError::InvalidKey(e) => Some(e),
             SelectionError::KeySuitabilityFailed(e) => Some(e),
             _ => None,
         }
@@ -145,11 +172,13 @@ pub struct KeyMatcher<'a> {
 
 impl<'a> KeyMatcher<'a> {
     /// Creates strict selection criteria for an operation and algorithm.
+    #[must_use]
     pub fn new(op: KeyOperation, alg: Algorithm) -> Self {
         Self { op, alg, kid: None }
     }
 
     /// Sets a key identifier (`kid`) constraint.
+    #[must_use]
     pub fn with_kid(mut self, kid: &'a str) -> Self {
         self.kid = Some(kid);
         self
@@ -182,65 +211,77 @@ pub struct KeyFilter<'a> {
 
 impl<'a> KeyFilter<'a> {
     /// Creates an empty discovery filter.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Creates a filter for an exact algorithm match.
+    #[must_use]
     pub fn for_alg(alg: Algorithm) -> Self {
         Self::new().with_alg(alg)
     }
 
     /// Creates a filter for a specific key use.
+    #[must_use]
     pub fn for_use(key_use: KeyUse) -> Self {
         Self::new().with_key_use(key_use)
     }
 
     /// Creates a filter for a specific key type.
+    #[must_use]
     pub fn for_kty(kty: KeyType) -> Self {
         Self::new().with_kty(kty)
     }
 
     /// Creates a filter for a specific operation intent.
+    #[must_use]
     pub fn for_op(op: KeyOperation) -> Self {
         Self::new().with_op(op)
     }
 
     /// Creates a filter for key use + exact algorithm.
+    #[must_use]
     pub fn for_use_alg(key_use: KeyUse, alg: Algorithm) -> Self {
         Self::new().with_key_use(key_use).with_alg(alg)
     }
 
     /// Creates a filter for operation intent + exact algorithm.
+    #[must_use]
     pub fn for_op_alg(op: KeyOperation, alg: Algorithm) -> Self {
         Self::new().with_op(op).with_alg(alg)
     }
 
     /// Sets an operation filter.
+    #[must_use]
     pub fn with_op(mut self, op: KeyOperation) -> Self {
         self.op = Some(op);
         self
     }
 
     /// Sets an exact algorithm filter.
+    #[must_use]
     pub fn with_alg(mut self, alg: Algorithm) -> Self {
         self.alg = Some(alg);
         self
     }
 
     /// Sets a key identifier (`kid`) filter.
+    #[must_use]
     pub fn with_kid(mut self, kid: &'a str) -> Self {
         self.kid = Some(kid);
         self
     }
 
     /// Sets a key type filter.
+    #[must_use]
     pub fn with_kty(mut self, kty: KeyType) -> Self {
         self.kty = Some(kty);
         self
     }
 
     /// Sets a key use filter.
+    #[must_use]
     pub fn with_key_use(mut self, key_use: KeyUse) -> Self {
         self.key_use = Some(key_use);
         self
@@ -259,35 +300,37 @@ pub struct KeySelector<'a> {
 impl<'a> KeySelector<'a> {
     /// Selects exactly one key using strict cryptographic suitability checks.
     ///
+    /// Conceptually, strict selection applies the same per-key validation layers
+    /// as [`Key::validate_for_use`], but within a JWKS search and with extra
+    /// policy rules such as verification allowlists, declared-`alg` matching,
+    /// and ambiguity handling.
+    ///
     /// When `kid` is present in the matcher, candidate-level validation failures are
     /// surfaced with specific diagnostics (`AlgorithmMismatch`, `IntentMismatch`,
-    /// `KeySuitabilityFailed`, `IncompatibleKeyType`) using deterministic precedence.
+    /// `InvalidKey`, `KeySuitabilityFailed`, `IncompatibleKeyType`) using deterministic precedence.
     ///
     /// When `kid` is not present, candidates that fail per-key checks are skipped and
     /// selection resolves by surviving cardinality (`AmbiguousSelection` / `NoMatchingKey`).
     ///
     /// In kid-less mode, candidate-level mismatch diagnostics are intentionally
     /// suppressed. Early policy errors still surface (`UnknownAlgorithm`,
-    /// `UnknownOperation`, allowlist failures).
+    /// `UnknownOperation`, `OperationAlgorithmMismatch`, allowlist failures).
     ///
     /// Error precedence is deterministic:
     /// 1. `UnknownAlgorithm`
     /// 2. `UnknownOperation`
-    /// 3. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
-    /// 4. Candidate evaluation
-    /// 5. If multiple candidates survive: `AmbiguousSelection`
+    /// 3. `OperationAlgorithmMismatch`
+    /// 4. `EmptyVerifyAllowlist` / `AlgorithmNotAllowed` (verify only)
+    /// 5. Candidate evaluation
+    /// 6. If multiple candidates survive: `AmbiguousSelection`
     ///
     /// If `kid` is present and no candidate survives, the most specific error
     /// is returned in this order: `AlgorithmMismatch` -> `IntentMismatch`
-    /// -> `InvalidKeyMetadata` -> `KeySuitabilityFailed`
-    /// -> `IncompatibleKeyType` -> `NoMatchingKey`.
+    /// -> `InvalidKey` -> `KeySuitabilityFailed` -> `IncompatibleKeyType`
+    /// -> `NoMatchingKey`.
     ///
     /// If `kid` is absent and no candidate survives, candidate-level
     /// diagnostics are suppressed and selection returns `NoMatchingKey`.
-    ///
-    /// Note: `IncompatibleKeyType` also covers unexpected non-suitability
-    /// failures from `check_algorithm_suitability`, conservatively mapped to
-    /// incompatibility in strict mode.
     ///
     /// If `kid` is omitted and selection returns `NoMatchingKey`, use
     /// [`KeySet::find`] for discovery diagnostics to inspect broad candidates.
@@ -336,6 +379,13 @@ impl<'a> KeySelector<'a> {
             return Err(SelectionError::UnknownOperation);
         }
 
+        if !is_operation_compatible_with_algorithm(&matcher.op, &matcher.alg) {
+            return Err(SelectionError::OperationAlgorithmMismatch {
+                operation: matcher.op,
+                algorithm: matcher.alg,
+            });
+        }
+
         if matcher.op == KeyOperation::Verify {
             if self.allowed_verify_algs.is_empty() {
                 return Err(SelectionError::EmptyVerifyAllowlist);
@@ -354,7 +404,7 @@ impl<'a> KeySelector<'a> {
         let mut incompatible_for_known_kid = false;
         let mut saw_alg_mismatch: Option<(Algorithm, Algorithm)> = None;
         let mut saw_intent_mismatch = false;
-        let mut saw_invalid_key_metadata: Option<InvalidKeyError> = None;
+        let mut saw_invalid_key: Option<InvalidKeyError> = None;
         let mut saw_suitability_error: Option<IncompatibleKeyError> = None;
 
         for key in self.keyset.keys.iter() {
@@ -390,8 +440,8 @@ impl<'a> KeySelector<'a> {
                             ..
                         }) => saw_intent_mismatch = true,
                         Error::InvalidKey(invalid) => {
-                            if saw_invalid_key_metadata.is_none() {
-                                saw_invalid_key_metadata = Some(invalid);
+                            if saw_invalid_key.is_none() {
+                                saw_invalid_key = Some(invalid);
                             }
                         }
                         // Conservatively map any future intent-check error to intent mismatch.
@@ -402,9 +452,28 @@ impl<'a> KeySelector<'a> {
                 continue;
             }
 
+            if let Err(err) = key.validate_certificate_metadata() {
+                if matcher.kid.is_some() {
+                    match err {
+                        Error::InvalidKey(invalid) => {
+                            if saw_invalid_key.is_none() {
+                                saw_invalid_key = Some(invalid);
+                            }
+                        }
+                        _ => incompatible_for_known_kid = true,
+                    }
+                }
+                continue;
+            }
+
             if let Err(e) = key.check_algorithm_suitability(&matcher.alg) {
                 if matcher.kid.is_some() {
                     match e {
+                        Error::InvalidKey(invalid) => {
+                            if saw_invalid_key.is_none() {
+                                saw_invalid_key = Some(invalid);
+                            }
+                        }
                         Error::IncompatibleKey(suitability) => {
                             if saw_suitability_error.is_none() {
                                 saw_suitability_error = Some(suitability);
@@ -446,8 +515,8 @@ impl<'a> KeySelector<'a> {
             if saw_intent_mismatch {
                 return Err(SelectionError::IntentMismatch);
             }
-            if let Some(invalid) = saw_invalid_key_metadata {
-                return Err(SelectionError::InvalidKeyMetadata(invalid));
+            if let Some(invalid) = saw_invalid_key {
+                return Err(SelectionError::InvalidKey(invalid));
             }
             if let Some(suitability) = saw_suitability_error {
                 return Err(SelectionError::KeySuitabilityFailed(suitability));
@@ -620,10 +689,10 @@ impl<'de> Deserialize<'de> for KeySet {
         // out of the supported ranges."
         let mut keys = Vec::with_capacity(raw.keys.len());
         for value in raw.keys {
-            // Attempt to parse each key, then validate key parameters.
+            // Attempt to parse each key, then validate.
             // Skip any key that fails either phase.
             if let Ok(key) = serde_json::from_value::<Key>(value)
-                && key.params().validate().is_ok()
+                && key.validate().is_ok()
             {
                 keys.push(key);
             }
@@ -648,6 +717,31 @@ impl KeySet {
         Self { keys: Vec::new() }
     }
 
+    /// Creates a key set from a list of keys, silently dropping invalid ones.
+    ///
+    /// This matches the deserialization behavior: keys that fail
+    /// [`Key::validate`] are silently skipped.
+    /// Use [`KeySet::add_key`] for validated insertion that reports errors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::{Key, KeyParams, KeySet, SymmetricParams};
+    /// use jwk_simple::encoding::Base64UrlBytes;
+    ///
+    /// let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+    ///     Base64UrlBytes::new(vec![0u8; 32]),
+    /// )));
+    /// let jwks = KeySet::from_keys_lossy(vec![key]);
+    /// assert_eq!(jwks.len(), 1);
+    /// ```
+    #[must_use]
+    pub fn from_keys_lossy(keys: Vec<Key>) -> Self {
+        Self {
+            keys: keys.into_iter().filter(|k| k.validate().is_ok()).collect(),
+        }
+    }
+
     /// Returns a slice of all keys in the set.
     pub fn keys(&self) -> &[Key] {
         &self.keys
@@ -663,18 +757,32 @@ impl KeySet {
         self.keys.is_empty()
     }
 
-    /// Adds a key to the set.
+    /// Adds a key to the set after validating it.
+    ///
+    /// Runs the same validation as [`Key::validate`]: structural parameter
+    /// checks, `use`/`key_ops` consistency, and certificate metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key fails validation.
     ///
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::KeySet;
+    /// use jwk_simple::{Key, KeyParams, KeySet, SymmetricParams};
+    /// use jwk_simple::encoding::Base64UrlBytes;
     ///
     /// let mut jwks = KeySet::new();
-    /// // jwks.add_key(some_jwk);
+    /// let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+    ///     Base64UrlBytes::new(vec![0u8; 32]),
+    /// )));
+    /// jwks.add_key(key).unwrap();
+    /// assert_eq!(jwks.len(), 1);
     /// ```
-    pub fn add_key(&mut self, key: Key) {
+    pub fn add_key(&mut self, key: Key) -> Result<()> {
+        key.validate()?;
         self.keys.push(key);
+        Ok(())
     }
 
     /// Removes and returns a key by its ID.
@@ -947,26 +1055,6 @@ impl<'a> IntoIterator for &'a KeySet {
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys.iter()
-    }
-}
-
-impl From<Vec<Key>> for KeySet {
-    fn from(keys: Vec<Key>) -> Self {
-        Self { keys }
-    }
-}
-
-impl FromIterator<Key> for KeySet {
-    fn from_iter<I: IntoIterator<Item = Key>>(iter: I) -> Self {
-        Self {
-            keys: iter.into_iter().collect(),
-        }
-    }
-}
-
-impl Extend<Key> for KeySet {
-    fn extend<I: IntoIterator<Item = Key>>(&mut self, iter: I) {
-        self.keys.extend(iter);
     }
 }
 
@@ -1247,6 +1335,24 @@ mod tests {
     }
 
     #[test]
+    fn test_selector_operation_algorithm_mismatch_rejected() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Encrypt, Algorithm::Rs256))
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            SelectionError::OperationAlgorithmMismatch {
+                operation: KeyOperation::Encrypt,
+                algorithm: Algorithm::Rs256
+            }
+        ));
+    }
+
+    #[test]
     fn test_selector_incompatible_key_type_for_known_kid() {
         let json = r#"{"keys": [
             {"kty": "oct", "kid": "oct-1", "k": "AQAB"}
@@ -1281,7 +1387,7 @@ mod tests {
         // EC P-256 key with x coordinate of wrong length (4 bytes instead of 32).
         // Constructed programmatically to bypass JWKS parse-time filtering.
         use crate::encoding::Base64UrlBytes;
-        use crate::jwk::{EcCurve, EcParams, KeyParams};
+        use crate::{EcCurve, EcParams, KeyParams};
 
         let bad_ec = Key::new(KeyParams::Ec(EcParams::new_public(
             EcCurve::P256,
@@ -1291,7 +1397,7 @@ mod tests {
         .with_kid("bad-ec");
 
         let mut jwks = KeySet::new();
-        jwks.add_key(bad_ec);
+        jwks.keys.push(bad_ec); // bypass validation to test selector behavior
         assert_eq!(jwks.len(), 1); // Key is present (no parse-time filtering)
 
         let selector = jwks.selector(&[Algorithm::Es256]);
@@ -1299,8 +1405,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256).with_kid("bad-ec"))
             .unwrap_err();
 
-        // Structurally invalid keys fall through to the generic IncompatibleKeyType path.
-        assert!(matches!(err, SelectionError::IncompatibleKeyType));
+        assert!(matches!(err, SelectionError::InvalidKey(_)));
     }
 
     #[test]
@@ -1334,26 +1439,45 @@ mod tests {
     }
 
     #[test]
-    fn test_selector_invalid_key_metadata_for_known_kid() {
-        let bad_key = Key::new(crate::jwk::KeyParams::Rsa(
-            crate::jwk::RsaParams::new_public(
-                crate::encoding::Base64UrlBytes::new(vec![1, 2, 3]),
-                crate::encoding::Base64UrlBytes::new(vec![1, 0, 1]),
-            ),
-        ))
+    fn test_selector_invalid_key_for_known_kid() {
+        let bad_key = Key::new(crate::KeyParams::Rsa(crate::RsaParams::new_public(
+            crate::encoding::Base64UrlBytes::new(vec![1, 2, 3]),
+            crate::encoding::Base64UrlBytes::new(vec![1, 0, 1]),
+        )))
         .with_kid("dup-ops")
         .with_alg(Algorithm::Rs256)
         .with_key_ops([KeyOperation::Verify, KeyOperation::Verify]);
 
         let mut jwks = KeySet::new();
-        jwks.add_key(bad_key);
+        jwks.keys.push(bad_key); // bypass validation to test selector behavior
         let selector = jwks.selector(&[Algorithm::Rs256]);
 
         let err = selector
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("dup-ops"))
             .unwrap_err();
 
-        assert!(matches!(err, SelectionError::InvalidKeyMetadata(_)));
+        assert!(matches!(err, SelectionError::InvalidKey(_)));
+    }
+
+    #[test]
+    fn test_selector_invalid_certificate_metadata_for_known_kid() {
+        let bad_key = Key::new(crate::KeyParams::Rsa(crate::RsaParams::new_public(
+            crate::encoding::Base64UrlBytes::new(vec![1; 256]),
+            crate::encoding::Base64UrlBytes::new(vec![1, 0, 1]),
+        )))
+        .with_kid("bad-x5u")
+        .with_alg(Algorithm::Rs256)
+        .with_x5u("http://example.com/cert.pem");
+
+        let mut jwks = KeySet::new();
+        jwks.keys.push(bad_key); // bypass validation to test selector behavior
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("bad-x5u"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::InvalidKey(_)));
     }
 
     #[test]
@@ -1708,6 +1832,14 @@ mod tests {
             "unknown or unsupported operation"
         );
         assert_eq!(
+            SelectionError::OperationAlgorithmMismatch {
+                operation: KeyOperation::Encrypt,
+                algorithm: Algorithm::Rs256,
+            }
+            .to_string(),
+            "operation/algorithm mismatch: operation encrypt is not valid for algorithm RS256"
+        );
+        assert_eq!(
             SelectionError::AlgorithmNotAllowed.to_string(),
             "algorithm is not allowed for verification"
         );
@@ -1716,11 +1848,11 @@ mod tests {
             "key metadata does not permit requested operation"
         );
         assert_eq!(
-            SelectionError::InvalidKeyMetadata(InvalidKeyError::InconsistentParameters(
+            SelectionError::InvalidKey(InvalidKeyError::InconsistentParameters(
                 "duplicate key_ops".to_string()
             ))
             .to_string(),
-            "key metadata is invalid: inconsistent key parameters: duplicate key_ops"
+            "key is invalid: inconsistent key parameters: duplicate key_ops"
         );
         assert_eq!(
             SelectionError::IncompatibleKeyType.to_string(),
@@ -1967,7 +2099,7 @@ mod tests {
         assert!(jwks.is_empty());
 
         let key: Key = serde_json::from_str(r#"{"kty":"oct","kid":"k1","k":"AQAB"}"#).unwrap();
-        jwks.add_key(key);
+        jwks.add_key(key).unwrap();
         assert_eq!(jwks.len(), 1);
         assert!(jwks.get_by_kid("k1").is_some());
     }
@@ -2006,6 +2138,41 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn test_get_by_thumbprint_finds_matching_key() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let rsa_key = jwks.get_by_kid("rsa-key-1").unwrap();
+        let thumbprint = rsa_key.thumbprint();
+
+        let found = jwks.get_by_thumbprint(&thumbprint);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().kid(), Some("rsa-key-1"));
+    }
+
+    #[test]
+    fn test_get_by_thumbprint_returns_none_for_unknown_value() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        assert!(
+            jwks.get_by_thumbprint("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_get_by_thumbprint_matches_first_key_when_duplicates_present() {
+        let key_json = r#"{"kty":"RSA","n":"AQAB","e":"AQAB"}"#;
+        let key: Key = serde_json::from_str(key_json).unwrap();
+        let duplicate: Key = serde_json::from_str(key_json).unwrap();
+        let thumbprint = key.thumbprint();
+
+        let mut jwks = KeySet::new();
+        jwks.add_key(key).unwrap();
+        jwks.add_key(duplicate).unwrap();
+
+        let found = jwks.get_by_thumbprint(&thumbprint).unwrap();
+        assert_eq!(found.thumbprint(), thumbprint);
     }
 
     #[cfg(not(target_arch = "wasm32"))]

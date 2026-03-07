@@ -4,7 +4,7 @@
 //! and a [`CachedKeyStore`] wrapper that combines any cache with any key store.
 //!
 //! For a ready-to-use Moka implementation, enable the `moka` feature
-//! and use [`MokaKeyCache`](super::MokaKeyCache).
+//! and use `MokaKeyCache`.
 
 #[cfg(all(feature = "moka", not(target_arch = "wasm32")))]
 pub mod moka;
@@ -19,7 +19,7 @@ use super::{KeySet, KeyStore};
 /// This trait is primarily an extension point for library integrators who need a
 /// custom cache backend (in-memory, KV store, persistent storage, etc.). Most users
 /// should use [`CachedKeyStore`] with a provided cache implementation, such as
-/// [`MokaKeyCache`](super::MokaKeyCache).
+/// `MokaKeyCache`.
 ///
 /// `CachedKeyStore` does not coordinate concurrent refreshes. Cache backends used in
 /// concurrent contexts should provide their own internal synchronization and atomicity

@@ -14,6 +14,7 @@ use crate::error::{Error, InvalidKeyError, ParseError, Result};
 
 /// Supported elliptic curves (RFC 7518 Section 6.2.1.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum EcCurve {
     /// NIST P-256 curve (secp256r1).
     #[serde(rename = "P-256")]
@@ -43,8 +44,8 @@ impl EcCurve {
         }
     }
 
-    /// Returns the curve name as a string.
-    pub fn name(&self) -> &'static str {
+    /// Returns the curve name as a string slice.
+    pub fn as_str(&self) -> &'static str {
         match self {
             EcCurve::P256 => "P-256",
             EcCurve::P384 => "P-384",
@@ -70,7 +71,7 @@ impl FromStr for EcCurve {
 
 impl Display for EcCurve {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name())
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -96,6 +97,7 @@ impl Display for EcCurve {
 /// assert!(params.is_public_key_only());
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub struct EcParams {
     /// The elliptic curve.
     #[zeroize(skip)]
@@ -114,11 +116,13 @@ pub struct EcParams {
 
 impl EcParams {
     /// Creates new EC public key parameters.
+    #[must_use]
     pub fn new_public(crv: EcCurve, x: Base64UrlBytes, y: Base64UrlBytes) -> Self {
         Self { crv, x, y, d: None }
     }
 
     /// Creates new EC private key parameters.
+    #[must_use]
     pub fn new_private(
         crv: EcCurve,
         x: Base64UrlBytes,

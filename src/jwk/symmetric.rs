@@ -32,6 +32,7 @@ use crate::error::{IncompatibleKeyError, InvalidKeyError, Result};
 /// assert_eq!(params.key_size_bits(), 128);
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub struct SymmetricParams {
     /// The symmetric key value.
     pub k: Base64UrlBytes,
@@ -51,6 +52,7 @@ impl SymmetricParams {
     /// let params = SymmetricParams::new(Base64UrlBytes::new(key_bytes));
     /// assert_eq!(params.key_size_bits(), 256);
     /// ```
+    #[must_use]
     pub fn new(k: Base64UrlBytes) -> Self {
         Self { k }
     }

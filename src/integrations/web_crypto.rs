@@ -197,7 +197,7 @@ impl TryFrom<&Key> for web_sys::JsonWebKey {
                 // Note: 'oth' (other primes) is not supported by web_sys::JsonWebKey
             }
             KeyParams::Ec(params) => {
-                jwk.set_crv(params.crv.name());
+                jwk.set_crv(params.crv.as_str());
                 jwk.set_x(&params.x.to_base64url());
                 jwk.set_y(&params.y.to_base64url());
 
@@ -279,8 +279,8 @@ fn build_algorithm_object_with_alg(
                         return Err(Error::WebCrypto(format!(
                             "algorithm {} requires curve {}, but the key uses {}",
                             alg.as_str(),
-                            curve.name(),
-                            params.crv.name(),
+                            curve.as_str(),
+                            params.crv.as_str(),
                         )));
                     }
                     None => {
@@ -390,7 +390,10 @@ fn validate_key_for_webcrypto_usage_with_alg(
     alg: &Algorithm,
 ) -> Result<()> {
     validate_usage_algorithm_compatibility(usage, alg)?;
-    key.validate_for_use(alg, [key_operation_for_usage(usage)])
+    // Use the override variant: the caller explicitly provides the algorithm,
+    // so we must not reject keys whose declared `alg` differs from the
+    // requested one.
+    key.validate_for_use_with_alg_override(alg, [key_operation_for_usage(usage)])
 }
 
 fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
@@ -406,6 +409,7 @@ fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
     // `validate()` already enforced `use`/`key_ops` consistency and uniqueness,
     // so we call the intent-only helper directly.
     key.validate()?;
+    key.check_operation_capability(std::slice::from_ref(&requested_op))?;
     key.validate_operation_intent_for_all(std::slice::from_ref(&requested_op))?;
 
     Ok(())
@@ -1206,10 +1210,7 @@ mod validation_tests {
     #[test]
     fn test_import_usage_validation_enforces_metadata_when_alg_present() {
         let key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
-        let key = key.with_key_ops([
-            crate::jwk::KeyOperation::Sign,
-            crate::jwk::KeyOperation::Sign,
-        ]);
+        let key = key.with_key_ops([crate::KeyOperation::Sign, crate::KeyOperation::Sign]);
 
         let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Sign);
         assert!(result.is_err(), "duplicate key_ops must be rejected");
@@ -1254,6 +1255,37 @@ mod validation_tests {
 
         let key: Key = serde_json::from_str(json).unwrap();
         let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Verify);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_key_for_webcrypto_usage_with_alg_allows_declared_algorithm_override() {
+        // SYMMETRIC_KEY declares alg: HS256 but the caller explicitly requests
+        // HS384.  validate_key_for_webcrypto_usage_with_alg uses the override
+        // path which intentionally skips the declared-algorithm-match check,
+        // so this must succeed (the 512-bit key satisfies HS384's 384-bit
+        // minimum).
+        let key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
+
+        let result =
+            validate_key_for_webcrypto_usage_with_alg(&key, KeyUsage::Verify, &Algorithm::Hs384);
+        assert!(
+            result.is_ok(),
+            "explicit alg override should skip declared-algorithm mismatch check: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_key_for_webcrypto_usage_rejects_public_sign_key_without_alg() {
+        let json = r#"{
+            "kty": "RSA",
+            "use": "sig",
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB"
+        }"#;
+
+        let key: Key = serde_json::from_str(json).unwrap();
+        let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Sign);
         assert!(result.is_err());
     }
 

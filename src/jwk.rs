@@ -63,6 +63,7 @@ use crate::error::{Error, IncompatibleKeyError, InvalidKeyError, ParseError, Res
 
 /// Key type identifier (RFC 7517 Section 4.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum KeyType {
     /// RSA key type.
     Rsa,
@@ -133,6 +134,7 @@ impl<'de> Deserialize<'de> for KeyType {
 /// specification allows for other values via registration or collision-resistant
 /// names for private use.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum KeyUse {
     /// Key is used for signatures.
     Signature,
@@ -206,6 +208,7 @@ impl<'de> Deserialize<'de> for KeyUse {
 /// Per RFC 7517, unknown key operation values should be accepted to support
 /// collision-resistant names and future extensions.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum KeyOperation {
     /// Compute digital signature or MAC.
     Sign,
@@ -310,6 +313,7 @@ impl<'de> Deserialize<'de> for KeyOperation {
 /// Per RFC 7517, unknown algorithm values should be accepted and preserved
 /// to allow for future extensions and private-use algorithms.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Algorithm {
     // HMAC
     /// HMAC using SHA-256.
@@ -578,6 +582,7 @@ impl<'de> Deserialize<'de> for Algorithm {
 
 /// Key-type-specific parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub enum KeyParams {
     /// RSA key parameters.
     Rsa(RsaParams),
@@ -906,6 +911,11 @@ impl Key {
     /// valid; the algorithm mismatch is a suitability concern.
     /// Use [`Key::validate_for_use`] for those checks.
     ///
+    /// In other words, `validate()` is the context-free gate: it validates the
+    /// key's own parameters and metadata (`use`, `key_ops`, `x5u`, `x5c`,
+    /// `x5t`, `x5t#S256`) without deciding whether the key is acceptable for a
+    /// particular algorithm or operation.
+    ///
     /// This method does **not** perform PKIX trust/path validation for `x5c`
     /// chains (trust anchors, validity period, key usage/EKU, revocation, etc.).
     /// PKIX trust validation is application-defined and out of scope for this crate.
@@ -918,6 +928,12 @@ impl Key {
         self.validate_use_key_ops_consistency()?;
         self.validate_key_ops_unique()?;
 
+        self.validate_certificate_metadata()?;
+
+        Ok(())
+    }
+
+    pub(crate) fn validate_certificate_metadata(&self) -> Result<()> {
         // RFC 7517 Section 4.6: x5u MUST use TLS (HTTPS)
         if let Some(ref x5u) = self.x5u {
             let parsed = Url::parse(x5u).map_err(|_| {
@@ -1070,11 +1086,21 @@ impl Key {
                 })
             })?;
 
-            if parse_x509_certificate(&der_bytes).is_err() {
-                return Err(InvalidKeyError::InvalidParameter {
+            let (remaining, _) = parse_x509_certificate(&der_bytes).map_err(|_| {
+                InvalidKeyError::InvalidParameter {
                     name: "x5c",
                     reason: format!(
                         "RFC 7517: x5c[{}] is not a valid DER-encoded X.509 certificate",
+                        i
+                    ),
+                }
+            })?;
+
+            if !remaining.is_empty() {
+                return Err(InvalidKeyError::InvalidParameter {
+                    name: "x5c",
+                    reason: format!(
+                        "RFC 7517: x5c[{}] contains trailing data after DER certificate",
                         i
                     ),
                 }
@@ -1093,21 +1119,27 @@ impl Key {
     ///
     /// This is the full pre-use gate: it performs structural validation
     /// ([`Key::validate`]) followed by algorithm suitability checks
-    /// (type compatibility, key strength), operation capability checks
-    /// (key material can actually perform the operation), and
-    /// operation-intent enforcement (metadata permits the requested operations).
+    /// (type compatibility, key strength), algorithm-operation compatibility
+    /// checks (requested operation is valid for the algorithm), operation
+    /// capability checks (key material can actually perform the operation),
+    /// and operation-intent enforcement (metadata permits the requested
+    /// operations).
     ///
     /// The `alg` parameter controls which algorithm constraints are applied
-    /// (key type, minimum strength). It is independent of the key's own `alg`
-    /// field; no cross-check is performed. Callers are responsible for
-    /// ensuring the supplied algorithm is consistent with the key's declared
-    /// algorithm, if any.
+    /// (key type, minimum strength). If the key declares its own `alg`, it must
+    /// match the requested algorithm. Unknown algorithms are rejected because
+    /// suitability (type compatibility and strength) cannot be validated for
+    /// them.
     ///
     /// At least one operation must be provided. Passing an empty iterator
     /// returns an error (this is a caller precondition, not a key problem).
     ///
     /// This method calls [`Key::validate`] internally, so callers do not
     /// need to call it separately.
+    ///
+    /// This is the full pre-use gate for direct key use. It layers algorithm
+    /// suitability, operation/algorithm compatibility, key-material capability,
+    /// and operation intent on top of [`Key::validate`].
     ///
     /// # Examples
     ///
@@ -1128,27 +1160,63 @@ impl Key {
     ) -> Result<()> {
         let ops: Vec<KeyOperation> = ops.into_iter().collect();
         if ops.is_empty() {
-            return Err(Error::Other(
-                "at least one requested operation is required".to_string(),
+            return Err(Error::InvalidInput(
+                "at least one requested operation is required",
             ));
         }
 
         // Structural validation first (belt-and-suspenders).
         self.validate()?;
 
+        self.validate_declared_algorithm_match(alg)?;
+
+        self.validate_for_use_inner(alg, &ops)
+    }
+
+    /// Like [`validate_for_use`](Key::validate_for_use) but skips the declared
+    /// algorithm match check.
+    ///
+    /// This is intended for callers that explicitly override the algorithm
+    /// (e.g. WebCrypto import with an explicit `alg` parameter).
+    #[cfg(feature = "web-crypto")]
+    pub(crate) fn validate_for_use_with_alg_override(
+        &self,
+        alg: &Algorithm,
+        ops: impl IntoIterator<Item = KeyOperation>,
+    ) -> Result<()> {
+        let ops: Vec<KeyOperation> = ops.into_iter().collect();
+        if ops.is_empty() {
+            return Err(Error::InvalidInput(
+                "at least one requested operation is required",
+            ));
+        }
+
+        // Structural validation first (belt-and-suspenders).
+        self.validate()?;
+
+        // Deliberately skip validate_declared_algorithm_match: the caller is
+        // explicitly overriding the algorithm.
+
+        self.validate_for_use_inner(alg, &ops)
+    }
+
+    /// Shared validation logic for [`validate_for_use`](Key::validate_for_use)
+    /// and [`validate_for_use_with_alg_override`](Key::validate_for_use_with_alg_override).
+    fn validate_for_use_inner(&self, alg: &Algorithm, ops: &[KeyOperation]) -> Result<()> {
         // Algorithm suitability: type match + strength.
         // `validate()` above already ran `params.validate()`, so we call the
         // algorithm-specific checks directly to avoid redundant structural work.
         self.validate_algorithm_key_type_match(alg)?;
         self.validate_algorithm_key_strength(alg)?;
+        self.validate_operation_algorithm_compatibility_for_all(alg, ops)?;
 
         // Operation capability: key material can perform requested operations.
-        self.validate_operation_capability_for_all(&ops)?;
+        self.validate_operation_capability_for_all(ops)?;
 
         // Operation intent: use/key_ops metadata permits the requested operations.
         // `validate()` above already enforced `use`/`key_ops` consistency and
         // uniqueness, so we call the intent-only helper directly.
-        self.validate_operation_intent_for_all(&ops)
+        self.validate_operation_intent_for_all(ops)
     }
 
     /// Checks whether this key's metadata permits the requested operation(s).
@@ -1188,8 +1256,8 @@ impl Key {
     pub fn check_operations_permitted(&self, operations: impl AsRef<[KeyOperation]>) -> Result<()> {
         let operations = operations.as_ref();
         if operations.is_empty() {
-            return Err(Error::Other(
-                "at least one requested operation is required".to_string(),
+            return Err(Error::InvalidInput(
+                "at least one requested operation is required",
             ));
         }
         // Consistency and uniqueness checks must run here since this is a
@@ -1203,7 +1271,8 @@ impl Key {
     /// compatibility, and key strength.
     ///
     /// This does **not** perform operation-intent checks (`use`/`key_ops`)
-    /// or certificate metadata checks (`x5c`/`x5u`/`x5t`). It is intended
+    /// and does not enforce selection policy. Certificate metadata checks are
+    /// handled separately by strict selection. It is intended
     /// for internal use by [`KeySelector`](crate::KeySelector).
     /// [`Key::validate_for_use`] calls the underlying helpers directly to
     /// avoid redundant structural validation.
@@ -1327,9 +1396,34 @@ impl Key {
 
         Err(IncompatibleKeyError::OperationNotPermitted {
             operations: requires_private,
-            reason:
-                "requested operation(s) require private key material, but key contains only public parameters"
-                    .to_string(),
+            reason: "requested operation(s) require private key material, but key contains only public parameters".to_string(),
+        }
+        .into())
+    }
+
+    fn validate_operation_algorithm_compatibility_for_all(
+        &self,
+        alg: &Algorithm,
+        operations: &[KeyOperation],
+    ) -> Result<()> {
+        debug_assert!(!operations.is_empty());
+
+        let incompatible: Vec<KeyOperation> = operations
+            .iter()
+            .filter(|op| !is_operation_compatible_with_algorithm(op, alg))
+            .cloned()
+            .collect();
+
+        if incompatible.is_empty() {
+            return Ok(());
+        }
+
+        Err(IncompatibleKeyError::OperationNotPermitted {
+            operations: incompatible,
+            reason: format!(
+                "requested operation(s) are not compatible with algorithm '{}'",
+                alg.as_str()
+            ),
         }
         .into())
     }
@@ -1438,16 +1532,10 @@ impl Key {
 
     /// Validates that the algorithm matches the key type.
     fn validate_algorithm_key_type_match(&self, alg: &Algorithm) -> Result<()> {
-        // Unknown algorithms cannot be validated against key types
-        // Per RFC 7517, we accept them but cannot verify compatibility
-        if alg.is_unknown() {
-            return Ok(());
-        }
-
         if !self.is_algorithm_compatible(alg) {
             return Err(IncompatibleKeyError::IncompatibleAlgorithm {
-                algorithm: alg.as_str().to_string(),
-                key_type: self.kty().as_str().to_string(),
+                algorithm: alg.clone(),
+                key_type: self.kty(),
             }
             .into());
         }
@@ -1511,12 +1599,20 @@ impl Key {
 
     /// Validates that the first `x5c` certificate public key matches JWK key material.
     fn validate_x5c_public_key_match(&self, cert_der: &[u8]) -> Result<()> {
-        let (_, cert) = parse_x509_certificate(cert_der).map_err(|_| {
+        let (remaining, cert) = parse_x509_certificate(cert_der).map_err(|_| {
             Error::from(InvalidKeyError::InvalidParameter {
                 name: "x5c",
                 reason: "RFC 7517: x5c[0] is not a parseable X.509 certificate".to_string(),
             })
         })?;
+
+        if !remaining.is_empty() {
+            return Err(InvalidKeyError::InvalidParameter {
+                name: "x5c",
+                reason: "RFC 7517: x5c[0] contains trailing data after DER certificate".to_string(),
+            }
+            .into());
+        }
 
         let spki = &cert.tbs_certificate.subject_pki;
         let cert_alg_oid = spki.algorithm.algorithm.to_id_string();
@@ -1663,6 +1759,10 @@ impl Key {
 
     /// Extracts only the public key components, removing any private key material.
     ///
+    /// Public projection also normalizes `key_ops` to the subset that remains
+    /// meaningful for a public key (`verify`, `encrypt`, `wrapKey`). Operations
+    /// that require private or secret key material are removed.
+    ///
     /// For symmetric keys, this returns `None` since symmetric keys don't have
     /// a separate public component.
     ///
@@ -1696,7 +1796,16 @@ impl Key {
         Some(Key {
             kid: self.kid.clone(),
             key_use: self.key_use.clone(),
-            key_ops: self.key_ops.clone(),
+            key_ops: self
+                .key_ops
+                .as_ref()
+                .map(|ops| {
+                    ops.iter()
+                        .filter(|op| operation_survives_public_projection(op))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .filter(|ops| !ops.is_empty()),
             alg: self.alg.clone(),
             params: public_params,
             x5c: self.x5c.clone(),
@@ -2075,6 +2184,104 @@ fn is_encryption_operation(operation: &KeyOperation) -> bool {
             | KeyOperation::DeriveKey
             | KeyOperation::DeriveBits
     )
+}
+
+fn operation_survives_public_projection(operation: &KeyOperation) -> bool {
+    matches!(
+        operation,
+        KeyOperation::Verify | KeyOperation::Encrypt | KeyOperation::WrapKey
+    )
+}
+
+impl Key {
+    fn validate_declared_algorithm_match(&self, requested_alg: &Algorithm) -> Result<()> {
+        if let Some(declared_alg) = self.alg()
+            && declared_alg != requested_alg
+        {
+            return Err(Error::IncompatibleKey(
+                IncompatibleKeyError::AlgorithmMismatch {
+                    requested: requested_alg.clone(),
+                    declared: declared_alg.clone(),
+                },
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+pub(crate) fn is_operation_compatible_with_algorithm(
+    operation: &KeyOperation,
+    alg: &Algorithm,
+) -> bool {
+    if matches!(operation, KeyOperation::Unknown(_)) {
+        return true;
+    }
+
+    debug_assert!(
+        !alg.is_unknown(),
+        "unknown algorithms should be rejected before operation/algorithm compatibility checks"
+    );
+
+    match alg {
+        Algorithm::Rs256
+        | Algorithm::Rs384
+        | Algorithm::Rs512
+        | Algorithm::Ps256
+        | Algorithm::Ps384
+        | Algorithm::Ps512
+        | Algorithm::Es256
+        | Algorithm::Es384
+        | Algorithm::Es512
+        | Algorithm::Es256k
+        | Algorithm::EdDsa
+        | Algorithm::Ed25519
+        | Algorithm::Ed448
+        | Algorithm::Hs256
+        | Algorithm::Hs384
+        | Algorithm::Hs512 => matches!(operation, KeyOperation::Sign | KeyOperation::Verify),
+        Algorithm::RsaOaep
+        | Algorithm::RsaOaep256
+        | Algorithm::RsaOaep384
+        | Algorithm::RsaOaep512
+        | Algorithm::Rsa1_5 => matches!(
+            operation,
+            KeyOperation::Encrypt
+                | KeyOperation::Decrypt
+                | KeyOperation::WrapKey
+                | KeyOperation::UnwrapKey
+        ),
+        Algorithm::A128kw
+        | Algorithm::A192kw
+        | Algorithm::A256kw
+        | Algorithm::A128gcmkw
+        | Algorithm::A192gcmkw
+        | Algorithm::A256gcmkw
+        | Algorithm::Pbes2Hs256A128kw
+        | Algorithm::Pbes2Hs384A192kw
+        | Algorithm::Pbes2Hs512A256kw => {
+            matches!(operation, KeyOperation::WrapKey | KeyOperation::UnwrapKey)
+        }
+        Algorithm::Dir
+        | Algorithm::A128cbcHs256
+        | Algorithm::A192cbcHs384
+        | Algorithm::A256cbcHs512
+        | Algorithm::A128gcm
+        | Algorithm::A192gcm
+        | Algorithm::A256gcm => matches!(operation, KeyOperation::Encrypt | KeyOperation::Decrypt),
+        Algorithm::EcdhEs
+        | Algorithm::EcdhEsA128kw
+        | Algorithm::EcdhEsA192kw
+        | Algorithm::EcdhEsA256kw => {
+            matches!(
+                operation,
+                KeyOperation::DeriveKey | KeyOperation::DeriveBits
+            )
+        }
+        // Defensive fallback for future callers; current strict validation paths
+        // reject unknown algorithms before reaching this helper.
+        Algorithm::Unknown(_) => false,
+    }
 }
 
 /// Encodes a byte slice as a DER INTEGER.
@@ -2528,6 +2735,58 @@ mod tests {
     }
 
     #[test]
+    fn test_to_public_filters_private_only_key_ops() {
+        let key = Key::new(KeyParams::Rsa(RsaParams::new_private(
+            Base64UrlBytes::new(vec![0x01; 256]),
+            Base64UrlBytes::new(vec![0x01, 0x00, 0x01]),
+            Base64UrlBytes::new(vec![0x02; 256]),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )))
+        .with_key_ops([
+            KeyOperation::Sign,
+            KeyOperation::Verify,
+            KeyOperation::Decrypt,
+            KeyOperation::Encrypt,
+            KeyOperation::WrapKey,
+            KeyOperation::UnwrapKey,
+            KeyOperation::DeriveKey,
+            KeyOperation::Unknown("custom".into()),
+        ]);
+
+        let public = key.to_public().unwrap();
+
+        assert_eq!(
+            public.key_ops(),
+            Some(
+                &[
+                    KeyOperation::Verify,
+                    KeyOperation::Encrypt,
+                    KeyOperation::WrapKey,
+                ][..]
+            )
+        );
+    }
+
+    #[test]
+    fn test_to_public_clears_empty_key_ops_after_projection() {
+        let key = Key::new(KeyParams::Ec(EcParams::new_private(
+            EcCurve::P256,
+            Base64UrlBytes::new(vec![0x01; 32]),
+            Base64UrlBytes::new(vec![0x02; 32]),
+            Base64UrlBytes::new(vec![0x03; 32]),
+        )))
+        .with_key_ops([KeyOperation::Sign]);
+
+        let public = key.to_public().unwrap();
+
+        assert_eq!(public.key_ops(), None);
+    }
+
+    #[test]
     fn test_validate_algorithm_strength_enforces_cbc_hs_sizes() {
         let k256 = Base64UrlBytes::new(vec![0u8; 32]);
         let k384 = Base64UrlBytes::new(vec![0u8; 48]);
@@ -2623,7 +2882,7 @@ mod tests {
         )));
 
         let result = key.validate_for_use(&Algorithm::Rs256, vec![]);
-        assert!(matches!(result, Err(Error::Other(_))));
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
     }
 
     #[test]
@@ -2673,6 +2932,55 @@ mod tests {
             result,
             Err(Error::IncompatibleKey(
                 IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_for_use_rejects_unknown_algorithm() {
+        let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )));
+
+        let result = key.validate_for_use(
+            &Algorithm::Unknown("CUSTOM-ALG".to_string()),
+            [KeyOperation::Sign],
+        );
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::IncompatibleAlgorithm { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_for_use_rejects_operation_algorithm_mismatch() {
+        let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )));
+
+        let result = key.validate_for_use(&Algorithm::Hs256, [KeyOperation::Encrypt]);
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_for_use_rejects_declared_algorithm_mismatch() {
+        let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )))
+        .with_alg(Algorithm::Hs256);
+
+        let result = key.validate_for_use(&Algorithm::Hs384, [KeyOperation::Sign]);
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::AlgorithmMismatch { .. }
             ))
         ));
     }

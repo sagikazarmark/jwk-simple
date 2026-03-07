@@ -7,13 +7,14 @@ description = "JWK/JWKS for Rust and WASM (RFC 7517, 7518, 7638, 8037, 9864) wit
 license = "MIT"
 repository = "https://github.com/sagikazarmark/jwk-simple"
 homepage = "https://github.com/sagikazarmark/jwk-simple"
+readme = "README.md"
 keywords = ["jwk", "jwks", "jose", "jwt", "webcrypto"]
 categories = ["authentication", "cryptography", "web-programming", "wasm"]
 
 [dependencies]
 async-trait = "0.1"
 base64ct = { version = "1.8", features = ["alloc"] }
-futures = "0.3"
+futures = { version = "0.3", optional = true }
 js-sys = { version = "0.3", optional = true }
 jwt-simple = { version = "0.12", optional = true, default-features = false }
 pkcs1 = { version = "0.7", optional = true, default-features = false, features = ["alloc"] }
@@ -45,7 +46,7 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 [features]
 default = []
 moka = ["dep:moka"]
-cloudflare = ["dep:worker"]
+cloudflare = ["dep:worker", "dep:futures"]
 http = ["dep:reqwest"]
 jwt-simple = ["dep:jwt-simple", "dep:pkcs1"]
 web-crypto = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys"]
@@ -83,8 +84,9 @@ name = "benchmarks"
 harness = false
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["http", "moka", "jwt-simple", "jwt-simple/pure-rust", "web-crypto", "cloudflare"]
 rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [package.metadata.release]
 sign-commit = true

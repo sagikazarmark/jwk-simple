@@ -1,7 +1,10 @@
 //! Error types for JWK/JWKS operations.
 //!
-//! This module provides a comprehensive error type that covers all failure
-//! modes in the library. All fallible operations return `Result<T, Error>`.
+//! This module provides the crate's core error taxonomy.
+//!
+//! Most fallible operations return `Result<T, Error>`. Feature-gated
+//! integration adapters may expose dedicated conversion error types when that
+//! yields clearer API boundaries.
 //!
 //! Key validation errors are split into two categories:
 //!
@@ -12,21 +15,25 @@
 //!   the requested use (wrong key type for algorithm, insufficient strength,
 //!   operation not permitted by metadata). These mean "valid key, wrong context."
 
-use std::fmt;
+use std::fmt::{self, Display};
 
-use crate::jwk::KeyOperation;
+use crate::jwk::{Algorithm, KeyOperation, KeyType};
 
-/// The main error type for this crate.
-///
-/// All fallible operations return `Result<T, Error>`.
+/// The main error type for core JWK/JWKS operations.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// Failed to parse JSON.
+    /// Failed to parse JSON syntax or structure.
+    Json(serde_json::Error),
+
+    /// Failed to interpret valid JSON as JWK/JWKS data.
     Parse(ParseError),
 
     /// Invalid URL input.
-    InvalidUrl(String),
+    InvalidUrl(url::ParseError),
+
+    /// URL violates a crate-level policy requirement.
+    InvalidUrlScheme(&'static str),
 
     /// The JWK is malformed: missing parameters, invalid encoding, or
     /// inconsistent fields.
@@ -38,34 +45,15 @@ pub enum Error {
     /// Base64 decoding failed.
     Base64(base64ct::Error),
 
-    /// Key type mismatch during conversion.
-    KeyTypeMismatch {
-        /// Expected.
-        expected: &'static str,
-        /// Actual.
-        actual: String,
-    },
-
-    /// Curve mismatch during conversion.
-    CurveMismatch {
-        /// Expected.
-        expected: &'static str,
-        /// Actual.
-        actual: String,
-    },
-
-    /// Missing required field.
-    MissingField {
-        /// Field name.
-        field: &'static str,
-    },
-
-    /// Private key parameters missing when required.
-    MissingPrivateKey,
+    /// Caller provided invalid input to a public API.
+    InvalidInput(&'static str),
 
     /// HTTP request error.
     #[cfg(feature = "http")]
     Http(reqwest::Error),
+
+    /// Remote fetch or transport failed outside the reqwest backend.
+    Fetch(String),
 
     /// Cache operation failed.
     Cache(String),
@@ -87,32 +75,20 @@ pub enum Error {
     WebCrypto(String),
 }
 
-impl fmt::Display for Error {
+impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Error::Json(e) => write!(f, "JSON error: {}", e),
             Error::Parse(e) => write!(f, "parse error: {}", e),
-            Error::InvalidUrl(msg) => write!(f, "invalid URL: {}", msg),
+            Error::InvalidUrl(err) => write!(f, "invalid URL: {}", err),
+            Error::InvalidUrlScheme(msg) => write!(f, "invalid URL scheme: {}", msg),
             Error::InvalidKey(e) => write!(f, "invalid key: {}", e),
             Error::IncompatibleKey(e) => write!(f, "incompatible key: {}", e),
             Error::Base64(e) => write!(f, "base64 decoding error: {:?}", e),
-            Error::KeyTypeMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "key type mismatch: expected {}, got {}",
-                    expected, actual
-                )
-            }
-            Error::CurveMismatch { expected, actual } => {
-                write!(f, "curve mismatch: expected {}, got {}", expected, actual)
-            }
-            Error::MissingField { field } => {
-                write!(f, "missing required field: {}", field)
-            }
-            Error::MissingPrivateKey => {
-                write!(f, "private key parameters required but not present")
-            }
+            Error::InvalidInput(msg) => write!(f, "invalid input: {}", msg),
             #[cfg(feature = "http")]
             Error::Http(e) => write!(f, "HTTP error: {}", e),
+            Error::Fetch(msg) => write!(f, "fetch error: {}", msg),
             Error::Cache(msg) => write!(f, "cache error: {}", msg),
             Error::Other(msg) => write!(f, "{}", msg),
             #[cfg(feature = "web-crypto")]
@@ -128,9 +104,12 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Error::Json(e) => Some(e),
             Error::Parse(e) => Some(e),
+            Error::InvalidUrl(e) => Some(e),
             Error::InvalidKey(e) => Some(e),
             Error::IncompatibleKey(e) => Some(e),
+            Error::Base64(e) => Some(e),
             #[cfg(feature = "http")]
             Error::Http(e) => Some(e),
             _ => None,
@@ -158,7 +137,13 @@ impl From<base64ct::Error> for Error {
 
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
-        Error::Parse(ParseError::Json(e.to_string()))
+        Error::Json(e)
+    }
+}
+
+impl From<url::ParseError> for Error {
+    fn from(e: url::ParseError) -> Self {
+        Error::InvalidUrl(e)
     }
 }
 
@@ -170,20 +155,18 @@ impl From<reqwest::Error> for Error {
 }
 
 /// Errors that occur during JSON parsing.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ParseError {
-    /// Invalid JSON syntax.
-    Json(String),
     /// Unknown key type.
     UnknownKeyType(String),
     /// Unknown curve.
     UnknownCurve(String),
 }
 
-impl fmt::Display for ParseError {
+impl Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ParseError::Json(msg) => write!(f, "invalid JSON: {}", msg),
             ParseError::UnknownKeyType(kty) => write!(f, "unknown key type: {}", kty),
             ParseError::UnknownCurve(crv) => write!(f, "unknown curve: {}", crv),
         }
@@ -197,7 +180,7 @@ impl std::error::Error for ParseError {}
 /// These errors indicate the key material or metadata is invalid regardless
 /// of how the key is used. A key producing an `InvalidKeyError` should be
 /// rejected entirely.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InvalidKeyError {
     /// Invalid key size for the key type or curve.
@@ -220,9 +203,16 @@ pub enum InvalidKeyError {
         /// Why it's invalid.
         reason: String,
     },
+    /// Invalid `oth` entry in multi-prime RSA parameters.
+    InvalidOtherPrime {
+        /// Zero-based index of the invalid `oth` entry.
+        index: usize,
+        /// Validation error for this entry.
+        source: Box<InvalidKeyError>,
+    },
 }
 
-impl fmt::Display for InvalidKeyError {
+impl Display for InvalidKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             InvalidKeyError::InvalidKeySize {
@@ -245,26 +235,43 @@ impl fmt::Display for InvalidKeyError {
             InvalidKeyError::InvalidParameter { name, reason } => {
                 write!(f, "invalid parameter '{}': {}", name, reason)
             }
+            InvalidKeyError::InvalidOtherPrime { index, source } => {
+                write!(f, "invalid oth[{}]: {}", index, source)
+            }
         }
     }
 }
 
-impl std::error::Error for InvalidKeyError {}
+impl std::error::Error for InvalidKeyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            InvalidKeyError::InvalidOtherPrime { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 /// The JWK is well-formed but incompatible with the requested use.
 ///
 /// These errors indicate the key is structurally valid but cannot be used
 /// in the requested context. A key producing an `IncompatibleKeyError` may
 /// be perfectly valid for a different algorithm or operation.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IncompatibleKeyError {
+    /// Requested algorithm conflicts with the key's declared `alg` value.
+    AlgorithmMismatch {
+        /// The algorithm that was requested by the caller.
+        requested: Algorithm,
+        /// The algorithm declared on the key.
+        declared: Algorithm,
+    },
     /// Algorithm is not compatible with the key type or curve.
     IncompatibleAlgorithm {
         /// The algorithm that was requested.
-        algorithm: String,
+        algorithm: Algorithm,
         /// The key type that is incompatible.
-        key_type: String,
+        key_type: KeyType,
     },
     /// Key is too weak for the requested algorithm.
     InsufficientKeyStrength {
@@ -294,17 +301,45 @@ pub enum IncompatibleKeyError {
     },
 }
 
-impl fmt::Display for IncompatibleKeyError {
+impl Display for IncompatibleKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            IncompatibleKeyError::AlgorithmMismatch {
+                requested,
+                declared,
+            } => {
+                let requested_display = match requested {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => requested.to_string(),
+                };
+                let declared_display = match declared {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => declared.to_string(),
+                };
+                write!(
+                    f,
+                    "requested algorithm '{}' does not match key's declared alg '{}'",
+                    requested_display, declared_display
+                )
+            }
             IncompatibleKeyError::IncompatibleAlgorithm {
                 algorithm,
                 key_type,
             } => {
+                let algorithm_display = match algorithm {
+                    Algorithm::Unknown(value) => {
+                        format!("unknown({})", sanitize_for_display(value))
+                    }
+                    _ => algorithm.to_string(),
+                };
                 write!(
                     f,
                     "algorithm '{}' is not compatible with key type '{}'",
-                    algorithm, key_type
+                    algorithm_display, key_type
                 )
             }
             IncompatibleKeyError::InsufficientKeyStrength {
@@ -330,7 +365,15 @@ impl fmt::Display for IncompatibleKeyError {
                 )
             }
             IncompatibleKeyError::OperationNotPermitted { operations, reason } => {
-                let ops: Vec<&str> = operations.iter().map(|op| op.as_str()).collect();
+                let ops: Vec<String> = operations
+                    .iter()
+                    .map(|op| match op {
+                        KeyOperation::Unknown(value) => {
+                            format!("unknown({})", sanitize_for_display(value))
+                        }
+                        _ => op.to_string(),
+                    })
+                    .collect();
                 write!(
                     f,
                     "operation(s) not permitted ({}): {}",
@@ -343,6 +386,120 @@ impl fmt::Display for IncompatibleKeyError {
 }
 
 impl std::error::Error for IncompatibleKeyError {}
+
+/// Errors that occur when converting a JWK into a `jwt-simple` key type.
+#[cfg(feature = "jwt-simple")]
+#[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum JwtSimpleKeyConversionError {
+    /// The JWK itself is malformed.
+    InvalidKey(InvalidKeyError),
+    /// The JWK is valid but unsuitable for the requested conversion.
+    IncompatibleKey(IncompatibleKeyError),
+    /// The conversion expects a different JWK key type.
+    KeyTypeMismatch {
+        /// Expected JWK `kty`.
+        expected: &'static str,
+        /// Actual JWK `kty`.
+        actual: String,
+    },
+    /// The conversion expects a different curve.
+    CurveMismatch {
+        /// Expected curve.
+        expected: &'static str,
+        /// Actual curve.
+        actual: String,
+    },
+    /// The conversion requires a specific JWK member that is absent.
+    MissingComponent {
+        /// JWK member name.
+        field: &'static str,
+    },
+    /// The conversion requires private key material, but the JWK is public-only.
+    MissingPrivateKey,
+    /// Core JWK/JWKS validation failed before conversion.
+    Core(Error),
+    /// Encoding the source key into an intermediate representation failed.
+    Encoding(String),
+    /// Importing the encoded key into `jwt-simple` failed.
+    Import(String),
+}
+
+#[cfg(feature = "jwt-simple")]
+impl Display for JwtSimpleKeyConversionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JwtSimpleKeyConversionError::InvalidKey(e) => write!(f, "invalid key: {}", e),
+            JwtSimpleKeyConversionError::IncompatibleKey(e) => {
+                write!(f, "incompatible key: {}", e)
+            }
+            JwtSimpleKeyConversionError::KeyTypeMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "key type mismatch: expected {}, got {}",
+                    expected, actual
+                )
+            }
+            JwtSimpleKeyConversionError::CurveMismatch { expected, actual } => {
+                write!(f, "curve mismatch: expected {}, got {}", expected, actual)
+            }
+            JwtSimpleKeyConversionError::MissingComponent { field } => {
+                write!(f, "missing required field: {}", field)
+            }
+            JwtSimpleKeyConversionError::MissingPrivateKey => {
+                write!(f, "private key parameters required but not present")
+            }
+            JwtSimpleKeyConversionError::Core(err) => {
+                write!(f, "core error: {}", err)
+            }
+            JwtSimpleKeyConversionError::Encoding(msg) => write!(f, "encoding error: {}", msg),
+            JwtSimpleKeyConversionError::Import(msg) => write!(f, "import error: {}", msg),
+        }
+    }
+}
+
+#[cfg(feature = "jwt-simple")]
+impl std::error::Error for JwtSimpleKeyConversionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            JwtSimpleKeyConversionError::InvalidKey(e) => Some(e),
+            JwtSimpleKeyConversionError::IncompatibleKey(e) => Some(e),
+            JwtSimpleKeyConversionError::Core(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(feature = "jwt-simple")]
+impl From<InvalidKeyError> for JwtSimpleKeyConversionError {
+    fn from(e: InvalidKeyError) -> Self {
+        JwtSimpleKeyConversionError::InvalidKey(e)
+    }
+}
+
+#[cfg(feature = "jwt-simple")]
+impl From<IncompatibleKeyError> for JwtSimpleKeyConversionError {
+    fn from(e: IncompatibleKeyError) -> Self {
+        JwtSimpleKeyConversionError::IncompatibleKey(e)
+    }
+}
+
+/// Maximum number of characters to include from user-supplied identifiers
+/// (e.g. unknown algorithm or operation names) in display/error messages.
+const MAX_DISPLAY_IDENTIFIER_CHARS: usize = 256;
+
+/// Sanitizes a user-supplied identifier for use in display/error messages.
+///
+/// Truncates to [`MAX_DISPLAY_IDENTIFIER_CHARS`] and replaces control
+/// characters with spaces to prevent log injection or terminal escape attacks.
+pub(crate) fn sanitize_for_display(value: &str) -> String {
+    value
+        .chars()
+        .take(MAX_DISPLAY_IDENTIFIER_CHARS)
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect()
+}
 
 /// A type alias for `Result<T, Error>`.
 pub type Result<T> = std::result::Result<T, Error>;

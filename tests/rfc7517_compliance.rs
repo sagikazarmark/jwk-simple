@@ -3,7 +3,10 @@
 //! These tests verify strict compliance with RFC 7517 (JSON Web Key)
 //! requirements, particularly Section 4 parameter validation.
 
-use jwk_simple::{Algorithm, Error, InvalidKeyError, Key, KeyOperation, KeySet, KeyType, KeyUse};
+use jwk_simple::{
+    Algorithm, Error, IncompatibleKeyError, InvalidKeyError, Key, KeyOperation, KeySet, KeyType,
+    KeyUse,
+};
 
 // ============================================================================
 // Section 4.1: "kty" (Key Type) Parameter - REQUIRED
@@ -267,7 +270,12 @@ mod alg_parameter {
         assert!(jwk.validate().is_ok(), "EC P-384 key is structurally valid");
         // Suitability check rejects the mismatch
         let result = jwk.validate_for_use(&Algorithm::Es256, [KeyOperation::Verify]);
-        assert!(result.is_err(), "ES256 with P-384 curve should be rejected");
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::IncompatibleAlgorithm { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -282,10 +290,12 @@ mod alg_parameter {
         );
         // Suitability check rejects the type mismatch
         let result = jwk.validate_for_use(&Algorithm::Rs256, [KeyOperation::Verify]);
-        assert!(
-            result.is_err(),
-            "RS256 with symmetric key should be rejected"
-        );
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::IncompatibleAlgorithm { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -299,11 +309,12 @@ mod alg_parameter {
             "small RSA key is structurally valid"
         );
         // Suitability check rejects insufficient key strength
-        assert!(
-            jwk.validate_for_use(&Algorithm::Rs256, [KeyOperation::Verify])
-                .is_err(),
-            "RS256 should reject RSA keys smaller than 2048 bits"
-        );
+        assert!(matches!(
+            jwk.validate_for_use(&Algorithm::Rs256, [KeyOperation::Verify]),
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::InsufficientKeyStrength { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -317,11 +328,12 @@ mod alg_parameter {
             "small HMAC key is structurally valid"
         );
         // Suitability check rejects insufficient key strength
-        assert!(
-            jwk.validate_for_use(&Algorithm::Hs256, [KeyOperation::Verify])
-                .is_err(),
-            "HS256 should reject keys smaller than 256 bits"
-        );
+        assert!(matches!(
+            jwk.validate_for_use(&Algorithm::Hs256, [KeyOperation::Verify]),
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::InsufficientKeyStrength { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -348,10 +360,12 @@ mod alg_parameter {
         assert!(jwk.validate().is_ok(), "Ed448 key is structurally valid");
         // Suitability check rejects the curve mismatch
         let result = jwk.validate_for_use(&Algorithm::Ed25519, [KeyOperation::Verify]);
-        assert!(
-            result.is_err(),
-            "Ed25519 algorithm with Ed448 key should fail"
-        );
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::IncompatibleAlgorithm { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -362,10 +376,12 @@ mod alg_parameter {
         assert!(jwk.validate().is_ok(), "Ed25519 key is structurally valid");
         // Suitability check rejects the curve mismatch
         let result = jwk.validate_for_use(&Algorithm::Ed448, [KeyOperation::Verify]);
-        assert!(
-            result.is_err(),
-            "Ed448 algorithm with Ed25519 key should fail"
-        );
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::IncompatibleAlgorithm { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -577,6 +593,36 @@ mod x5c_parameter {
     }
 
     #[test]
+    fn test_x5c_rejects_der_with_trailing_data() {
+        // Append one zero byte (AA==) after a valid DER cert payload.
+        // This remains valid base64, but must be rejected as non-canonical DER certificate bytes.
+        let cert_with_trailing = format!("{}AA==", TEST_CERT);
+        let json = format!(
+            r#"{{
+                "kty": "EC",
+                "crv": "P-256",
+                "x5c": ["{}"],
+                "x": "eXgQGgNDS5eXfJgrSTRh25w1DnYdu8g_zYhT4o_7TmA",
+                "y": "bgsnNuWe_E7-lA-25VtFXmktQIrp80YyGoitGsay3z4"
+            }}"#,
+            cert_with_trailing
+        );
+        let jwk: Key = serde_json::from_str(&json).unwrap();
+        let result = jwk.validate();
+        assert!(
+            result.is_err(),
+            "x5c with DER trailing bytes must be rejected"
+        );
+        assert!(matches!(
+            result,
+            Err(Error::InvalidKey(InvalidKeyError::InvalidParameter {
+                name: "x5c",
+                ..
+            }))
+        ));
+    }
+
+    #[test]
     fn test_x5c_invalid_base64_characters() {
         // Contains invalid characters for any base64
         let json = r#"{"kty": "RSA", "x5c": ["Invalid!@#$%"], "n": "AQAB", "e": "AQAB"}"#;
@@ -725,16 +771,18 @@ mod jwk_set {
 
     #[test]
     fn test_jwks_validate_all_keys_inconsistent() {
-        // KeySet::validate() should reject keys where use and key_ops are inconsistent
+        // Keys with inconsistent use and key_ops are silently dropped during
+        // deserialization (full validation is applied per RFC 7517 Section 5).
         let json = r#"{
             "keys": [
                 {"kty": "RSA", "use": "sig", "key_ops": ["encrypt"], "n": "AQAB", "e": "AQAB"}
             ]
         }"#;
         let jwks = serde_json::from_str::<KeySet>(json).unwrap();
-        assert!(
-            jwks.validate().is_err(),
-            "JWKS with inconsistent use and key_ops should fail validation"
+        assert_eq!(
+            jwks.len(),
+            0,
+            "key with inconsistent use and key_ops should be dropped during deserialization"
         );
     }
 }
@@ -929,7 +977,12 @@ mod rsa_multi_prime {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result = jwk.validate();
-        assert!(result.is_err(), "oth without CRT params should fail");
+        assert!(matches!(
+            result,
+            Err(Error::InvalidKey(InvalidKeyError::InconsistentParameters(
+                _
+            )))
+        ));
     }
 
     #[test]
@@ -974,7 +1027,12 @@ mod rsa_key_size {
         assert!(rsa.validate_key_size(2048).is_ok());
 
         // Should fail 4096-bit minimum
-        assert!(rsa.validate_key_size(4096).is_err());
+        assert!(matches!(
+            rsa.validate_key_size(4096),
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::InsufficientKeyStrength { .. }
+            ))
+        ));
     }
 }
 

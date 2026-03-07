@@ -62,7 +62,7 @@ fn build_rsa_canonical(params: &RsaParams) -> String {
 fn build_ec_canonical(params: &EcParams) -> String {
     format!(
         r#"{{"crv":"{}","kty":"EC","x":"{}","y":"{}"}}"#,
-        params.crv.name(),
+        params.crv.as_str(),
         params.x.to_base64url(),
         params.y.to_base64url()
     )
@@ -79,7 +79,7 @@ fn build_symmetric_canonical(params: &SymmetricParams) -> String {
 fn build_okp_canonical(params: &OkpParams) -> String {
     format!(
         r#"{{"crv":"{}","kty":"OKP","x":"{}"}}"#,
-        params.crv.name(),
+        params.crv.as_str(),
         params.x.to_base64url()
     )
 }
@@ -88,7 +88,7 @@ fn build_okp_canonical(params: &OkpParams) -> String {
 mod tests {
     use super::*;
     use crate::encoding::Base64UrlBytes;
-    use crate::jwk::{EcCurve, OkpCurve};
+    use crate::{EcCurve, OkpCurve};
 
     #[test]
     fn test_rsa_canonical_order() {
@@ -155,8 +155,8 @@ mod tests {
             Base64UrlBytes::new(vec![1, 0, 1]),
         )))
         .with_kid("different-kid")
-        .with_use(crate::jwk::KeyUse::Signature)
-        .with_alg(crate::jwk::Algorithm::Rs256);
+        .with_use(crate::KeyUse::Signature)
+        .with_alg(crate::Algorithm::Rs256);
 
         // Same key material, different optional fields = same thumbprint
         assert_eq!(calculate_thumbprint(&jwk1), calculate_thumbprint(&jwk2));

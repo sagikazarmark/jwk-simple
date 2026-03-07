@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  DEVENV_VERSION: v1.11.2
+
 jobs:
   audit:
     name: Audit
@@ -20,6 +23,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/devenv/
         with:
+          use-flake: "true"
+          version: ${{ env.DEVENV_VERSION }}
           build: "true"
 
       - name: Set up Rust
@@ -37,11 +42,14 @@ jobs:
       matrix:
         include:
           - name: native
-            target: ""
+            target: x86_64-unknown-linux-gnu
             features: http,jwt-simple,jwt-simple/pure-rust,moka
           - name: wasm
             target: wasm32-unknown-unknown
             features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
+
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
 
     steps:
       - name: Checkout repository
@@ -50,6 +58,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/devenv/
         with:
+          use-flake: "true"
+          version: ${{ env.DEVENV_VERSION }}
           build: "true"
 
       - name: Set up Rust
@@ -57,12 +67,7 @@ jobs:
 
       - name: Build
         shell: devenv shell bash -- -e {0}
-        run: |
-          if [ -n "${{ matrix.target }}" ]; then
-            cargo build --target "${{ matrix.target }}" --features "${{ matrix.features }}"
-          else
-            cargo build --features "${{ matrix.features }}"
-          fi
+        run: cargo build --features "${{ matrix.features }}"
 
   test:
     name: Test (${{ matrix.name }})
@@ -72,11 +77,14 @@ jobs:
       matrix:
         include:
           - name: native
-            target: ""
+            target: x86_64-unknown-linux-gnu
             features: http,jwt-simple,jwt-simple/pure-rust,moka
           - name: wasm
             target: wasm32-unknown-unknown
             features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
+
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
 
     steps:
       - name: Checkout repository
@@ -85,6 +93,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/devenv/
         with:
+          use-flake: "true"
+          version: ${{ env.DEVENV_VERSION }}
           build: "true"
 
       - name: Set up Rust
@@ -92,12 +102,7 @@ jobs:
 
       - name: Test
         shell: devenv shell bash -- -e {0}
-        run: |
-          if [ -n "${{ matrix.target }}" ]; then
-            cargo test --target "${{ matrix.target }}" --features "${{ matrix.features }}"
-          else
-            cargo test --features "${{ matrix.features }}"
-          fi
+        run: cargo test --features "${{ matrix.features }}"
 
   lint:
     name: Lint (${{ matrix.name }})
@@ -107,11 +112,14 @@ jobs:
       matrix:
         include:
           - name: native
-            target: ""
+            target: x86_64-unknown-linux-gnu
             features: http,jwt-simple,jwt-simple/pure-rust,moka
           - name: wasm
             target: wasm32-unknown-unknown
             features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
+
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
 
     steps:
       - name: Checkout repository
@@ -120,24 +128,28 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/devenv/
         with:
+          use-flake: "true"
+          version: ${{ env.DEVENV_VERSION }}
           build: "true"
 
       - name: Set up Rust
         uses: ./.github/actions/rust/
 
       - name: fmt
-        if: matrix.target == ''
+        if: matrix.name == 'native'
         shell: devenv shell bash -- -e {0}
         run: cargo fmt -- --check
 
       - name: Clippy
         shell: devenv shell bash -- -e {0}
-        run: |
-          if [ -n "${{ matrix.target }}" ]; then
-            cargo clippy --target "${{ matrix.target }}" --features "${{ matrix.features }}"
-          else
-            cargo clippy --features "${{ matrix.features }}"
-          fi
+        run: cargo clippy --features "${{ matrix.features }}" -- -D warnings
+
+      - name: Doc
+        if: matrix.name == 'native'
+        shell: devenv shell bash -- -e {0}
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps --features "${{ matrix.features }}"
 
   examples:
     name: Examples (${{ matrix.name }})
@@ -147,11 +159,14 @@ jobs:
       matrix:
         include:
           - name: native
-            target: ""
+            target: x86_64-unknown-linux-gnu
             features: http,jwt-simple,jwt-simple/pure-rust
           - name: wasm
             target: wasm32-unknown-unknown
             features: http,jwt-simple,jwt-simple/pure-rust,web-crypto
+
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
 
     steps:
       - name: Checkout repository
@@ -160,19 +175,21 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/devenv/
         with:
+          use-flake: "true"
+          version: ${{ env.DEVENV_VERSION }}
           build: "true"
 
       - name: Set up Rust
         uses: ./.github/actions/rust/
 
+      - name: Check examples
+        shell: devenv shell bash -- -e {0}
+        run: cargo check --examples --features "${{ matrix.features }}"
+
       - name: Run examples
+        if: matrix.name == 'native'
         shell: devenv shell bash -- -e {0}
         run: |
-          if [ -n "${{ matrix.target }}" ]; then
-            cargo check --examples --target "${{ matrix.target }}" --features "${{ matrix.features }}"
-          else
-            cargo check --examples --features "${{ matrix.features }}"
-            cargo run --example basic_usage --features "${{ matrix.features }}"
-            cargo run --example jwt_verify --features "${{ matrix.features }}"
-            cargo run --example http_fetch --features "${{ matrix.features }}"
-          fi
+          cargo run --example basic_usage --features "${{ matrix.features }}"
+          cargo run --example jwt_verify --features "${{ matrix.features }}"
+          cargo run --example http_fetch --features "${{ matrix.features }}"

@@ -14,6 +14,7 @@ use crate::error::{Error, InvalidKeyError, ParseError, Result};
 
 /// Supported OKP curves (RFC 8037).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum OkpCurve {
     /// Ed25519 signature algorithm (EdDSA).
     Ed25519,
@@ -62,8 +63,8 @@ impl OkpCurve {
         size == self.private_key_size() || size == self.extended_private_key_size()
     }
 
-    /// Returns the curve name as a string.
-    pub fn name(&self) -> &'static str {
+    /// Returns the curve name as a string slice.
+    pub fn as_str(&self) -> &'static str {
         match self {
             OkpCurve::Ed25519 => "Ed25519",
             OkpCurve::Ed448 => "Ed448",
@@ -89,7 +90,7 @@ impl FromStr for OkpCurve {
 
 impl Display for OkpCurve {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name())
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -113,6 +114,7 @@ impl Display for OkpCurve {
 /// assert!(params.is_public_key_only());
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[non_exhaustive]
 pub struct OkpParams {
     /// The OKP curve.
     #[zeroize(skip)]
@@ -128,11 +130,13 @@ pub struct OkpParams {
 
 impl OkpParams {
     /// Creates new OKP public key parameters.
+    #[must_use]
     pub fn new_public(crv: OkpCurve, x: Base64UrlBytes) -> Self {
         Self { crv, x, d: None }
     }
 
     /// Creates new OKP private key parameters.
+    #[must_use]
     pub fn new_private(crv: OkpCurve, x: Base64UrlBytes, d: Base64UrlBytes) -> Self {
         Self { crv, x, d: Some(d) }
     }
