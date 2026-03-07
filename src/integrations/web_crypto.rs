@@ -1256,6 +1256,20 @@ mod validation_tests {
     }
 
     #[test]
+    fn test_validate_key_for_webcrypto_usage_with_alg_rejects_declared_algorithm_mismatch() {
+        let key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
+
+        let result =
+            validate_key_for_webcrypto_usage_with_alg(&key, KeyUsage::Verify, &Algorithm::Hs384);
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                crate::error::IncompatibleKeyError::AlgorithmMismatch { .. }
+            ))
+        ));
+    }
+
+    #[test]
     fn test_validate_key_for_webcrypto_usage_rejects_public_sign_key_without_alg() {
         let json = r#"{
             "kty": "RSA",

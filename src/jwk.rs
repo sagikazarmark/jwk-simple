@@ -1121,11 +1121,10 @@ impl Key {
     /// operations).
     ///
     /// The `alg` parameter controls which algorithm constraints are applied
-    /// (key type, minimum strength). It is independent of the key's own `alg`
-    /// field; no cross-check is performed. Callers are responsible for
-    /// ensuring the supplied algorithm is consistent with the key's declared
-    /// algorithm, if any. Unknown algorithms are rejected because suitability
-    /// (type compatibility and strength) cannot be validated for them.
+    /// (key type, minimum strength). If the key declares its own `alg`, it must
+    /// match the requested algorithm. Unknown algorithms are rejected because
+    /// suitability (type compatibility and strength) cannot be validated for
+    /// them.
     ///
     /// At least one operation must be provided. Passing an empty iterator
     /// returns an error (this is a caller precondition, not a key problem).
@@ -1163,6 +1162,8 @@ impl Key {
 
         // Structural validation first (belt-and-suspenders).
         self.validate()?;
+
+        self.validate_declared_algorithm_match(alg)?;
 
         // Algorithm suitability: type match + strength.
         // `validate()` above already ran `params.validate()`, so we call the
@@ -1720,6 +1721,10 @@ impl Key {
 
     /// Extracts only the public key components, removing any private key material.
     ///
+    /// Public projection also normalizes `key_ops` to the subset that remains
+    /// meaningful for a public key (`verify`, `encrypt`, `wrapKey`). Operations
+    /// that require private or secret key material are removed.
+    ///
     /// For symmetric keys, this returns `None` since symmetric keys don't have
     /// a separate public component.
     ///
@@ -1753,7 +1758,16 @@ impl Key {
         Some(Key {
             kid: self.kid.clone(),
             key_use: self.key_use.clone(),
-            key_ops: self.key_ops.clone(),
+            key_ops: self
+                .key_ops
+                .as_ref()
+                .map(|ops| {
+                    ops.iter()
+                        .filter(|op| operation_survives_public_projection(op))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .filter(|ops| !ops.is_empty()),
             alg: self.alg.clone(),
             params: public_params,
             x5c: self.x5c.clone(),
@@ -2132,6 +2146,30 @@ fn is_encryption_operation(operation: &KeyOperation) -> bool {
             | KeyOperation::DeriveKey
             | KeyOperation::DeriveBits
     )
+}
+
+fn operation_survives_public_projection(operation: &KeyOperation) -> bool {
+    matches!(
+        operation,
+        KeyOperation::Verify | KeyOperation::Encrypt | KeyOperation::WrapKey
+    )
+}
+
+impl Key {
+    fn validate_declared_algorithm_match(&self, requested_alg: &Algorithm) -> Result<()> {
+        if let Some(declared_alg) = self.alg()
+            && declared_alg != requested_alg
+        {
+            return Err(Error::IncompatibleKey(
+                IncompatibleKeyError::AlgorithmMismatch {
+                    requested: requested_alg.as_str().to_string(),
+                    declared: declared_alg.as_str().to_string(),
+                },
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 pub(crate) fn is_operation_compatible_with_algorithm(
@@ -2659,6 +2697,58 @@ mod tests {
     }
 
     #[test]
+    fn test_to_public_filters_private_only_key_ops() {
+        let key = Key::new(KeyParams::Rsa(RsaParams::new_private(
+            Base64UrlBytes::new(vec![0x01; 256]),
+            Base64UrlBytes::new(vec![0x01, 0x00, 0x01]),
+            Base64UrlBytes::new(vec![0x02; 256]),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )))
+        .with_key_ops([
+            KeyOperation::Sign,
+            KeyOperation::Verify,
+            KeyOperation::Decrypt,
+            KeyOperation::Encrypt,
+            KeyOperation::WrapKey,
+            KeyOperation::UnwrapKey,
+            KeyOperation::DeriveKey,
+            KeyOperation::Unknown("custom".into()),
+        ]);
+
+        let public = key.to_public().unwrap();
+
+        assert_eq!(
+            public.key_ops(),
+            Some(
+                &[
+                    KeyOperation::Verify,
+                    KeyOperation::Encrypt,
+                    KeyOperation::WrapKey,
+                ][..]
+            )
+        );
+    }
+
+    #[test]
+    fn test_to_public_clears_empty_key_ops_after_projection() {
+        let key = Key::new(KeyParams::Ec(EcParams::new_private(
+            EcCurve::P256,
+            Base64UrlBytes::new(vec![0x01; 32]),
+            Base64UrlBytes::new(vec![0x02; 32]),
+            Base64UrlBytes::new(vec![0x03; 32]),
+        )))
+        .with_key_ops([KeyOperation::Sign]);
+
+        let public = key.to_public().unwrap();
+
+        assert_eq!(public.key_ops(), None);
+    }
+
+    #[test]
     fn test_validate_algorithm_strength_enforces_cbc_hs_sizes() {
         let k256 = Base64UrlBytes::new(vec![0u8; 32]);
         let k384 = Base64UrlBytes::new(vec![0u8; 48]);
@@ -2837,6 +2927,22 @@ mod tests {
             result,
             Err(Error::IncompatibleKey(
                 IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validate_for_use_rejects_declared_algorithm_mismatch() {
+        let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+            Base64UrlBytes::new(vec![0u8; 32]),
+        )))
+        .with_alg(Algorithm::Hs256);
+
+        let result = key.validate_for_use(&Algorithm::Hs384, [KeyOperation::Sign]);
+        assert!(matches!(
+            result,
+            Err(Error::IncompatibleKey(
+                IncompatibleKeyError::AlgorithmMismatch { .. }
             ))
         ));
     }

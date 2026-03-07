@@ -257,6 +257,13 @@ impl std::error::Error for InvalidKeyError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IncompatibleKeyError {
+    /// Requested algorithm conflicts with the key's declared `alg` value.
+    AlgorithmMismatch {
+        /// The algorithm that was requested by the caller.
+        requested: String,
+        /// The algorithm declared on the key.
+        declared: String,
+    },
     /// Algorithm is not compatible with the key type or curve.
     IncompatibleAlgorithm {
         /// The algorithm that was requested.
@@ -305,6 +312,17 @@ impl Display for IncompatibleKeyError {
         }
 
         match self {
+            IncompatibleKeyError::AlgorithmMismatch {
+                requested,
+                declared,
+            } => {
+                write!(
+                    f,
+                    "requested algorithm '{}' does not match key's declared alg '{}'",
+                    sanitize_for_display(requested),
+                    sanitize_for_display(declared)
+                )
+            }
             IncompatibleKeyError::IncompatibleAlgorithm {
                 algorithm,
                 key_type,

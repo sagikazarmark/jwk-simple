@@ -21,6 +21,7 @@ use pkcs1::der::Encode;
 use pkcs1::{RsaPrivateKey as Pkcs1RsaPrivateKey, RsaPublicKey as Pkcs1RsaPublicKey, UintRef};
 use zeroize::Zeroizing;
 
+#[cfg(test)]
 use crate::IncompatibleKeyError;
 use crate::error::{Error, JwtSimpleKeyConversionError};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams, OkpCurve, RsaParams};
@@ -789,6 +790,20 @@ mod tests {
             result,
             Err(JwtSimpleKeyConversionError::IncompatibleKey(
                 IncompatibleKeyError::InsufficientKeyStrength { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_rs256_conversion_rejects_declared_algorithm_mismatch() {
+        let jwk: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
+        let jwk = jwk.with_alg(Algorithm::Ps256);
+
+        let result: Result<RS256PublicKey> = (&jwk).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::IncompatibleKey(
+                IncompatibleKeyError::AlgorithmMismatch { .. }
             ))
         ));
     }
