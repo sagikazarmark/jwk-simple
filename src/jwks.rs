@@ -4,6 +4,8 @@
 //! and discovery. This module also defines the [`KeyStore`] trait, which abstracts
 //! over different sources of JWK keys.
 
+use std::fmt::{self, Display};
+
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::{Error, IncompatibleKeyError, InvalidKeyError, Result};
@@ -27,7 +29,7 @@ pub use store::http::HttpKeyStore;
 pub use store::http::DEFAULT_TIMEOUT;
 
 /// Errors returned by strict key selection.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SelectionError {
     /// Verification selection was requested without a configured allowlist.
@@ -69,8 +71,8 @@ pub enum SelectionError {
     NoMatchingKey,
 }
 
-impl std::fmt::Display for SelectionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for SelectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         const MAX_DISPLAY_IDENTIFIER_CHARS: usize = 256;
 
         fn sanitize_for_display(value: &str) -> String {

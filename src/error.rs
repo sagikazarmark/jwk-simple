@@ -12,7 +12,7 @@
 //!   the requested use (wrong key type for algorithm, insufficient strength,
 //!   operation not permitted by metadata). These mean "valid key, wrong context."
 
-use std::fmt;
+use std::fmt::{self, Display};
 
 use crate::jwk::KeyOperation;
 
@@ -87,7 +87,7 @@ pub enum Error {
     WebCrypto(String),
 }
 
-impl fmt::Display for Error {
+impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Parse(e) => write!(f, "parse error: {}", e),
@@ -170,7 +170,7 @@ impl From<reqwest::Error> for Error {
 }
 
 /// Errors that occur during JSON parsing.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// Invalid JSON syntax.
     Json(String),
@@ -180,7 +180,7 @@ pub enum ParseError {
     UnknownCurve(String),
 }
 
-impl fmt::Display for ParseError {
+impl Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ParseError::Json(msg) => write!(f, "invalid JSON: {}", msg),
@@ -197,7 +197,7 @@ impl std::error::Error for ParseError {}
 /// These errors indicate the key material or metadata is invalid regardless
 /// of how the key is used. A key producing an `InvalidKeyError` should be
 /// rejected entirely.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InvalidKeyError {
     /// Invalid key size for the key type or curve.
@@ -222,7 +222,7 @@ pub enum InvalidKeyError {
     },
 }
 
-impl fmt::Display for InvalidKeyError {
+impl Display for InvalidKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             InvalidKeyError::InvalidKeySize {
@@ -256,7 +256,7 @@ impl std::error::Error for InvalidKeyError {}
 /// These errors indicate the key is structurally valid but cannot be used
 /// in the requested context. A key producing an `IncompatibleKeyError` may
 /// be perfectly valid for a different algorithm or operation.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IncompatibleKeyError {
     /// Algorithm is not compatible with the key type or curve.
@@ -294,7 +294,7 @@ pub enum IncompatibleKeyError {
     },
 }
 
-impl fmt::Display for IncompatibleKeyError {
+impl Display for IncompatibleKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             IncompatibleKeyError::IncompatibleAlgorithm {

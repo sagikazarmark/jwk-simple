@@ -51,6 +51,8 @@ fn main() {}
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_example {
+    use std::fmt::{self, Display};
+
     use base64ct::{Base64UrlUnpadded, Encoding};
     use js_sys::Uint8Array;
     use jwk_simple::{
@@ -154,8 +156,8 @@ mod wasm_example {
         InvalidAudience,
     }
 
-    impl std::fmt::Display for JwtError {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl Display for JwtError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
                 JwtError::InvalidFormat => write!(f, "invalid JWT format"),
                 JwtError::Base64Error(e) => write!(f, "base64 decode error: {}", e),
