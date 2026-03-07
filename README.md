@@ -3,9 +3,6 @@
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/sagikazarmark/jwk-simple/ci.yaml?style=flat-square)
 ![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/sagikazarmark/jwk-simple/badge?style=flat-square)
 
-> [!WARNING]
-> This project is a work in progress. The API may change.
-
 A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defined in RFC 7517, with WASM compatibility and optional [`jwt-simple`](https://github.com/jedisct1/rust-jwt-simple) integration.
 
 ## Features
