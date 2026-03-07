@@ -362,19 +362,6 @@ Copy this block for new items:
 - Revisit signal: Security audit of error output paths or adoption in environments processing untrusted JWKS.
 - Suggested future action: Truncate/escape `KeyOperation::Unknown` values in `Display` impl.
 
-## `SelectionError::IncompatibleKeyType` used for structurally invalid keys
-- Date added: 2026-03-05
-- Source: PR #43 review (second round)
-- Validity: CONFIRMED
-- Trigger likelihood: RARE
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: When `check_algorithm_suitability` returns `Error::InvalidKey` (from `params.validate()` on programmatically added keys), the `KeySelector` maps it to `SelectionError::IncompatibleKeyType` via the catch-all arm. This makes structurally invalid keys indistinguishable from type/curve incompatibility. The behavior is safe but not maximally informative.
-- Preconditions/Trigger: Programmatically constructed keys with malformed params added via `add_key()` and selected via `KeySelector`.
-- Risk if not fixed: Callers cannot distinguish structural invalidity from type incompatibility in selector errors.
-- Revisit signal: Need for finer-grained selector error handling or addition of `SelectionError::InvalidKey` variant.
-- Suggested future action: Add `SelectionError::InvalidKey(InvalidKeyError)` variant and handle `Error::InvalidKey` explicitly in the selector loop.
-
 ## `oth` prime validation `map_err` erases typed error variants
 - Date added: 2026-03-05
 - Source: PR #43 review (third round)

@@ -1,7 +1,10 @@
 //! Error types for JWK/JWKS operations.
 //!
-//! This module provides a comprehensive error type that covers all failure
-//! modes in the library. All fallible operations return `Result<T, Error>`.
+//! This module provides the crate's core error taxonomy.
+//!
+//! Most fallible operations return `Result<T, Error>`. Feature-gated
+//! integration adapters may expose dedicated conversion error types when that
+//! yields clearer API boundaries.
 //!
 //! Key validation errors are split into two categories:
 //!
@@ -16,9 +19,7 @@ use std::fmt::{self, Display};
 
 use crate::jwk::KeyOperation;
 
-/// The main error type for this crate.
-///
-/// All fallible operations return `Result<T, Error>`.
+/// The main error type for core JWK/JWKS operations.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -37,31 +38,6 @@ pub enum Error {
 
     /// Base64 decoding failed.
     Base64(base64ct::Error),
-
-    /// Key type mismatch during conversion.
-    KeyTypeMismatch {
-        /// Expected.
-        expected: &'static str,
-        /// Actual.
-        actual: String,
-    },
-
-    /// Curve mismatch during conversion.
-    CurveMismatch {
-        /// Expected.
-        expected: &'static str,
-        /// Actual.
-        actual: String,
-    },
-
-    /// Missing required field.
-    MissingField {
-        /// Field name.
-        field: &'static str,
-    },
-
-    /// Private key parameters missing when required.
-    MissingPrivateKey,
 
     /// HTTP request error.
     #[cfg(feature = "http")]
@@ -95,22 +71,6 @@ impl Display for Error {
             Error::InvalidKey(e) => write!(f, "invalid key: {}", e),
             Error::IncompatibleKey(e) => write!(f, "incompatible key: {}", e),
             Error::Base64(e) => write!(f, "base64 decoding error: {:?}", e),
-            Error::KeyTypeMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "key type mismatch: expected {}, got {}",
-                    expected, actual
-                )
-            }
-            Error::CurveMismatch { expected, actual } => {
-                write!(f, "curve mismatch: expected {}, got {}", expected, actual)
-            }
-            Error::MissingField { field } => {
-                write!(f, "missing required field: {}", field)
-            }
-            Error::MissingPrivateKey => {
-                write!(f, "private key parameters required but not present")
-            }
             #[cfg(feature = "http")]
             Error::Http(e) => write!(f, "HTTP error: {}", e),
             Error::Cache(msg) => write!(f, "cache error: {}", msg),
@@ -343,6 +303,102 @@ impl Display for IncompatibleKeyError {
 }
 
 impl std::error::Error for IncompatibleKeyError {}
+
+/// Errors that occur when converting a JWK into a `jwt-simple` key type.
+#[cfg(feature = "jwt-simple")]
+#[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum JwtSimpleConversionError {
+    /// The JWK itself is malformed.
+    InvalidKey(InvalidKeyError),
+    /// The JWK is valid but unsuitable for the requested conversion.
+    IncompatibleKey(IncompatibleKeyError),
+    /// The conversion expects a different JWK key type.
+    KeyTypeMismatch {
+        /// Expected JWK `kty`.
+        expected: &'static str,
+        /// Actual JWK `kty`.
+        actual: String,
+    },
+    /// The conversion expects a different curve.
+    CurveMismatch {
+        /// Expected curve.
+        expected: &'static str,
+        /// Actual curve.
+        actual: String,
+    },
+    /// The conversion requires a specific JWK member that is absent.
+    MissingComponent {
+        /// JWK member name.
+        field: &'static str,
+    },
+    /// The conversion requires private key material, but the JWK is public-only.
+    MissingPrivateKey,
+    /// Core pre-conversion validation failed in a way that does not map to a
+    /// structured conversion variant.
+    Validation(String),
+    /// Encoding the source key into an intermediate representation failed.
+    Encoding(String),
+    /// Importing the encoded key into `jwt-simple` failed.
+    Import(String),
+}
+
+#[cfg(feature = "jwt-simple")]
+impl Display for JwtSimpleConversionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JwtSimpleConversionError::InvalidKey(e) => write!(f, "invalid key: {}", e),
+            JwtSimpleConversionError::IncompatibleKey(e) => {
+                write!(f, "incompatible key: {}", e)
+            }
+            JwtSimpleConversionError::KeyTypeMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "key type mismatch: expected {}, got {}",
+                    expected, actual
+                )
+            }
+            JwtSimpleConversionError::CurveMismatch { expected, actual } => {
+                write!(f, "curve mismatch: expected {}, got {}", expected, actual)
+            }
+            JwtSimpleConversionError::MissingComponent { field } => {
+                write!(f, "missing required field: {}", field)
+            }
+            JwtSimpleConversionError::MissingPrivateKey => {
+                write!(f, "private key parameters required but not present")
+            }
+            JwtSimpleConversionError::Validation(msg) => write!(f, "validation error: {}", msg),
+            JwtSimpleConversionError::Encoding(msg) => write!(f, "encoding error: {}", msg),
+            JwtSimpleConversionError::Import(msg) => write!(f, "import error: {}", msg),
+        }
+    }
+}
+
+#[cfg(feature = "jwt-simple")]
+impl std::error::Error for JwtSimpleConversionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            JwtSimpleConversionError::InvalidKey(e) => Some(e),
+            JwtSimpleConversionError::IncompatibleKey(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(feature = "jwt-simple")]
+impl From<InvalidKeyError> for JwtSimpleConversionError {
+    fn from(e: InvalidKeyError) -> Self {
+        JwtSimpleConversionError::InvalidKey(e)
+    }
+}
+
+#[cfg(feature = "jwt-simple")]
+impl From<IncompatibleKeyError> for JwtSimpleConversionError {
+    fn from(e: IncompatibleKeyError) -> Self {
+        JwtSimpleConversionError::IncompatibleKey(e)
+    }
+}
 
 /// A type alias for `Result<T, Error>`.
 pub type Result<T> = std::result::Result<T, Error>;

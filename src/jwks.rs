@@ -56,8 +56,8 @@ pub enum SelectionError {
     },
     /// Key metadata (`use` / `key_ops`) does not permit the requested operation.
     IntentMismatch,
-    /// Key metadata is internally invalid (for example duplicate `key_ops`).
-    InvalidKeyMetadata(InvalidKeyError),
+    /// The matched key is structurally invalid.
+    InvalidKey(InvalidKeyError),
     /// Key material type/curve is incompatible with the requested algorithm.
     IncompatibleKeyType,
     /// Key failed cryptographic suitability checks (strength/parameter/capability constraints).
@@ -140,8 +140,8 @@ impl Display for SelectionError {
             SelectionError::IntentMismatch => {
                 write!(f, "key metadata does not permit requested operation")
             }
-            SelectionError::InvalidKeyMetadata(e) => {
-                write!(f, "key metadata is invalid: {}", e)
+            SelectionError::InvalidKey(e) => {
+                write!(f, "key is invalid: {}", e)
             }
             SelectionError::IncompatibleKeyType => {
                 write!(f, "key type/curve is incompatible with requested algorithm")
@@ -160,7 +160,7 @@ impl Display for SelectionError {
 impl std::error::Error for SelectionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SelectionError::InvalidKeyMetadata(e) => Some(e),
+            SelectionError::InvalidKey(e) => Some(e),
             SelectionError::KeySuitabilityFailed(e) => Some(e),
             _ => None,
         }
@@ -315,7 +315,7 @@ impl<'a> KeySelector<'a> {
     ///
     /// When `kid` is present in the matcher, candidate-level validation failures are
     /// surfaced with specific diagnostics (`AlgorithmMismatch`, `IntentMismatch`,
-    /// `KeySuitabilityFailed`, `IncompatibleKeyType`) using deterministic precedence.
+    /// `InvalidKey`, `KeySuitabilityFailed`, `IncompatibleKeyType`) using deterministic precedence.
     ///
     /// When `kid` is not present, candidates that fail per-key checks are skipped and
     /// selection resolves by surviving cardinality (`AmbiguousSelection` / `NoMatchingKey`).
@@ -334,15 +334,11 @@ impl<'a> KeySelector<'a> {
     ///
     /// If `kid` is present and no candidate survives, the most specific error
     /// is returned in this order: `AlgorithmMismatch` -> `IntentMismatch`
-    /// -> `InvalidKeyMetadata` -> `KeySuitabilityFailed`
-    /// -> `IncompatibleKeyType` -> `NoMatchingKey`.
+    /// -> `InvalidKey` -> `KeySuitabilityFailed` -> `IncompatibleKeyType`
+    /// -> `NoMatchingKey`.
     ///
     /// If `kid` is absent and no candidate survives, candidate-level
     /// diagnostics are suppressed and selection returns `NoMatchingKey`.
-    ///
-    /// Note: `IncompatibleKeyType` also covers unexpected non-suitability
-    /// failures from `check_algorithm_suitability`, conservatively mapped to
-    /// incompatibility in strict mode.
     ///
     /// If `kid` is omitted and selection returns `NoMatchingKey`, use
     /// [`KeySet::find`] for discovery diagnostics to inspect broad candidates.
@@ -416,7 +412,7 @@ impl<'a> KeySelector<'a> {
         let mut incompatible_for_known_kid = false;
         let mut saw_alg_mismatch: Option<(Algorithm, Algorithm)> = None;
         let mut saw_intent_mismatch = false;
-        let mut saw_invalid_key_metadata: Option<InvalidKeyError> = None;
+        let mut saw_invalid_key: Option<InvalidKeyError> = None;
         let mut saw_suitability_error: Option<IncompatibleKeyError> = None;
 
         for key in self.keyset.keys.iter() {
@@ -452,8 +448,8 @@ impl<'a> KeySelector<'a> {
                             ..
                         }) => saw_intent_mismatch = true,
                         Error::InvalidKey(invalid) => {
-                            if saw_invalid_key_metadata.is_none() {
-                                saw_invalid_key_metadata = Some(invalid);
+                            if saw_invalid_key.is_none() {
+                                saw_invalid_key = Some(invalid);
                             }
                         }
                         // Conservatively map any future intent-check error to intent mismatch.
@@ -468,8 +464,8 @@ impl<'a> KeySelector<'a> {
                 if matcher.kid.is_some() {
                     match err {
                         Error::InvalidKey(invalid) => {
-                            if saw_invalid_key_metadata.is_none() {
-                                saw_invalid_key_metadata = Some(invalid);
+                            if saw_invalid_key.is_none() {
+                                saw_invalid_key = Some(invalid);
                             }
                         }
                         _ => incompatible_for_known_kid = true,
@@ -481,6 +477,11 @@ impl<'a> KeySelector<'a> {
             if let Err(e) = key.check_algorithm_suitability(&matcher.alg) {
                 if matcher.kid.is_some() {
                     match e {
+                        Error::InvalidKey(invalid) => {
+                            if saw_invalid_key.is_none() {
+                                saw_invalid_key = Some(invalid);
+                            }
+                        }
                         Error::IncompatibleKey(suitability) => {
                             if saw_suitability_error.is_none() {
                                 saw_suitability_error = Some(suitability);
@@ -522,8 +523,8 @@ impl<'a> KeySelector<'a> {
             if saw_intent_mismatch {
                 return Err(SelectionError::IntentMismatch);
             }
-            if let Some(invalid) = saw_invalid_key_metadata {
-                return Err(SelectionError::InvalidKeyMetadata(invalid));
+            if let Some(invalid) = saw_invalid_key {
+                return Err(SelectionError::InvalidKey(invalid));
             }
             if let Some(suitability) = saw_suitability_error {
                 return Err(SelectionError::KeySuitabilityFailed(suitability));
@@ -1393,8 +1394,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256).with_kid("bad-ec"))
             .unwrap_err();
 
-        // Structurally invalid keys fall through to the generic IncompatibleKeyType path.
-        assert!(matches!(err, SelectionError::IncompatibleKeyType));
+        assert!(matches!(err, SelectionError::InvalidKey(_)));
     }
 
     #[test]
@@ -1428,7 +1428,7 @@ mod tests {
     }
 
     #[test]
-    fn test_selector_invalid_key_metadata_for_known_kid() {
+    fn test_selector_invalid_key_for_known_kid() {
         let bad_key = Key::new(crate::KeyParams::Rsa(crate::RsaParams::new_public(
             crate::encoding::Base64UrlBytes::new(vec![1, 2, 3]),
             crate::encoding::Base64UrlBytes::new(vec![1, 0, 1]),
@@ -1445,7 +1445,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("dup-ops"))
             .unwrap_err();
 
-        assert!(matches!(err, SelectionError::InvalidKeyMetadata(_)));
+        assert!(matches!(err, SelectionError::InvalidKey(_)));
     }
 
     #[test]
@@ -1466,7 +1466,7 @@ mod tests {
             .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("bad-x5u"))
             .unwrap_err();
 
-        assert!(matches!(err, SelectionError::InvalidKeyMetadata(_)));
+        assert!(matches!(err, SelectionError::InvalidKey(_)));
     }
 
     #[test]
@@ -1837,11 +1837,11 @@ mod tests {
             "key metadata does not permit requested operation"
         );
         assert_eq!(
-            SelectionError::InvalidKeyMetadata(InvalidKeyError::InconsistentParameters(
+            SelectionError::InvalidKey(InvalidKeyError::InconsistentParameters(
                 "duplicate key_ops".to_string()
             ))
             .to_string(),
-            "key metadata is invalid: inconsistent key parameters: duplicate key_ops"
+            "key is invalid: inconsistent key parameters: duplicate key_ops"
         );
         assert_eq!(
             SelectionError::IncompatibleKeyType.to_string(),

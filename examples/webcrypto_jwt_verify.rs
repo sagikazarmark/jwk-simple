@@ -378,7 +378,7 @@ mod wasm_example {
             SelectionError::AmbiguousSelection { .. }
             | SelectionError::AlgorithmMismatch { .. }
             | SelectionError::IntentMismatch
-            | SelectionError::InvalidKeyMetadata(_)
+            | SelectionError::InvalidKey(_)
             | SelectionError::EmptyVerifyAllowlist => JwtError::KeyNotFound,
             _ => JwtError::KeyNotFound,
         })

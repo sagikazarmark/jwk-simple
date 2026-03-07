@@ -21,8 +21,27 @@ use pkcs1::der::Encode;
 use pkcs1::{RsaPrivateKey as Pkcs1RsaPrivateKey, RsaPublicKey as Pkcs1RsaPublicKey, UintRef};
 use zeroize::Zeroizing;
 
-use crate::error::{Error, Result};
+use crate::error::{Error, JwtSimpleConversionError};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams, OkpCurve, RsaParams};
+
+type Result<T> = std::result::Result<T, JwtSimpleConversionError>;
+
+fn map_validation_error(err: Error) -> JwtSimpleConversionError {
+    match err {
+        Error::InvalidKey(err) => JwtSimpleConversionError::InvalidKey(err),
+        Error::IncompatibleKey(err) => JwtSimpleConversionError::IncompatibleKey(err),
+        Error::Other(msg) => JwtSimpleConversionError::Validation(msg),
+        other => JwtSimpleConversionError::Validation(other.to_string()),
+    }
+}
+
+fn validate_for_jwt_simple(
+    jwk: &Key,
+    alg: &Algorithm,
+    ops: impl IntoIterator<Item = KeyOperation>,
+) -> Result<()> {
+    jwk.validate_for_use(alg, ops).map_err(map_validation_error)
+}
 
 // ============================================================================
 // RSA Key Conversions
@@ -46,7 +65,9 @@ fn build_rsa_public_key_der(params: &RsaParams) -> Result<Vec<u8>> {
         public_exponent,
     }
     .to_der()
-    .map_err(|e| Error::Other(format!("failed to encode PKCS#1 RSA public key: {e}")))
+    .map_err(|e| {
+        JwtSimpleConversionError::Encoding(format!("failed to encode PKCS#1 RSA public key: {e}"))
+    })
 }
 
 /// Builds a DER-encoded RSA private key from JWK parameters.
@@ -70,32 +91,35 @@ fn build_rsa_private_key_der(params: &RsaParams) -> Result<Zeroizing<Vec<u8>>> {
     // encoding with otherPrimeInfos, which is not implemented. Reject them
     // explicitly rather than producing a structurally incorrect two-prime DER.
     if params.oth.is_some() {
-        return Err(Error::Other(
+        return Err(JwtSimpleConversionError::Encoding(
             "multi-prime RSA keys are not supported for jwt-simple conversion".into(),
         ));
     }
 
-    let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
+    let d = params
+        .d
+        .as_ref()
+        .ok_or(JwtSimpleConversionError::MissingPrivateKey)?;
     let p = params
         .p
         .as_ref()
-        .ok_or(Error::MissingField { field: "p" })?;
+        .ok_or(JwtSimpleConversionError::MissingComponent { field: "p" })?;
     let q = params
         .q
         .as_ref()
-        .ok_or(Error::MissingField { field: "q" })?;
+        .ok_or(JwtSimpleConversionError::MissingComponent { field: "q" })?;
     let dp = params
         .dp
         .as_ref()
-        .ok_or(Error::MissingField { field: "dp" })?;
+        .ok_or(JwtSimpleConversionError::MissingComponent { field: "dp" })?;
     let dq = params
         .dq
         .as_ref()
-        .ok_or(Error::MissingField { field: "dq" })?;
+        .ok_or(JwtSimpleConversionError::MissingComponent { field: "dq" })?;
     let qi = params
         .qi
         .as_ref()
-        .ok_or(Error::MissingField { field: "qi" })?;
+        .ok_or(JwtSimpleConversionError::MissingComponent { field: "qi" })?;
 
     let private_key = Pkcs1RsaPrivateKey {
         modulus: uint_ref(params.n.as_bytes(), "n")?,
@@ -109,15 +133,14 @@ fn build_rsa_private_key_der(params: &RsaParams) -> Result<Zeroizing<Vec<u8>>> {
         other_prime_infos: None,
     };
 
-    private_key
-        .to_der()
-        .map(Zeroizing::new)
-        .map_err(|e| Error::Other(format!("failed to encode PKCS#1 RSA private key: {e}")))
+    private_key.to_der().map(Zeroizing::new).map_err(|e| {
+        JwtSimpleConversionError::Encoding(format!("failed to encode PKCS#1 RSA private key: {e}"))
+    })
 }
 
 fn uint_ref<'a>(bytes: &'a [u8], field: &'static str) -> Result<UintRef<'a>> {
     UintRef::new(bytes).map_err(|e| {
-        Error::Other(format!(
+        JwtSimpleConversionError::Encoding(format!(
             "invalid RSA integer '{field}' for PKCS#1 encoding: {e}"
         ))
     })
@@ -127,7 +150,7 @@ fn build_ed25519_jwt_simple_keypair_bytes(jwk: &Key) -> Result<Zeroizing<Vec<u8>
     let params = match jwk.params() {
         KeyParams::Okp(p) => p,
         _ => {
-            return Err(Error::KeyTypeMismatch {
+            return Err(JwtSimpleConversionError::KeyTypeMismatch {
                 expected: "OKP",
                 actual: jwk.kty().as_str().to_string(),
             });
@@ -135,13 +158,16 @@ fn build_ed25519_jwt_simple_keypair_bytes(jwk: &Key) -> Result<Zeroizing<Vec<u8>
     };
 
     if params.crv != OkpCurve::Ed25519 {
-        return Err(Error::CurveMismatch {
+        return Err(JwtSimpleConversionError::CurveMismatch {
             expected: "Ed25519",
             actual: params.crv.name().to_string(),
         });
     }
 
-    let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
+    let d = params
+        .d
+        .as_ref()
+        .ok_or(JwtSimpleConversionError::MissingPrivateKey)?;
     let d_bytes = d.as_bytes();
 
     match d_bytes.len() {
@@ -152,7 +178,7 @@ fn build_ed25519_jwt_simple_keypair_bytes(jwk: &Key) -> Result<Zeroizing<Vec<u8>
             Ok(bytes)
         }
         64 => Ok(Zeroizing::new(d_bytes.to_vec())),
-        len => Err(Error::Other(format!(
+        len => Err(JwtSimpleConversionError::Import(format!(
             "invalid Ed25519 private key length for jwt-simple conversion: expected 32 or 64 bytes, got {len}"
         ))),
     }
@@ -162,28 +188,29 @@ fn build_ed25519_jwt_simple_keypair_bytes(jwk: &Key) -> Result<Zeroizing<Vec<u8>
 macro_rules! impl_rsa_public_key_conversion {
     ($key_type:ty, $alg:expr) => {
         impl TryFrom<&Key> for $key_type {
-            type Error = Error;
+            type Error = JwtSimpleConversionError;
 
             fn try_from(jwk: &Key) -> Result<Self> {
                 let params = match jwk.params() {
                     KeyParams::Rsa(p) => p,
                     _ => {
-                        return Err(Error::KeyTypeMismatch {
+                        return Err(JwtSimpleConversionError::KeyTypeMismatch {
                             expected: "RSA",
                             actual: jwk.kty().as_str().to_string(),
                         });
                     }
                 };
 
-                jwk.validate_for_use(&$alg, [KeyOperation::Verify])?;
+                validate_for_jwt_simple(jwk, &$alg, [KeyOperation::Verify])?;
 
                 let der = build_rsa_public_key_der(params)?;
-                <$key_type>::from_der(&der).map_err(|e| Error::Other(e.to_string()))
+                <$key_type>::from_der(&der)
+                    .map_err(|e| JwtSimpleConversionError::Import(e.to_string()))
             }
         }
 
         impl TryFrom<Key> for $key_type {
-            type Error = Error;
+            type Error = JwtSimpleConversionError;
 
             fn try_from(jwk: Key) -> Result<Self> {
                 <$key_type>::try_from(&jwk)
@@ -196,13 +223,13 @@ macro_rules! impl_rsa_public_key_conversion {
 macro_rules! impl_rsa_key_pair_conversion {
     ($key_type:ty, $alg:expr) => {
         impl TryFrom<&Key> for $key_type {
-            type Error = Error;
+            type Error = JwtSimpleConversionError;
 
             fn try_from(jwk: &Key) -> Result<Self> {
                 let params = match jwk.params() {
                     KeyParams::Rsa(p) => p,
                     _ => {
-                        return Err(Error::KeyTypeMismatch {
+                        return Err(JwtSimpleConversionError::KeyTypeMismatch {
                             expected: "RSA",
                             actual: jwk.kty().as_str().to_string(),
                         });
@@ -210,18 +237,19 @@ macro_rules! impl_rsa_key_pair_conversion {
                 };
 
                 if !params.has_private_key() {
-                    return Err(Error::MissingPrivateKey);
+                    return Err(JwtSimpleConversionError::MissingPrivateKey);
                 }
 
-                jwk.validate_for_use(&$alg, [KeyOperation::Sign])?;
+                validate_for_jwt_simple(jwk, &$alg, [KeyOperation::Sign])?;
 
                 let der = build_rsa_private_key_der(params)?;
-                <$key_type>::from_der(&der).map_err(|e| Error::Other(e.to_string()))
+                <$key_type>::from_der(&der)
+                    .map_err(|e| JwtSimpleConversionError::Import(e.to_string()))
             }
         }
 
         impl TryFrom<Key> for $key_type {
-            type Error = Error;
+            type Error = JwtSimpleConversionError;
 
             fn try_from(jwk: Key) -> Result<Self> {
                 <$key_type>::try_from(&jwk)
@@ -253,13 +281,13 @@ impl_rsa_key_pair_conversion!(PS512KeyPair, Algorithm::Ps512);
 macro_rules! impl_ec_public_key_conversion {
     ($key_type:ty, $curve:expr, $curve_name:expr, $alg:expr) => {
         impl TryFrom<&Key> for $key_type {
-            type Error = Error;
+            type Error = JwtSimpleConversionError;
 
             fn try_from(jwk: &Key) -> Result<Self> {
                 let params = match jwk.params() {
                     KeyParams::Ec(p) => p,
                     _ => {
-                        return Err(Error::KeyTypeMismatch {
+                        return Err(JwtSimpleConversionError::KeyTypeMismatch {
                             expected: "EC",
                             actual: jwk.kty().as_str().to_string(),
                         });
@@ -267,21 +295,22 @@ macro_rules! impl_ec_public_key_conversion {
                 };
 
                 if params.crv != $curve {
-                    return Err(Error::CurveMismatch {
+                    return Err(JwtSimpleConversionError::CurveMismatch {
                         expected: $curve_name,
                         actual: params.crv.name().to_string(),
                     });
                 }
 
-                jwk.validate_for_use(&$alg, [KeyOperation::Verify])?;
+                validate_for_jwt_simple(jwk, &$alg, [KeyOperation::Verify])?;
 
                 let bytes = params.to_uncompressed_point();
-                <$key_type>::from_bytes(&bytes).map_err(|e| Error::Other(e.to_string()))
+                <$key_type>::from_bytes(&bytes)
+                    .map_err(|e| JwtSimpleConversionError::Import(e.to_string()))
             }
         }
 
         impl TryFrom<Key> for $key_type {
-            type Error = Error;
+            type Error = JwtSimpleConversionError;
 
             fn try_from(jwk: Key) -> Result<Self> {
                 <$key_type>::try_from(&jwk)
@@ -294,13 +323,13 @@ macro_rules! impl_ec_public_key_conversion {
 macro_rules! impl_ec_key_pair_conversion {
     ($key_type:ty, $curve:expr, $curve_name:expr, $alg:expr) => {
         impl TryFrom<&Key> for $key_type {
-            type Error = Error;
+            type Error = JwtSimpleConversionError;
 
             fn try_from(jwk: &Key) -> Result<Self> {
                 let params = match jwk.params() {
                     KeyParams::Ec(p) => p,
                     _ => {
-                        return Err(Error::KeyTypeMismatch {
+                        return Err(JwtSimpleConversionError::KeyTypeMismatch {
                             expected: "EC",
                             actual: jwk.kty().as_str().to_string(),
                         });
@@ -308,22 +337,26 @@ macro_rules! impl_ec_key_pair_conversion {
                 };
 
                 if params.crv != $curve {
-                    return Err(Error::CurveMismatch {
+                    return Err(JwtSimpleConversionError::CurveMismatch {
                         expected: $curve_name,
                         actual: params.crv.name().to_string(),
                     });
                 }
 
-                jwk.validate_for_use(&$alg, [KeyOperation::Sign])?;
+                validate_for_jwt_simple(jwk, &$alg, [KeyOperation::Sign])?;
 
-                let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
+                let d = params
+                    .d
+                    .as_ref()
+                    .ok_or(JwtSimpleConversionError::MissingPrivateKey)?;
 
-                <$key_type>::from_bytes(d.as_bytes()).map_err(|e| Error::Other(e.to_string()))
+                <$key_type>::from_bytes(d.as_bytes())
+                    .map_err(|e| JwtSimpleConversionError::Import(e.to_string()))
             }
         }
 
         impl TryFrom<Key> for $key_type {
-            type Error = Error;
+            type Error = JwtSimpleConversionError;
 
             fn try_from(jwk: Key) -> Result<Self> {
                 <$key_type>::try_from(&jwk)
@@ -357,13 +390,13 @@ impl_ec_key_pair_conversion!(
 // ============================================================================
 
 impl TryFrom<&Key> for Ed25519PublicKey {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = match jwk.params() {
             KeyParams::Okp(p) => p,
             _ => {
-                return Err(Error::KeyTypeMismatch {
+                return Err(JwtSimpleConversionError::KeyTypeMismatch {
                     expected: "OKP",
                     actual: jwk.kty().as_str().to_string(),
                 });
@@ -371,20 +404,21 @@ impl TryFrom<&Key> for Ed25519PublicKey {
         };
 
         if params.crv != OkpCurve::Ed25519 {
-            return Err(Error::CurveMismatch {
+            return Err(JwtSimpleConversionError::CurveMismatch {
                 expected: "Ed25519",
                 actual: params.crv.name().to_string(),
             });
         }
 
-        jwk.validate_for_use(&Algorithm::Ed25519, [KeyOperation::Verify])?;
+        validate_for_jwt_simple(jwk, &Algorithm::Ed25519, [KeyOperation::Verify])?;
 
-        Ed25519PublicKey::from_bytes(params.x.as_bytes()).map_err(|e| Error::Other(e.to_string()))
+        Ed25519PublicKey::from_bytes(params.x.as_bytes())
+            .map_err(|e| JwtSimpleConversionError::Import(e.to_string()))
     }
 }
 
 impl TryFrom<Key> for Ed25519PublicKey {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: Key) -> Result<Self> {
         Ed25519PublicKey::try_from(&jwk)
@@ -392,18 +426,19 @@ impl TryFrom<Key> for Ed25519PublicKey {
 }
 
 impl TryFrom<&Key> for Ed25519KeyPair {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: &Key) -> Result<Self> {
-        jwk.validate_for_use(&Algorithm::Ed25519, [KeyOperation::Sign])?;
+        validate_for_jwt_simple(jwk, &Algorithm::Ed25519, [KeyOperation::Sign])?;
 
         let keypair_bytes = build_ed25519_jwt_simple_keypair_bytes(jwk)?;
-        Ed25519KeyPair::from_bytes(&keypair_bytes).map_err(|e| Error::Other(e.to_string()))
+        Ed25519KeyPair::from_bytes(&keypair_bytes)
+            .map_err(|e| JwtSimpleConversionError::Import(e.to_string()))
     }
 }
 
 impl TryFrom<Key> for Ed25519KeyPair {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: Key) -> Result<Self> {
         Ed25519KeyPair::try_from(&jwk)
@@ -415,20 +450,21 @@ impl TryFrom<Key> for Ed25519KeyPair {
 // ============================================================================
 
 impl TryFrom<&Key> for HS256Key {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = match jwk.params() {
             KeyParams::Symmetric(p) => p,
             _ => {
-                return Err(Error::KeyTypeMismatch {
+                return Err(JwtSimpleConversionError::KeyTypeMismatch {
                     expected: "oct",
                     actual: jwk.kty().as_str().to_string(),
                 });
             }
         };
 
-        jwk.validate_for_use(
+        validate_for_jwt_simple(
+            jwk,
             &Algorithm::Hs256,
             [KeyOperation::Sign, KeyOperation::Verify],
         )?;
@@ -438,7 +474,7 @@ impl TryFrom<&Key> for HS256Key {
 }
 
 impl TryFrom<Key> for HS256Key {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: Key) -> Result<Self> {
         HS256Key::try_from(&jwk)
@@ -446,20 +482,21 @@ impl TryFrom<Key> for HS256Key {
 }
 
 impl TryFrom<&Key> for HS384Key {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = match jwk.params() {
             KeyParams::Symmetric(p) => p,
             _ => {
-                return Err(Error::KeyTypeMismatch {
+                return Err(JwtSimpleConversionError::KeyTypeMismatch {
                     expected: "oct",
                     actual: jwk.kty().as_str().to_string(),
                 });
             }
         };
 
-        jwk.validate_for_use(
+        validate_for_jwt_simple(
+            jwk,
             &Algorithm::Hs384,
             [KeyOperation::Sign, KeyOperation::Verify],
         )?;
@@ -469,7 +506,7 @@ impl TryFrom<&Key> for HS384Key {
 }
 
 impl TryFrom<Key> for HS384Key {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: Key) -> Result<Self> {
         HS384Key::try_from(&jwk)
@@ -477,20 +514,21 @@ impl TryFrom<Key> for HS384Key {
 }
 
 impl TryFrom<&Key> for HS512Key {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = match jwk.params() {
             KeyParams::Symmetric(p) => p,
             _ => {
-                return Err(Error::KeyTypeMismatch {
+                return Err(JwtSimpleConversionError::KeyTypeMismatch {
                     expected: "oct",
                     actual: jwk.kty().as_str().to_string(),
                 });
             }
         };
 
-        jwk.validate_for_use(
+        validate_for_jwt_simple(
+            jwk,
             &Algorithm::Hs512,
             [KeyOperation::Sign, KeyOperation::Verify],
         )?;
@@ -500,7 +538,7 @@ impl TryFrom<&Key> for HS512Key {
 }
 
 impl TryFrom<Key> for HS512Key {
-    type Error = Error;
+    type Error = JwtSimpleConversionError;
 
     fn try_from(jwk: Key) -> Result<Self> {
         HS512Key::try_from(&jwk)
@@ -663,21 +701,30 @@ mod tests {
     fn test_key_type_mismatch() {
         let jwk: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
         let result: Result<ES256PublicKey> = (&jwk).try_into();
-        assert!(matches!(result, Err(Error::KeyTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::KeyTypeMismatch { .. })
+        ));
     }
 
     #[test]
     fn test_curve_mismatch() {
         let jwk: Key = serde_json::from_str(RFC_EC_PUBLIC_KEY).unwrap();
         let result: Result<ES384PublicKey> = (&jwk).try_into();
-        assert!(matches!(result, Err(Error::CurveMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::CurveMismatch { .. })
+        ));
     }
 
     #[test]
     fn test_missing_private_key() {
         let jwk: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
         let result: Result<RS256KeyPair> = (&jwk).try_into();
-        assert!(matches!(result, Err(Error::MissingPrivateKey)));
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::MissingPrivateKey)
+        ));
     }
 
     #[test]
@@ -808,7 +855,7 @@ mod tests {
         let result: Result<RS256KeyPair> = (&jwk).try_into();
         assert!(matches!(
             result,
-            Err(Error::IncompatibleKey(
+            Err(JwtSimpleConversionError::IncompatibleKey(
                 crate::error::IncompatibleKeyError::OperationNotPermitted { .. }
             ))
         ));

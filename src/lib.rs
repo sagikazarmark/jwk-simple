@@ -81,6 +81,7 @@
 //!     .clone();
 //!
 //! // Convert to jwt-simple key
+//! // Conversion failures use `JwtSimpleConversionError`.
 //! let key: RS256PublicKey = jwk.try_into()?;
 //!
 //! // Use for JWT verification
@@ -185,6 +186,9 @@ pub mod jwk;
 pub mod jwks;
 
 // Re-exports for convenience
+#[cfg(feature = "jwt-simple")]
+#[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
+pub use error::JwtSimpleConversionError;
 pub use error::{Error, IncompatibleKeyError, InvalidKeyError, Result};
 pub use jwk::{
     Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
