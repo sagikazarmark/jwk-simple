@@ -44,7 +44,6 @@ pub use okp::{OkpCurve, OkpParams};
 pub use rsa::{RsaOtherPrime, RsaParams, RsaParamsBuilder};
 pub use symmetric::SymmetricParams;
 
-use std::borrow::Cow;
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fmt::{self, Debug, Display};
@@ -1297,10 +1296,10 @@ impl Key {
             if !disallowed.is_empty() {
                 return Err(IncompatibleKeyError::OperationNotPermitted {
                     operations: disallowed,
-                    reason: Cow::Owned(format!(
+                    reason: format!(
                         "RFC 7517: key 'use' '{}' does not permit requested operation(s)",
                         key_use
-                    )),
+                    ),
                 }
                 .into());
             }
@@ -1318,9 +1317,7 @@ impl Key {
             if !disallowed.is_empty() {
                 return Err(IncompatibleKeyError::OperationNotPermitted {
                     operations: disallowed,
-                    reason: Cow::Borrowed(
-                        "RFC 7517: key_ops does not permit requested operation(s)",
-                    ),
+                    reason: "RFC 7517: key_ops does not permit requested operation(s)".to_string(),
                 }
                 .into());
             }
@@ -1360,9 +1357,7 @@ impl Key {
 
         Err(IncompatibleKeyError::OperationNotPermitted {
             operations: requires_private,
-            reason: Cow::Borrowed(
-                "requested operation(s) require private key material, but key contains only public parameters",
-            ),
+            reason: "requested operation(s) require private key material, but key contains only public parameters".to_string(),
         }
         .into())
     }
@@ -1386,10 +1381,10 @@ impl Key {
 
         Err(IncompatibleKeyError::OperationNotPermitted {
             operations: incompatible,
-            reason: Cow::Owned(format!(
+            reason: format!(
                 "requested operation(s) are not compatible with algorithm '{}'",
                 alg.as_str()
-            )),
+            ),
         }
         .into())
     }
@@ -1500,8 +1495,8 @@ impl Key {
     fn validate_algorithm_key_type_match(&self, alg: &Algorithm) -> Result<()> {
         if !self.is_algorithm_compatible(alg) {
             return Err(IncompatibleKeyError::IncompatibleAlgorithm {
-                algorithm: Cow::Owned(alg.as_str().to_string()),
-                key_type: Cow::Borrowed(self.kty().as_str()),
+                algorithm: alg.as_str().to_string(),
+                key_type: self.kty().as_str().to_string(),
             }
             .into());
         }

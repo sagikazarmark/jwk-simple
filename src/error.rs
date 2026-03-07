@@ -15,7 +15,6 @@
 //!   the requested use (wrong key type for algorithm, insufficient strength,
 //!   operation not permitted by metadata). These mean "valid key, wrong context."
 
-use std::borrow::Cow;
 use std::fmt::{self, Display};
 
 use crate::jwk::KeyOperation;
@@ -248,9 +247,9 @@ pub enum IncompatibleKeyError {
     /// Algorithm is not compatible with the key type or curve.
     IncompatibleAlgorithm {
         /// The algorithm that was requested.
-        algorithm: Cow<'static, str>,
+        algorithm: String,
         /// The key type that is incompatible.
-        key_type: Cow<'static, str>,
+        key_type: String,
     },
     /// Key is too weak for the requested algorithm.
     InsufficientKeyStrength {
@@ -276,7 +275,7 @@ pub enum IncompatibleKeyError {
         /// The disallowed operations.
         operations: Vec<KeyOperation>,
         /// Why the operations are not permitted.
-        reason: Cow<'static, str>,
+        reason: String,
     },
 }
 
@@ -300,7 +299,8 @@ impl Display for IncompatibleKeyError {
                 write!(
                     f,
                     "algorithm '{}' is not compatible with key type '{}'",
-                    algorithm, key_type
+                    sanitize_for_display(algorithm),
+                    key_type
                 )
             }
             IncompatibleKeyError::InsufficientKeyStrength {
