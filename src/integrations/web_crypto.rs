@@ -406,6 +406,7 @@ fn validate_key_for_webcrypto_usage(key: &Key, usage: KeyUsage) -> Result<()> {
     // `validate()` already enforced `use`/`key_ops` consistency and uniqueness,
     // so we call the intent-only helper directly.
     key.validate()?;
+    key.check_operation_capability(std::slice::from_ref(&requested_op))?;
     key.validate_operation_intent_for_all(std::slice::from_ref(&requested_op))?;
 
     Ok(())
@@ -1251,6 +1252,20 @@ mod validation_tests {
 
         let key: Key = serde_json::from_str(json).unwrap();
         let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Verify);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_key_for_webcrypto_usage_rejects_public_sign_key_without_alg() {
+        let json = r#"{
+            "kty": "RSA",
+            "use": "sig",
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB"
+        }"#;
+
+        let key: Key = serde_json::from_str(json).unwrap();
+        let result = validate_key_for_webcrypto_usage(&key, KeyUsage::Sign);
         assert!(result.is_err());
     }
 

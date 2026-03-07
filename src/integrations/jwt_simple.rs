@@ -123,6 +123,41 @@ fn uint_ref<'a>(bytes: &'a [u8], field: &'static str) -> Result<UintRef<'a>> {
     })
 }
 
+fn build_ed25519_jwt_simple_keypair_bytes(jwk: &Key) -> Result<Zeroizing<Vec<u8>>> {
+    let params = match jwk.params() {
+        KeyParams::Okp(p) => p,
+        _ => {
+            return Err(Error::KeyTypeMismatch {
+                expected: "OKP",
+                actual: jwk.kty().as_str().to_string(),
+            });
+        }
+    };
+
+    if params.crv != OkpCurve::Ed25519 {
+        return Err(Error::CurveMismatch {
+            expected: "Ed25519",
+            actual: params.crv.name().to_string(),
+        });
+    }
+
+    let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
+    let d_bytes = d.as_bytes();
+
+    match d_bytes.len() {
+        32 => {
+            let mut bytes = Zeroizing::new(Vec::with_capacity(64));
+            bytes.extend_from_slice(d_bytes);
+            bytes.extend_from_slice(params.x.as_bytes());
+            Ok(bytes)
+        }
+        64 => Ok(Zeroizing::new(d_bytes.to_vec())),
+        len => Err(Error::Other(format!(
+            "invalid Ed25519 private key length for jwt-simple conversion: expected 32 or 64 bytes, got {len}"
+        ))),
+    }
+}
+
 // Macro to implement RSA public key conversions
 macro_rules! impl_rsa_public_key_conversion {
     ($key_type:ty, $alg:expr) => {
@@ -360,29 +395,10 @@ impl TryFrom<&Key> for Ed25519KeyPair {
     type Error = Error;
 
     fn try_from(jwk: &Key) -> Result<Self> {
-        let params = match jwk.params() {
-            KeyParams::Okp(p) => p,
-            _ => {
-                return Err(Error::KeyTypeMismatch {
-                    expected: "OKP",
-                    actual: jwk.kty().as_str().to_string(),
-                });
-            }
-        };
-
-        if params.crv != OkpCurve::Ed25519 {
-            return Err(Error::CurveMismatch {
-                expected: "Ed25519",
-                actual: params.crv.name().to_string(),
-            });
-        }
-
         jwk.validate_for_use(&Algorithm::Ed25519, [KeyOperation::Sign])?;
 
-        let d = params.d.as_ref().ok_or(Error::MissingPrivateKey)?;
-
-        // Ed25519 private key is the seed (32 bytes)
-        Ed25519KeyPair::from_bytes(d.as_bytes()).map_err(|e| Error::Other(e.to_string()))
+        let keypair_bytes = build_ed25519_jwt_simple_keypair_bytes(jwk)?;
+        Ed25519KeyPair::from_bytes(&keypair_bytes).map_err(|e| Error::Other(e.to_string()))
     }
 }
 
@@ -811,6 +827,26 @@ mod tests {
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<Ed25519KeyPair> = (&jwk).try_into();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ed25519_key_pair_conversion_accepts_seed_form_private_key() {
+        let json = r#"{
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+            "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let key_pair: Ed25519KeyPair = (&jwk).try_into().unwrap();
+        let public_key = key_pair.public_key();
+        let expected_x = match jwk.params() {
+            KeyParams::Okp(params) => params.x.as_bytes(),
+            _ => unreachable!("test fixture must be an OKP key"),
+        };
+
+        assert_eq!(public_key.to_bytes(), expected_x);
     }
 
     #[test]
