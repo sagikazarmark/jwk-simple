@@ -303,16 +303,6 @@ pub enum IncompatibleKeyError {
 
 impl Display for IncompatibleKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        const MAX_DISPLAY_IDENTIFIER_CHARS: usize = 256;
-
-        fn sanitize_for_display(value: &str) -> String {
-            value
-                .chars()
-                .take(MAX_DISPLAY_IDENTIFIER_CHARS)
-                .map(|ch| if ch.is_control() { ' ' } else { ch })
-                .collect()
-        }
-
         match self {
             IncompatibleKeyError::AlgorithmMismatch {
                 requested,
@@ -493,6 +483,22 @@ impl From<IncompatibleKeyError> for JwtSimpleKeyConversionError {
     fn from(e: IncompatibleKeyError) -> Self {
         JwtSimpleKeyConversionError::IncompatibleKey(e)
     }
+}
+
+/// Maximum number of characters to include from user-supplied identifiers
+/// (e.g. unknown algorithm or operation names) in display/error messages.
+const MAX_DISPLAY_IDENTIFIER_CHARS: usize = 256;
+
+/// Sanitizes a user-supplied identifier for use in display/error messages.
+///
+/// Truncates to [`MAX_DISPLAY_IDENTIFIER_CHARS`] and replaces control
+/// characters with spaces to prevent log injection or terminal escape attacks.
+pub(crate) fn sanitize_for_display(value: &str) -> String {
+    value
+        .chars()
+        .take(MAX_DISPLAY_IDENTIFIER_CHARS)
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect()
 }
 
 /// A type alias for `Result<T, Error>`.

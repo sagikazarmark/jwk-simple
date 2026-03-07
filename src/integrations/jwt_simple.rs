@@ -182,7 +182,20 @@ fn build_ed25519_jwt_simple_keypair_bytes(jwk: &Key) -> Result<Zeroizing<Vec<u8>
             bytes.extend_from_slice(params.x.as_bytes());
             Ok(bytes)
         }
-        64 => Ok(Zeroizing::new(d_bytes.to_vec())),
+        // The 64-byte "extended" form (seed || public-key) is not defined by
+        // RFC 8037 (which specifies `d` as the 32-byte seed only) but is used
+        // by some implementations (e.g. libsodium). We accept it for
+        // interoperability but validate that the embedded public key matches
+        // the JWK's `x` parameter to prevent silent key-mismatch confusion.
+        64 => {
+            let embedded_pub = &d_bytes[32..];
+            if embedded_pub != params.x.as_bytes() {
+                return Err(JwtSimpleKeyConversionError::Import(
+                    "Ed25519 extended private key: embedded public key does not match JWK x parameter".into(),
+                ));
+            }
+            Ok(Zeroizing::new(d_bytes.to_vec()))
+        }
         len => Err(JwtSimpleKeyConversionError::Import(format!(
             "invalid Ed25519 private key length for jwt-simple conversion: expected 32 or 64 bytes, got {len}"
         ))),
@@ -1092,15 +1105,12 @@ mod tests {
         let jwk: Key = serde_json::from_str(weak_hs_key_json).unwrap();
         let err = HS256Key::try_from(&jwk).unwrap_err();
 
-        match err {
-            JwtSimpleKeyConversionError::IncompatibleKey(_) => {}
-            JwtSimpleKeyConversionError::Core(source) => {
-                assert!(matches!(
-                    source,
-                    Error::IncompatibleKey(IncompatibleKeyError::InsufficientKeyStrength { .. })
-                ));
-            }
-            other => panic!("unexpected error variant: {other}"),
-        }
+        let JwtSimpleKeyConversionError::IncompatibleKey(ref inner) = err else {
+            panic!("expected IncompatibleKey, got {err}");
+        };
+        assert!(
+            matches!(inner, IncompatibleKeyError::InsufficientKeyStrength { .. }),
+            "expected InsufficientKeyStrength, got {inner}"
+        );
     }
 }

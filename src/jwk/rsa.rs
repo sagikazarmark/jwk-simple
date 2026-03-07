@@ -515,6 +515,9 @@ impl RsaParams {
 ///
 /// assert!(params.has_private_key());
 /// ```
+// Safety: `Base64UrlBytes` implements a redacted `Debug` that only prints
+// the byte count (e.g. `Base64UrlBytes([32 bytes])`), so derived `Debug`
+// here will never expose private key material (d, p, q, dp, dq, qi).
 #[derive(Clone, Debug)]
 pub struct RsaParamsBuilder {
     n: Base64UrlBytes,

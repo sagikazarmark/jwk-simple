@@ -170,10 +170,7 @@ impl HttpKeyStore {
 
         let bytes = response.bytes().await?;
 
-        let json = std::str::from_utf8(&bytes)
-            .map_err(|e| Error::Other(format!("invalid UTF-8 response body: {}", e)))?;
-
-        Ok(serde_json::from_str::<KeySet>(json)?)
+        Ok(serde_json::from_slice::<KeySet>(&bytes)?)
     }
 }
 

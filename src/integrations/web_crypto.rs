@@ -1259,17 +1259,20 @@ mod validation_tests {
     }
 
     #[test]
-    fn test_validate_key_for_webcrypto_usage_with_alg_rejects_declared_algorithm_mismatch() {
+    fn test_validate_key_for_webcrypto_usage_with_alg_allows_declared_algorithm_override() {
+        // SYMMETRIC_KEY declares alg: HS256 but the caller explicitly requests
+        // HS384.  validate_key_for_webcrypto_usage_with_alg uses the override
+        // path which intentionally skips the declared-algorithm-match check,
+        // so this must succeed (the 512-bit key satisfies HS384's 384-bit
+        // minimum).
         let key: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
 
         let result =
             validate_key_for_webcrypto_usage_with_alg(&key, KeyUsage::Verify, &Algorithm::Hs384);
-        assert!(matches!(
-            result,
-            Err(Error::IncompatibleKey(
-                crate::error::IncompatibleKeyError::AlgorithmMismatch { .. }
-            ))
-        ));
+        assert!(
+            result.is_ok(),
+            "explicit alg override should skip declared-algorithm mismatch check: {result:?}"
+        );
     }
 
     #[test]

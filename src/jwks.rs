@@ -73,15 +73,7 @@ pub enum SelectionError {
 
 impl Display for SelectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        const MAX_DISPLAY_IDENTIFIER_CHARS: usize = 256;
-
-        fn sanitize_for_display(value: &str) -> String {
-            value
-                .chars()
-                .take(MAX_DISPLAY_IDENTIFIER_CHARS)
-                .map(|ch| if ch.is_control() { ' ' } else { ch })
-                .collect()
-        }
+        use crate::error::sanitize_for_display;
 
         match self {
             SelectionError::EmptyVerifyAllowlist => {
