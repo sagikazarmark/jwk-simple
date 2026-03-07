@@ -131,11 +131,11 @@
 //! ```
 //!
 //! If the key's `alg` field is present, you can use the simpler
-//! [`Key::import_as_verify_key`] instead. EC keys always work without an explicit
+//! `Key::import_as_verify_key` instead. EC keys always work without an explicit
 //! algorithm since the curve determines the WebCrypto parameters.
 //!
 //! **Note:** WebCrypto does not support OKP keys (Ed25519, Ed448, X25519, X448)
-//! or the secp256k1 curve. Use [`Key::is_web_crypto_compatible()`] to check
+//! or the secp256k1 curve. Use `Key::is_web_crypto_compatible()` to check
 //! compatibility before attempting to use a key with WebCrypto.
 //!
 //! ## Security

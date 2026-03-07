@@ -63,6 +63,7 @@ use crate::error::{Error, IncompatibleKeyError, InvalidKeyError, ParseError, Res
 
 /// Key type identifier (RFC 7517 Section 4.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum KeyType {
     /// RSA key type.
     Rsa,
@@ -133,6 +134,7 @@ impl<'de> Deserialize<'de> for KeyType {
 /// specification allows for other values via registration or collision-resistant
 /// names for private use.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum KeyUse {
     /// Key is used for signatures.
     Signature,
@@ -206,6 +208,7 @@ impl<'de> Deserialize<'de> for KeyUse {
 /// Per RFC 7517, unknown key operation values should be accepted to support
 /// collision-resistant names and future extensions.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum KeyOperation {
     /// Compute digital signature or MAC.
     Sign,
@@ -310,6 +313,7 @@ impl<'de> Deserialize<'de> for KeyOperation {
 /// Per RFC 7517, unknown algorithm values should be accepted and preserved
 /// to allow for future extensions and private-use algorithms.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Algorithm {
     // HMAC
     /// HMAC using SHA-256.

@@ -740,18 +740,32 @@ impl KeySet {
         self.keys.is_empty()
     }
 
-    /// Adds a key to the set.
+    /// Adds a key to the set after validating it.
+    ///
+    /// Runs the same validation as [`Key::validate`]: structural parameter
+    /// checks, `use`/`key_ops` consistency, and certificate metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key fails validation.
     ///
     /// # Examples
     ///
     /// ```
-    /// use jwk_simple::KeySet;
+    /// use jwk_simple::{Key, KeyParams, KeySet, SymmetricParams};
+    /// use jwk_simple::encoding::Base64UrlBytes;
     ///
     /// let mut jwks = KeySet::new();
-    /// // jwks.add_key(some_jwk);
+    /// let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+    ///     Base64UrlBytes::new(vec![0u8; 32]),
+    /// )));
+    /// jwks.add_key(key).unwrap();
+    /// assert_eq!(jwks.len(), 1);
     /// ```
-    pub fn add_key(&mut self, key: Key) {
+    pub fn add_key(&mut self, key: Key) -> Result<()> {
+        key.validate()?;
         self.keys.push(key);
+        Ok(())
     }
 
     /// Removes and returns a key by its ID.
@@ -1028,22 +1042,15 @@ impl<'a> IntoIterator for &'a KeySet {
 }
 
 impl From<Vec<Key>> for KeySet {
+    /// Creates a key set, filtering out invalid keys.
+    ///
+    /// This matches the deserialization behavior: invalid keys are silently
+    /// dropped. Use [`KeySet::add_key`] for validated insertion that reports
+    /// errors.
     fn from(keys: Vec<Key>) -> Self {
-        Self { keys }
-    }
-}
-
-impl FromIterator<Key> for KeySet {
-    fn from_iter<I: IntoIterator<Item = Key>>(iter: I) -> Self {
         Self {
-            keys: iter.into_iter().collect(),
+            keys: keys.into_iter().filter(|k| k.validate().is_ok()).collect(),
         }
-    }
-}
-
-impl Extend<Key> for KeySet {
-    fn extend<I: IntoIterator<Item = Key>>(&mut self, iter: I) {
-        self.keys.extend(iter);
     }
 }
 
@@ -1386,7 +1393,7 @@ mod tests {
         .with_kid("bad-ec");
 
         let mut jwks = KeySet::new();
-        jwks.add_key(bad_ec);
+        jwks.keys.push(bad_ec); // bypass validation to test selector behavior
         assert_eq!(jwks.len(), 1); // Key is present (no parse-time filtering)
 
         let selector = jwks.selector(&[Algorithm::Es256]);
@@ -1438,7 +1445,7 @@ mod tests {
         .with_key_ops([KeyOperation::Verify, KeyOperation::Verify]);
 
         let mut jwks = KeySet::new();
-        jwks.add_key(bad_key);
+        jwks.keys.push(bad_key); // bypass validation to test selector behavior
         let selector = jwks.selector(&[Algorithm::Rs256]);
 
         let err = selector
@@ -1459,7 +1466,7 @@ mod tests {
         .with_x5u("http://example.com/cert.pem");
 
         let mut jwks = KeySet::new();
-        jwks.add_key(bad_key);
+        jwks.keys.push(bad_key); // bypass validation to test selector behavior
         let selector = jwks.selector(&[]);
 
         let err = selector
@@ -2088,7 +2095,7 @@ mod tests {
         assert!(jwks.is_empty());
 
         let key: Key = serde_json::from_str(r#"{"kty":"oct","kid":"k1","k":"AQAB"}"#).unwrap();
-        jwks.add_key(key);
+        jwks.add_key(key).unwrap();
         assert_eq!(jwks.len(), 1);
         assert!(jwks.get_by_kid("k1").is_some());
     }
@@ -2157,8 +2164,8 @@ mod tests {
         let thumbprint = key.thumbprint();
 
         let mut jwks = KeySet::new();
-        jwks.add_key(key);
-        jwks.add_key(duplicate);
+        jwks.add_key(key).unwrap();
+        jwks.add_key(duplicate).unwrap();
 
         let found = jwks.get_by_thumbprint(&thumbprint).unwrap();
         assert_eq!(found.thumbprint(), thumbprint);

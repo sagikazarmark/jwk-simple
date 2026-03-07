@@ -197,7 +197,7 @@ impl TryFrom<&Key> for web_sys::JsonWebKey {
                 // Note: 'oth' (other primes) is not supported by web_sys::JsonWebKey
             }
             KeyParams::Ec(params) => {
-                jwk.set_crv(params.crv.name());
+                jwk.set_crv(params.crv.as_str());
                 jwk.set_x(&params.x.to_base64url());
                 jwk.set_y(&params.y.to_base64url());
 
@@ -279,8 +279,8 @@ fn build_algorithm_object_with_alg(
                         return Err(Error::WebCrypto(format!(
                             "algorithm {} requires curve {}, but the key uses {}",
                             alg.as_str(),
-                            curve.name(),
-                            params.crv.name(),
+                            curve.as_str(),
+                            params.crv.as_str(),
                         )));
                     }
                     None => {

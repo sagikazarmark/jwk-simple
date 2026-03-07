@@ -165,7 +165,7 @@ fn build_ed25519_jwt_simple_keypair_bytes(jwk: &Key) -> Result<Zeroizing<Vec<u8>
     if params.crv != OkpCurve::Ed25519 {
         return Err(JwtSimpleKeyConversionError::CurveMismatch {
             expected: "Ed25519",
-            actual: params.crv.name().to_string(),
+            actual: params.crv.as_str().to_string(),
         });
     }
 
@@ -302,7 +302,7 @@ macro_rules! impl_ec_public_key_conversion {
                 if params.crv != $curve {
                     return Err(JwtSimpleKeyConversionError::CurveMismatch {
                         expected: $curve_name,
-                        actual: params.crv.name().to_string(),
+                        actual: params.crv.as_str().to_string(),
                     });
                 }
 
@@ -344,7 +344,7 @@ macro_rules! impl_ec_key_pair_conversion {
                 if params.crv != $curve {
                     return Err(JwtSimpleKeyConversionError::CurveMismatch {
                         expected: $curve_name,
-                        actual: params.crv.name().to_string(),
+                        actual: params.crv.as_str().to_string(),
                     });
                 }
 
@@ -411,7 +411,7 @@ impl TryFrom<&Key> for Ed25519PublicKey {
         if params.crv != OkpCurve::Ed25519 {
             return Err(JwtSimpleKeyConversionError::CurveMismatch {
                 expected: "Ed25519",
-                actual: params.crv.name().to_string(),
+                actual: params.crv.as_str().to_string(),
             });
         }
 

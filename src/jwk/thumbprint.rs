@@ -62,7 +62,7 @@ fn build_rsa_canonical(params: &RsaParams) -> String {
 fn build_ec_canonical(params: &EcParams) -> String {
     format!(
         r#"{{"crv":"{}","kty":"EC","x":"{}","y":"{}"}}"#,
-        params.crv.name(),
+        params.crv.as_str(),
         params.x.to_base64url(),
         params.y.to_base64url()
     )
@@ -79,7 +79,7 @@ fn build_symmetric_canonical(params: &SymmetricParams) -> String {
 fn build_okp_canonical(params: &OkpParams) -> String {
     format!(
         r#"{{"crv":"{}","kty":"OKP","x":"{}"}}"#,
-        params.crv.name(),
+        params.crv.as_str(),
         params.x.to_base64url()
     )
 }
