@@ -393,10 +393,17 @@ impl RsaParams {
                 }
                 for (i, prime) in oth.iter().enumerate() {
                     prime.validate().map_err(|e| {
-                        InvalidKeyError::InconsistentParameters(format!(
-                            "Invalid oth[{}]: {}",
-                            i, e
-                        ))
+                        if let crate::Error::InvalidKey(source) = e {
+                            InvalidKeyError::InvalidOtherPrime {
+                                index: i,
+                                source: Box::new(source),
+                            }
+                        } else {
+                            InvalidKeyError::InconsistentParameters(format!(
+                                "Invalid oth[{}]: {}",
+                                i, e
+                            ))
+                        }
                     })?;
                 }
             }
@@ -725,6 +732,34 @@ mod tests {
             oth: Some(vec![]),
         };
         assert!(params.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_preserves_typed_oth_errors_with_index() {
+        let params = RsaParams {
+            n: Base64UrlBytes::new(vec![1]),
+            e: Base64UrlBytes::new(vec![3]),
+            d: Some(Base64UrlBytes::new(vec![1])),
+            p: Some(Base64UrlBytes::new(vec![1])),
+            q: Some(Base64UrlBytes::new(vec![1])),
+            dp: Some(Base64UrlBytes::new(vec![1])),
+            dq: Some(Base64UrlBytes::new(vec![1])),
+            qi: Some(Base64UrlBytes::new(vec![1])),
+            oth: Some(vec![RsaOtherPrime::new(
+                Base64UrlBytes::new(vec![]),
+                Base64UrlBytes::new(vec![1]),
+                Base64UrlBytes::new(vec![1]),
+            )]),
+        };
+
+        let err = params.validate().unwrap_err();
+        assert!(matches!(
+            err,
+            crate::Error::InvalidKey(InvalidKeyError::InvalidOtherPrime {
+                index: 0,
+                source
+            }) if matches!(*source, InvalidKeyError::MissingParameter("oth.r"))
+        ));
     }
 
     #[test]

@@ -2129,6 +2129,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_get_by_thumbprint_finds_matching_key() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        let rsa_key = jwks.get_by_kid("rsa-key-1").unwrap();
+        let thumbprint = rsa_key.thumbprint();
+
+        let found = jwks.get_by_thumbprint(&thumbprint);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().kid(), Some("rsa-key-1"));
+    }
+
+    #[test]
+    fn test_get_by_thumbprint_returns_none_for_unknown_value() {
+        let jwks: KeySet = serde_json::from_str(SAMPLE_JWKS).unwrap();
+        assert!(
+            jwks.get_by_thumbprint("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_get_by_thumbprint_matches_first_key_when_duplicates_present() {
+        let key_json = r#"{"kty":"RSA","n":"AQAB","e":"AQAB"}"#;
+        let key: Key = serde_json::from_str(key_json).unwrap();
+        let duplicate: Key = serde_json::from_str(key_json).unwrap();
+        let thumbprint = key.thumbprint();
+
+        let mut jwks = KeySet::new();
+        jwks.add_key(key);
+        jwks.add_key(duplicate);
+
+        let found = jwks.get_by_thumbprint(&thumbprint).unwrap();
+        assert_eq!(found.thumbprint(), thumbprint);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_jwkset_implements_store() {

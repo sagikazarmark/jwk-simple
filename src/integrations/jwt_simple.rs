@@ -21,6 +21,7 @@ use pkcs1::der::Encode;
 use pkcs1::{RsaPrivateKey as Pkcs1RsaPrivateKey, RsaPublicKey as Pkcs1RsaPublicKey, UintRef};
 use zeroize::Zeroizing;
 
+use crate::IncompatibleKeyError;
 use crate::error::{Error, JwtSimpleConversionError};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams, OkpCurve, RsaParams};
 
@@ -30,8 +31,10 @@ fn map_validation_error(err: Error) -> JwtSimpleConversionError {
     match err {
         Error::InvalidKey(err) => JwtSimpleConversionError::InvalidKey(err),
         Error::IncompatibleKey(err) => JwtSimpleConversionError::IncompatibleKey(err),
-        Error::Other(msg) => JwtSimpleConversionError::Validation(msg),
-        other => JwtSimpleConversionError::Validation(other.to_string()),
+        other => JwtSimpleConversionError::Validation {
+            message: other.to_string(),
+            source: Box::new(other),
+        },
     }
 }
 
@@ -733,7 +736,10 @@ mod tests {
         let json = r#"{"kty":"RSA","n":"","e":"AQAB"}"#;
         let key: Key = serde_json::from_str(json).unwrap();
         let result: Result<RS256PublicKey> = (&key).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::InvalidKey(_))
+        ));
     }
 
     #[test]
@@ -760,7 +766,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(weak_hs_key_json).unwrap();
         let result: Result<HS256Key> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::InsufficientKeyStrength { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -773,7 +784,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(weak_rsa_json).unwrap();
         let result: Result<RS256PublicKey> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::InsufficientKeyStrength { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -787,7 +803,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<RS256PublicKey> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -838,7 +859,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<RS256PublicKey> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -873,7 +899,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<Ed25519KeyPair> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -906,7 +937,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS256Key> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -919,7 +955,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS256Key> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -932,7 +973,7 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS256Key> = (&jwk).try_into();
-        assert!(result.is_ok());
+        assert!(matches!(result, Ok(_)));
     }
 
     #[test]
@@ -945,7 +986,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS256Key> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -958,7 +1004,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS384Key> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -971,7 +1022,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS512Key> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -984,7 +1040,12 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS384Key> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
     }
 
     #[test]
@@ -997,6 +1058,33 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS512Key> = (&jwk).try_into();
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleConversionError::IncompatibleKey(
+                IncompatibleKeyError::OperationNotPermitted { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_validation_error_preserves_source_chain() {
+        let weak_hs_key_json = r#"{
+            "kty": "oct",
+            "k": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }"#;
+
+        let jwk: Key = serde_json::from_str(weak_hs_key_json).unwrap();
+        let err = HS256Key::try_from(&jwk).unwrap_err();
+
+        match err {
+            JwtSimpleConversionError::IncompatibleKey(_) => {}
+            JwtSimpleConversionError::Validation { source, .. } => {
+                assert!(matches!(
+                    source.as_ref(),
+                    Error::IncompatibleKey(IncompatibleKeyError::InsufficientKeyStrength { .. })
+                ));
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
     }
 }

@@ -76,32 +76,6 @@ Copy this block for new items:
 - Revisit signal: Next refactor touching `build_algorithm_object*` path.
 - Suggested future action: Call `build_algorithm_object_with_alg` directly at call sites and remove thin wrappers.
 
-## RFC compliance tests rely on broad is_ok/is_err checks
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: PLAUSIBLE
-- Trigger likelihood: UNCOMMON
-- Severity: MEDIUM -> LOW/MEDIUM
-- Decision: DEFER
-- Rationale: Better diagnostics are useful but broad conversion to variant-level assertions may be noisy and costly.
-- Preconditions/Trigger: A test continues passing/failing for an unintended reason because only boolean result is asserted.
-- Risk if not fixed: Reduced precision in regression signals for rule-targeted tests.
-- Revisit signal: Confusing compliance test failures or refactors in validation error taxonomy.
-- Suggested future action: Add specific error-variant assertions to highest-value rule-focused tests first.
-
-## Conversion tests still include coarse assertions in a few paths
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: RARE
-- Severity: HIGH -> LOW/MEDIUM
-- Decision: DEFER
-- Rationale: Broader behavioral conversion tests are now present; remaining coarse checks (for example non-empty output and broad `is_ok`) are narrow and mostly diagnostic.
-- Preconditions/Trigger: A conversion-specific regression escapes behavioral token sign/verify checks while still satisfying coarse assertions.
-- Risk if not fixed: Residual blind spots and weaker failure localization in conversion-path diagnostics rather than broad semantic coverage gaps.
-- Revisit signal: Conversion-related bug where behavioral tests pass but format/output assumptions are wrong.
-- Suggested future action: Replace remaining non-empty and broad `is_ok` conversion assertions with focused behavioral checks (verify/reject, type/shape expectations).
-
 ## Example parse_jwt format test does not assert parsed fields
 - Date added: 2026-03-03
 - Source: second-opinion review
@@ -127,19 +101,6 @@ Copy this block for new items:
 - Risk if not fixed: Intermittent test flakiness.
 - Revisit signal: Repeated flakes in `moka_cache_expiration`.
 - Suggested future action: Increase timing margin or use deterministic time control where compatible.
-
-## Missing direct coverage for KeySet::get_by_thumbprint
-- Date added: 2026-03-05
-- Source: PR #38 review thread
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: Functionality is exercised indirectly; dedicated direct tests are low-risk follow-up.
-- Preconditions/Trigger: Regression in thumbprint lookup behavior.
-- Risk if not fixed: Direct lookup regressions may be slower to detect.
-- Revisit signal: Changes to thumbprint comparison or lookup iteration behavior.
-- Suggested future action: Add direct positive/negative/multi-key lookup tests for `get_by_thumbprint`.
 
 ## EC parameter validation is structural only
 - Date added: 2026-03-03
@@ -309,32 +270,6 @@ Copy this block for new items:
 - Risk if not fixed: Minor unnecessary allocation on every `validate_for_use` call.
 - Revisit signal: Performance profiling showing validation as a bottleneck.
 - Suggested future action: Consider accepting `&[KeyOperation]` with a convenience wrapper, or use `SmallVec` to avoid heap allocation for small counts.
-
-## `oth` prime validation `map_err` erases typed error variants
-- Date added: 2026-03-05
-- Source: PR #43 review (third round)
-- Validity: CONFIRMED
-- Trigger likelihood: RARE
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: `prime.validate()` returns typed `InvalidKeyError` variants (`MissingParameter`, `InvalidParameter`), but the call site wraps them via `map_err(|e| InvalidKeyError::InconsistentParameters(format!("Invalid oth[{}]: {}", i, e)))`, collapsing the original variant into a formatted string. This is the same pattern as before the error type refactor (no regression). Fixing it requires either a dedicated `InvalidKeyError::InvalidOtherPrime { index, source }` variant or adding `source: Option<Box<dyn Error>>` to `InconsistentParameters`, both adding complexity for a narrow case.
-- Preconditions/Trigger: Caller matches on specific `InvalidKeyError` variants from RSA `oth` validation (e.g., `MissingParameter("oth.r")`) and gets `InconsistentParameters` instead.
-- Risk if not fixed: Less precise programmatic error handling for multi-prime RSA validation failures.
-- Revisit signal: Error taxonomy refactor or need for structured `oth` validation errors.
-- Suggested future action: Add `InvalidKeyError::InvalidOtherPrime { index: usize, source: Box<InvalidKeyError> }` variant, or preserve the source chain via `InconsistentParameters` with a `source` field.
-
-## `JwtSimpleConversionError::Validation(String)` does not preserve a source chain
-- Date added: 2026-03-07
-- Source: post-cleanup review
-- Validity: CONFIRMED
-- Trigger likelihood: RARE
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: The current mapper only reaches `Validation(String)` for non-typed validation failures, which are uncommon today. Preserving a source chain would require either a boxed source field or a more structured validation wrapper, adding API surface for limited immediate benefit.
-- Preconditions/Trigger: A jwt-simple conversion hits a validation failure that is not represented as `InvalidKey` or `IncompatibleKey`, and callers want to inspect the original source error programmatically.
-- Risk if not fixed: Less precise debugging and no `source()` chain for this narrow conversion path.
-- Revisit signal: Additional non-typed validation errors appear in conversion flows or callers request richer chained diagnostics.
-- Suggested future action: Replace `Validation(String)` with a structured variant that can preserve the original source error.
 
 ## PartialEq on Key performs non-constant-time comparison of secret key material
 - Date added: 2026-03-06

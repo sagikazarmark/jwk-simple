@@ -189,6 +189,13 @@ pub enum InvalidKeyError {
         /// Why it's invalid.
         reason: String,
     },
+    /// Invalid `oth` entry in multi-prime RSA parameters.
+    InvalidOtherPrime {
+        /// Zero-based index of the invalid `oth` entry.
+        index: usize,
+        /// Validation error for this entry.
+        source: Box<InvalidKeyError>,
+    },
 }
 
 impl Display for InvalidKeyError {
@@ -214,11 +221,21 @@ impl Display for InvalidKeyError {
             InvalidKeyError::InvalidParameter { name, reason } => {
                 write!(f, "invalid parameter '{}': {}", name, reason)
             }
+            InvalidKeyError::InvalidOtherPrime { index, source } => {
+                write!(f, "invalid oth[{}]: {}", index, source)
+            }
         }
     }
 }
 
-impl std::error::Error for InvalidKeyError {}
+impl std::error::Error for InvalidKeyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            InvalidKeyError::InvalidOtherPrime { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 /// The JWK is well-formed but incompatible with the requested use.
 ///
@@ -334,7 +351,7 @@ impl std::error::Error for IncompatibleKeyError {}
 /// Errors that occur when converting a JWK into a `jwt-simple` key type.
 #[cfg(feature = "jwt-simple")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum JwtSimpleConversionError {
     /// The JWK itself is malformed.
@@ -364,7 +381,12 @@ pub enum JwtSimpleConversionError {
     MissingPrivateKey,
     /// Core pre-conversion validation failed in a way that does not map to a
     /// structured conversion variant.
-    Validation(String),
+    Validation {
+        /// Human-readable error context.
+        message: String,
+        /// Original validation error.
+        source: Box<Error>,
+    },
     /// Encoding the source key into an intermediate representation failed.
     Encoding(String),
     /// Importing the encoded key into `jwt-simple` failed.
@@ -395,7 +417,9 @@ impl Display for JwtSimpleConversionError {
             JwtSimpleConversionError::MissingPrivateKey => {
                 write!(f, "private key parameters required but not present")
             }
-            JwtSimpleConversionError::Validation(msg) => write!(f, "validation error: {}", msg),
+            JwtSimpleConversionError::Validation { message, .. } => {
+                write!(f, "validation error: {}", message)
+            }
             JwtSimpleConversionError::Encoding(msg) => write!(f, "encoding error: {}", msg),
             JwtSimpleConversionError::Import(msg) => write!(f, "import error: {}", msg),
         }
@@ -408,6 +432,7 @@ impl std::error::Error for JwtSimpleConversionError {
         match self {
             JwtSimpleConversionError::InvalidKey(e) => Some(e),
             JwtSimpleConversionError::IncompatibleKey(e) => Some(e),
+            JwtSimpleConversionError::Validation { source, .. } => Some(source.as_ref()),
             _ => None,
         }
     }
