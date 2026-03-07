@@ -725,6 +725,31 @@ impl KeySet {
         Self { keys: Vec::new() }
     }
 
+    /// Creates a key set from a list of keys, silently dropping invalid ones.
+    ///
+    /// This matches the deserialization behavior: keys that fail
+    /// [`Key::validate`] are silently skipped.
+    /// Use [`KeySet::add_key`] for validated insertion that reports errors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use jwk_simple::{Key, KeyParams, KeySet, SymmetricParams};
+    /// use jwk_simple::encoding::Base64UrlBytes;
+    ///
+    /// let key = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+    ///     Base64UrlBytes::new(vec![0u8; 32]),
+    /// )));
+    /// let jwks = KeySet::from_keys_lossy(vec![key]);
+    /// assert_eq!(jwks.len(), 1);
+    /// ```
+    #[must_use]
+    pub fn from_keys_lossy(keys: Vec<Key>) -> Self {
+        Self {
+            keys: keys.into_iter().filter(|k| k.validate().is_ok()).collect(),
+        }
+    }
+
     /// Returns a slice of all keys in the set.
     pub fn keys(&self) -> &[Key] {
         &self.keys
@@ -1038,19 +1063,6 @@ impl<'a> IntoIterator for &'a KeySet {
 
     fn into_iter(self) -> Self::IntoIter {
         self.keys.iter()
-    }
-}
-
-impl From<Vec<Key>> for KeySet {
-    /// Creates a key set, filtering out invalid keys.
-    ///
-    /// This matches the deserialization behavior: invalid keys are silently
-    /// dropped. Use [`KeySet::add_key`] for validated insertion that reports
-    /// errors.
-    fn from(keys: Vec<Key>) -> Self {
-        Self {
-            keys: keys.into_iter().filter(|k| k.validate().is_ok()).collect(),
-        }
     }
 }
 
