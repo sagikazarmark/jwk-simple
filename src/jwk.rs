@@ -44,6 +44,7 @@ pub use okp::{OkpCurve, OkpParams};
 pub use rsa::{RsaOtherPrime, RsaParams, RsaParamsBuilder};
 pub use symmetric::SymmetricParams;
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fmt::{self, Debug, Display};
@@ -1156,8 +1157,8 @@ impl Key {
     ) -> Result<()> {
         let ops: Vec<KeyOperation> = ops.into_iter().collect();
         if ops.is_empty() {
-            return Err(Error::Other(
-                "at least one requested operation is required".to_string(),
+            return Err(Error::InvalidInput(
+                "at least one requested operation is required",
             ));
         }
 
@@ -1217,8 +1218,8 @@ impl Key {
     pub fn check_operations_permitted(&self, operations: impl AsRef<[KeyOperation]>) -> Result<()> {
         let operations = operations.as_ref();
         if operations.is_empty() {
-            return Err(Error::Other(
-                "at least one requested operation is required".to_string(),
+            return Err(Error::InvalidInput(
+                "at least one requested operation is required",
             ));
         }
         // Consistency and uniqueness checks must run here since this is a
@@ -1296,10 +1297,10 @@ impl Key {
             if !disallowed.is_empty() {
                 return Err(IncompatibleKeyError::OperationNotPermitted {
                     operations: disallowed,
-                    reason: format!(
+                    reason: Cow::Owned(format!(
                         "RFC 7517: key 'use' '{}' does not permit requested operation(s)",
                         key_use
-                    ),
+                    )),
                 }
                 .into());
             }
@@ -1317,7 +1318,9 @@ impl Key {
             if !disallowed.is_empty() {
                 return Err(IncompatibleKeyError::OperationNotPermitted {
                     operations: disallowed,
-                    reason: "RFC 7517: key_ops does not permit requested operation(s)".to_string(),
+                    reason: Cow::Borrowed(
+                        "RFC 7517: key_ops does not permit requested operation(s)",
+                    ),
                 }
                 .into());
             }
@@ -1357,9 +1360,9 @@ impl Key {
 
         Err(IncompatibleKeyError::OperationNotPermitted {
             operations: requires_private,
-            reason:
-                "requested operation(s) require private key material, but key contains only public parameters"
-                    .to_string(),
+            reason: Cow::Borrowed(
+                "requested operation(s) require private key material, but key contains only public parameters",
+            ),
         }
         .into())
     }
@@ -1383,10 +1386,10 @@ impl Key {
 
         Err(IncompatibleKeyError::OperationNotPermitted {
             operations: incompatible,
-            reason: format!(
+            reason: Cow::Owned(format!(
                 "requested operation(s) are not compatible with algorithm '{}'",
                 alg.as_str()
-            ),
+            )),
         }
         .into())
     }
@@ -1497,8 +1500,8 @@ impl Key {
     fn validate_algorithm_key_type_match(&self, alg: &Algorithm) -> Result<()> {
         if !self.is_algorithm_compatible(alg) {
             return Err(IncompatibleKeyError::IncompatibleAlgorithm {
-                algorithm: alg.as_str().to_string(),
-                key_type: self.kty().as_str().to_string(),
+                algorithm: Cow::Owned(alg.as_str().to_string()),
+                key_type: Cow::Borrowed(self.kty().as_str()),
             }
             .into());
         }
@@ -2756,7 +2759,7 @@ mod tests {
         )));
 
         let result = key.validate_for_use(&Algorithm::Rs256, vec![]);
-        assert!(matches!(result, Err(Error::Other(_))));
+        assert!(matches!(result, Err(Error::InvalidInput(_))));
     }
 
     #[test]

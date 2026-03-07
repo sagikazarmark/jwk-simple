@@ -105,11 +105,11 @@ impl FetchKeyStore {
         let mut response = worker::Fetch::Url(self.url.clone())
             .send()
             .await
-            .map_err(|e| Error::Other(format!("fetch failed: {}", e)))?;
+            .map_err(|e| Error::Fetch(format!("fetch failed: {}", e)))?;
 
         let status = response.status_code();
         if !(200..300).contains(&status) {
-            return Err(Error::Other(format!(
+            return Err(Error::Fetch(format!(
                 "JWKS endpoint returned HTTP {}",
                 status
             )));
@@ -118,12 +118,12 @@ impl FetchKeyStore {
         let mut bytes = Vec::new();
         let mut stream = response
             .stream()
-            .map_err(|e| Error::Other(format!("failed to read response body: {}", e)))?;
+            .map_err(|e| Error::Fetch(format!("failed to read response body: {}", e)))?;
 
         while let Some(chunk) = stream
             .try_next()
             .await
-            .map_err(|e| Error::Other(format!("failed to read response body: {}", e)))?
+            .map_err(|e| Error::Fetch(format!("failed to read response body: {}", e)))?
         {
             bytes.extend_from_slice(&chunk);
         }

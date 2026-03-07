@@ -15,6 +15,7 @@
 //!   the requested use (wrong key type for algorithm, insufficient strength,
 //!   operation not permitted by metadata). These mean "valid key, wrong context."
 
+use std::borrow::Cow;
 use std::fmt::{self, Display};
 
 use crate::jwk::KeyOperation;
@@ -39,9 +40,15 @@ pub enum Error {
     /// Base64 decoding failed.
     Base64(base64ct::Error),
 
+    /// Caller provided invalid input to a public API.
+    InvalidInput(&'static str),
+
     /// HTTP request error.
     #[cfg(feature = "http")]
     Http(reqwest::Error),
+
+    /// Remote fetch or transport failed outside the reqwest backend.
+    Fetch(String),
 
     /// Cache operation failed.
     Cache(String),
@@ -71,8 +78,10 @@ impl Display for Error {
             Error::InvalidKey(e) => write!(f, "invalid key: {}", e),
             Error::IncompatibleKey(e) => write!(f, "incompatible key: {}", e),
             Error::Base64(e) => write!(f, "base64 decoding error: {:?}", e),
+            Error::InvalidInput(msg) => write!(f, "invalid input: {}", msg),
             #[cfg(feature = "http")]
             Error::Http(e) => write!(f, "HTTP error: {}", e),
+            Error::Fetch(msg) => write!(f, "fetch error: {}", msg),
             Error::Cache(msg) => write!(f, "cache error: {}", msg),
             Error::Other(msg) => write!(f, "{}", msg),
             #[cfg(feature = "web-crypto")]
@@ -222,9 +231,9 @@ pub enum IncompatibleKeyError {
     /// Algorithm is not compatible with the key type or curve.
     IncompatibleAlgorithm {
         /// The algorithm that was requested.
-        algorithm: String,
+        algorithm: Cow<'static, str>,
         /// The key type that is incompatible.
-        key_type: String,
+        key_type: Cow<'static, str>,
     },
     /// Key is too weak for the requested algorithm.
     InsufficientKeyStrength {
@@ -250,12 +259,22 @@ pub enum IncompatibleKeyError {
         /// The disallowed operations.
         operations: Vec<KeyOperation>,
         /// Why the operations are not permitted.
-        reason: String,
+        reason: Cow<'static, str>,
     },
 }
 
 impl Display for IncompatibleKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const MAX_DISPLAY_IDENTIFIER_CHARS: usize = 256;
+
+        fn sanitize_for_display(value: &str) -> String {
+            value
+                .chars()
+                .take(MAX_DISPLAY_IDENTIFIER_CHARS)
+                .map(|ch| if ch.is_control() { ' ' } else { ch })
+                .collect()
+        }
+
         match self {
             IncompatibleKeyError::IncompatibleAlgorithm {
                 algorithm,
@@ -290,7 +309,15 @@ impl Display for IncompatibleKeyError {
                 )
             }
             IncompatibleKeyError::OperationNotPermitted { operations, reason } => {
-                let ops: Vec<&str> = operations.iter().map(|op| op.as_str()).collect();
+                let ops: Vec<String> = operations
+                    .iter()
+                    .map(|op| match op {
+                        KeyOperation::Unknown(value) => {
+                            format!("unknown({})", sanitize_for_display(value))
+                        }
+                        _ => op.to_string(),
+                    })
+                    .collect();
                 write!(
                     f,
                     "operation(s) not permitted ({}): {}",

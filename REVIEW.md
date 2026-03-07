@@ -245,19 +245,6 @@ Copy this block for new items:
 - Revisit signal: Operational incidents with unexplained key lookup misses.
 - Suggested future action: Add default counters/logging for skipped keys in remote/cache flows.
 
-## Error classification collapses into Error::Other(String)
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: COMMON
-- Severity: MEDIUM -> MEDIUM
-- Decision: DEFER
-- Rationale: Valuable but cross-cutting API design change with moderate churn risk.
-- Preconditions/Trigger: Consumers need typed handling (retry/alert policy) across integrations.
-- Risk if not fixed: Weaker observability and less precise caller policy handling.
-- Revisit signal: Requests for programmatic error matching or repeated support/debug pain.
-- Suggested future action: Introduce typed error variants incrementally, keep `Other` for unknowns only.
-
 ## Timeout test may be timing-flaky
 - Date added: 2026-03-03
 - Source: second-opinion review
@@ -323,45 +310,6 @@ Copy this block for new items:
 - Revisit signal: Performance profiling showing validation as a bottleneck.
 - Suggested future action: Consider accepting `&[KeyOperation]` with a convenience wrapper, or use `SmallVec` to avoid heap allocation for small counts.
 
-## `InconsistentParameters(String)` and `OperationNotPermitted.reason: String` use unstructured payloads
-- Date added: 2026-03-05
-- Source: PR #43 review
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: All current values are static strings with no user-supplied data. Changing to `&'static str` for `reason` is low-risk but `InconsistentParameters` uses `format!()` in some call sites, requiring more design work. Related to the existing `Error::Other(String)` deferred finding.
-- Preconditions/Trigger: Future contributors accidentally embed sensitive key material in error message strings.
-- Risk if not fixed: Brittle programmatic matching on message text; potential future information leak.
-- Revisit signal: Error taxonomy refactor or security audit of error message contents.
-- Suggested future action: Change `OperationNotPermitted.reason` to `&'static str`; evaluate structured variants for `InconsistentParameters`.
-
-## `IncompatibleAlgorithm` fields use `String` instead of `&'static str` or `Cow`
-- Date added: 2026-03-05
-- Source: PR #43 review (second round)
-- Validity: CONFIRMED
-- Trigger likelihood: COMMON
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: `algorithm` and `key_type` are allocated via `as_str().to_string()` on every `IncompatibleAlgorithm` error. In practice, only known enum variants reach this path (unknown algorithms are rejected earlier), so the values are always `&'static str` at the source. Using `Cow<'static, str>` would avoid heap allocation without restricting future unknown-variant support. Pre-1.0 so low change cost, but also low impact since this is an error path.
-- Preconditions/Trigger: Every `IncompatibleAlgorithm` error construction.
-- Risk if not fixed: Unnecessary heap allocation on error paths; minor ergonomic friction in tests.
-- Revisit signal: Error type ergonomics pass or performance audit of error paths.
-- Suggested future action: Change both fields to `Cow<'static, str>`, or `&'static str` if unknown algorithms are guaranteed not to reach this path.
-
-## `OperationNotPermitted` Display renders unsanitized `KeyOperation::Unknown` values
-- Date added: 2026-03-05
-- Source: PR #43 review (second round)
-- Validity: CONFIRMED
-- Trigger likelihood: RARE
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: The `operations` field now stores `Vec<KeyOperation>` (preserving type info), but the `Display` impl still renders `KeyOperation::Unknown` values via `as_str()` without sanitization. Callers who inspect the error programmatically can distinguish known from unknown operations, but log output from `Display` may still embed control characters or long strings from adversarial inputs. Risk is theoretical — real JWKS sources use short RFC-defined strings.
-- Preconditions/Trigger: Untrusted JWKS contains `key_ops` with control characters or very long values, and errors are logged via `Display`.
-- Risk if not fixed: Potential log injection or noisy error output from adversarial inputs when using `Display`.
-- Revisit signal: Security audit of error output paths or adoption in environments processing untrusted JWKS.
-- Suggested future action: Truncate/escape `KeyOperation::Unknown` values in `Display` impl.
-
 ## `oth` prime validation `map_err` erases typed error variants
 - Date added: 2026-03-05
 - Source: PR #43 review (third round)
@@ -374,6 +322,19 @@ Copy this block for new items:
 - Risk if not fixed: Less precise programmatic error handling for multi-prime RSA validation failures.
 - Revisit signal: Error taxonomy refactor or need for structured `oth` validation errors.
 - Suggested future action: Add `InvalidKeyError::InvalidOtherPrime { index: usize, source: Box<InvalidKeyError> }` variant, or preserve the source chain via `InconsistentParameters` with a `source` field.
+
+## `JwtSimpleConversionError::Validation(String)` does not preserve a source chain
+- Date added: 2026-03-07
+- Source: post-cleanup review
+- Validity: CONFIRMED
+- Trigger likelihood: RARE
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: The current mapper only reaches `Validation(String)` for non-typed validation failures, which are uncommon today. Preserving a source chain would require either a boxed source field or a more structured validation wrapper, adding API surface for limited immediate benefit.
+- Preconditions/Trigger: A jwt-simple conversion hits a validation failure that is not represented as `InvalidKey` or `IncompatibleKey`, and callers want to inspect the original source error programmatically.
+- Risk if not fixed: Less precise debugging and no `source()` chain for this narrow conversion path.
+- Revisit signal: Additional non-typed validation errors appear in conversion flows or callers request richer chained diagnostics.
+- Suggested future action: Replace `Validation(String)` with a structured variant that can preserve the original source error.
 
 ## PartialEq on Key performs non-constant-time comparison of secret key material
 - Date added: 2026-03-06
