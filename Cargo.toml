@@ -84,8 +84,9 @@ name = "benchmarks"
 harness = false
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["http", "moka", "jwt-simple", "jwt-simple/pure-rust", "web-crypto", "cloudflare"]
 rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [package.metadata.release]
 sign-commit = true
