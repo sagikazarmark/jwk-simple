@@ -306,6 +306,11 @@ pub struct KeySelector<'a> {
 impl<'a> KeySelector<'a> {
     /// Selects exactly one key using strict cryptographic suitability checks.
     ///
+    /// Conceptually, strict selection applies the same per-key validation layers
+    /// as [`Key::validate_for_use`], but within a JWKS search and with extra
+    /// policy rules such as verification allowlists, declared-`alg` matching,
+    /// and ambiguity handling.
+    ///
     /// When `kid` is present in the matcher, candidate-level validation failures are
     /// surfaced with specific diagnostics (`AlgorithmMismatch`, `IntentMismatch`,
     /// `KeySuitabilityFailed`, `IncompatibleKeyType`) using deterministic precedence.
@@ -451,6 +456,20 @@ impl<'a> KeySelector<'a> {
                         }
                         // Conservatively map any future intent-check error to intent mismatch.
                         Error::IncompatibleKey(_) => saw_intent_mismatch = true,
+                        _ => incompatible_for_known_kid = true,
+                    }
+                }
+                continue;
+            }
+
+            if let Err(err) = key.validate_certificate_metadata() {
+                if matcher.kid.is_some() {
+                    match err {
+                        Error::InvalidKey(invalid) => {
+                            if saw_invalid_key_metadata.is_none() {
+                                saw_invalid_key_metadata = Some(invalid);
+                            }
+                        }
                         _ => incompatible_for_known_kid = true,
                     }
                 }
@@ -1422,6 +1441,27 @@ mod tests {
 
         let err = selector
             .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Rs256).with_kid("dup-ops"))
+            .unwrap_err();
+
+        assert!(matches!(err, SelectionError::InvalidKeyMetadata(_)));
+    }
+
+    #[test]
+    fn test_selector_invalid_certificate_metadata_for_known_kid() {
+        let bad_key = Key::new(crate::KeyParams::Rsa(crate::RsaParams::new_public(
+            crate::encoding::Base64UrlBytes::new(vec![1; 256]),
+            crate::encoding::Base64UrlBytes::new(vec![1, 0, 1]),
+        )))
+        .with_kid("bad-x5u")
+        .with_alg(Algorithm::Rs256)
+        .with_x5u("http://example.com/cert.pem");
+
+        let mut jwks = KeySet::new();
+        jwks.add_key(bad_key);
+        let selector = jwks.selector(&[]);
+
+        let err = selector
+            .select(KeyMatcher::new(KeyOperation::Sign, Algorithm::Rs256).with_kid("bad-x5u"))
             .unwrap_err();
 
         assert!(matches!(err, SelectionError::InvalidKeyMetadata(_)));

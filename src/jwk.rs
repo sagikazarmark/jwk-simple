@@ -906,6 +906,11 @@ impl Key {
     /// valid; the algorithm mismatch is a suitability concern.
     /// Use [`Key::validate_for_use`] for those checks.
     ///
+    /// In other words, `validate()` is the context-free gate: it validates the
+    /// key's own parameters and metadata (`use`, `key_ops`, `x5u`, `x5c`,
+    /// `x5t`, `x5t#S256`) without deciding whether the key is acceptable for a
+    /// particular algorithm or operation.
+    ///
     /// This method does **not** perform PKIX trust/path validation for `x5c`
     /// chains (trust anchors, validity period, key usage/EKU, revocation, etc.).
     /// PKIX trust validation is application-defined and out of scope for this crate.
@@ -918,6 +923,12 @@ impl Key {
         self.validate_use_key_ops_consistency()?;
         self.validate_key_ops_unique()?;
 
+        self.validate_certificate_metadata()?;
+
+        Ok(())
+    }
+
+    pub(crate) fn validate_certificate_metadata(&self) -> Result<()> {
         // RFC 7517 Section 4.6: x5u MUST use TLS (HTTPS)
         if let Some(ref x5u) = self.x5u {
             let parsed = Url::parse(x5u).map_err(|_| {
@@ -1122,6 +1133,10 @@ impl Key {
     /// This method calls [`Key::validate`] internally, so callers do not
     /// need to call it separately.
     ///
+    /// This is the full pre-use gate for direct key use. It layers algorithm
+    /// suitability, operation/algorithm compatibility, key-material capability,
+    /// and operation intent on top of [`Key::validate`].
+    ///
     /// # Examples
     ///
     /// ```
@@ -1217,7 +1232,8 @@ impl Key {
     /// compatibility, and key strength.
     ///
     /// This does **not** perform operation-intent checks (`use`/`key_ops`)
-    /// or certificate metadata checks (`x5c`/`x5u`/`x5t`). It is intended
+    /// and does not enforce selection policy. Certificate metadata checks are
+    /// handled separately by strict selection. It is intended
     /// for internal use by [`KeySelector`](crate::KeySelector).
     /// [`Key::validate_for_use`] calls the underlying helpers directly to
     /// avoid redundant structural validation.
@@ -2128,6 +2144,11 @@ pub(crate) fn is_operation_compatible_with_algorithm(
         return true;
     }
 
+    debug_assert!(
+        !alg.is_unknown(),
+        "unknown algorithms should be rejected before operation/algorithm compatibility checks"
+    );
+
     match alg {
         Algorithm::Rs256
         | Algorithm::Rs384
@@ -2183,6 +2204,8 @@ pub(crate) fn is_operation_compatible_with_algorithm(
                 KeyOperation::DeriveKey | KeyOperation::DeriveBits
             )
         }
+        // Defensive fallback for future callers; current strict validation paths
+        // reject unknown algorithms before reaching this helper.
         Algorithm::Unknown(_) => false,
     }
 }

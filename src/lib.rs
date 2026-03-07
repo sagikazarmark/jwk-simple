@@ -147,9 +147,14 @@
 //! - All fallible operations return `Result` types. The crate avoids panics,
 //!   though standard trait implementations like `Index` follow normal Rust
 //!   semantics and may panic on invalid input (e.g., out-of-bounds indexing)
-//! - [`Key::validate`] performs structural and consistency checks only.
-//!   [`Key::validate_for_use`] adds algorithm suitability,
-//!   operation/algorithm compatibility, and operation intent.
+//! - Validation entry points are layered:
+//!
+//!   | API | Structural key params | `use`/`key_ops` consistency | Cert metadata (`x5u`/`x5c`/`x5t`) | Alg suitability/strength | Op/alg compatibility | Private material capability | Selection policy |
+//!   |-----|------------------------|-----------------------------|-----------------------------------|--------------------------|----------------------|-----------------------------|------------------|
+//!   | [`Key::validate`] | yes | yes | yes | no | no | no | no |
+//!   | [`Key::validate_for_use`] | yes | yes | yes | yes | yes | yes | no |
+//!   | [`KeySet::selector(...).select(...)`](crate::jwks::KeySelector::select) | yes, per candidate | yes, per candidate | yes, per candidate | yes, per candidate | yes, up front | yes, per candidate | yes |
+//!
 //!   PKIX trust validation for `x5c` chains is application-defined and out of
 //!   scope for this crate.
 
