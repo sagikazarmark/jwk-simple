@@ -11,7 +11,7 @@
 //! Provides `TryFrom` implementations for converting JWK keys to jwt-simple
 //! key types, enabling JWT verification with keys loaded from a JWKS.
 //! Conversion failures use the dedicated
-//! [`JwtSimpleConversionError`](crate::JwtSimpleConversionError) type rather
+//! [`JwtSimpleKeyConversionError`](crate::JwtSimpleKeyConversionError) type rather
 //! than the crate-wide [`Error`](crate::Error).
 //!
 //! ## WebCrypto (feature: `web-crypto`)

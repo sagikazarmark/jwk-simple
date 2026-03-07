@@ -7,7 +7,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
-use crate::error::{Error, ParseError, Result};
+use crate::error::{Error, Result};
 use crate::jwks::{KeySet, KeyStore};
 use url::Url;
 
@@ -68,8 +68,8 @@ pub struct HttpKeyStore {
 
 fn require_https(url: &Url) -> Result<()> {
     if url.scheme() != "https" {
-        return Err(Error::InvalidUrl(
-            "URL scheme must be 'https'; use new_insecure() or new_with_client_insecure() to allow HTTP for local development or testing".to_string(),
+        return Err(Error::InvalidUrlScheme(
+            "URL scheme must be 'https'; use new_insecure() or new_with_client_insecure() to allow HTTP for local development or testing",
         ));
     }
     Ok(())
@@ -122,7 +122,7 @@ impl HttpKeyStore {
     /// )?;
     /// ```
     pub fn new_with_client(url: impl AsRef<str>, client: reqwest::Client) -> Result<Self> {
-        let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let url = Url::parse(url.as_ref()).map_err(Error::InvalidUrl)?;
         require_https(&url)?;
 
         Ok(Self { url, client })
@@ -154,7 +154,7 @@ impl HttpKeyStore {
     /// production — plain HTTP connections allow network attackers to tamper with
     /// JWKS responses and inject attacker-controlled keys.
     pub fn new_with_client_insecure(url: impl AsRef<str>, client: reqwest::Client) -> Result<Self> {
-        let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let url = Url::parse(url.as_ref()).map_err(Error::InvalidUrl)?;
 
         Ok(Self { url, client })
     }
@@ -170,12 +170,8 @@ impl HttpKeyStore {
 
         let bytes = response.bytes().await?;
 
-        let json = std::str::from_utf8(&bytes).map_err(|e| {
-            Error::Parse(ParseError::Json(format!(
-                "invalid UTF-8 response body: {}",
-                e
-            )))
-        })?;
+        let json = std::str::from_utf8(&bytes)
+            .map_err(|e| Error::Other(format!("invalid UTF-8 response body: {}", e)))?;
 
         Ok(serde_json::from_str::<KeySet>(json)?)
     }
@@ -262,7 +258,7 @@ mod tests {
 
         let store = HttpKeyStore::new_insecure(url).unwrap();
         let err = store.get_keyset().await.unwrap_err();
-        assert!(matches!(err, Error::Parse(ParseError::Json(_))));
+        assert!(matches!(err, Error::Json(_)));
     }
 
     #[tokio::test]
@@ -332,7 +328,7 @@ mod tests {
     #[test]
     fn test_http_keystore_new_rejects_http_url() {
         let err = HttpKeyStore::new("http://example.com/.well-known/jwks.json").unwrap_err();
-        assert!(matches!(err, Error::InvalidUrl(_)));
+        assert!(matches!(err, Error::InvalidUrlScheme(_)));
     }
 
     #[test]
@@ -340,7 +336,7 @@ mod tests {
         let client = reqwest::Client::new();
         let err = HttpKeyStore::new_with_client("http://example.com/.well-known/jwks.json", client)
             .unwrap_err();
-        assert!(matches!(err, Error::InvalidUrl(_)));
+        assert!(matches!(err, Error::InvalidUrlScheme(_)));
     }
 
     #[test]

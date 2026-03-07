@@ -23,11 +23,17 @@ use crate::jwk::KeyOperation;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// Failed to parse JSON.
+    /// Failed to parse JSON syntax or structure.
+    Json(serde_json::Error),
+
+    /// Failed to interpret valid JSON as JWK/JWKS data.
     Parse(ParseError),
 
     /// Invalid URL input.
-    InvalidUrl(String),
+    InvalidUrl(url::ParseError),
+
+    /// URL violates a crate-level policy requirement.
+    InvalidUrlScheme(&'static str),
 
     /// The JWK is malformed: missing parameters, invalid encoding, or
     /// inconsistent fields.
@@ -72,8 +78,10 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Error::Json(e) => write!(f, "JSON error: {}", e),
             Error::Parse(e) => write!(f, "parse error: {}", e),
-            Error::InvalidUrl(msg) => write!(f, "invalid URL: {}", msg),
+            Error::InvalidUrl(err) => write!(f, "invalid URL: {}", err),
+            Error::InvalidUrlScheme(msg) => write!(f, "invalid URL scheme: {}", msg),
             Error::InvalidKey(e) => write!(f, "invalid key: {}", e),
             Error::IncompatibleKey(e) => write!(f, "incompatible key: {}", e),
             Error::Base64(e) => write!(f, "base64 decoding error: {:?}", e),
@@ -96,6 +104,7 @@ impl Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Error::Json(e) => Some(e),
             Error::Parse(e) => Some(e),
             Error::InvalidKey(e) => Some(e),
             Error::IncompatibleKey(e) => Some(e),
@@ -126,7 +135,13 @@ impl From<base64ct::Error> for Error {
 
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
-        Error::Parse(ParseError::Json(e.to_string()))
+        Error::Json(e)
+    }
+}
+
+impl From<url::ParseError> for Error {
+    fn from(e: url::ParseError) -> Self {
+        Error::InvalidUrl(e)
     }
 }
 
@@ -139,9 +154,8 @@ impl From<reqwest::Error> for Error {
 
 /// Errors that occur during JSON parsing.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ParseError {
-    /// Invalid JSON syntax.
-    Json(String),
     /// Unknown key type.
     UnknownKeyType(String),
     /// Unknown curve.
@@ -151,7 +165,6 @@ pub enum ParseError {
 impl Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ParseError::Json(msg) => write!(f, "invalid JSON: {}", msg),
             ParseError::UnknownKeyType(kty) => write!(f, "unknown key type: {}", kty),
             ParseError::UnknownCurve(crv) => write!(f, "unknown curve: {}", crv),
         }
@@ -353,7 +366,7 @@ impl std::error::Error for IncompatibleKeyError {}
 #[cfg_attr(docsrs, doc(cfg(feature = "jwt-simple")))]
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum JwtSimpleConversionError {
+pub enum JwtSimpleKeyConversionError {
     /// The JWK itself is malformed.
     InvalidKey(InvalidKeyError),
     /// The JWK is valid but unsuitable for the requested conversion.
@@ -379,14 +392,8 @@ pub enum JwtSimpleConversionError {
     },
     /// The conversion requires private key material, but the JWK is public-only.
     MissingPrivateKey,
-    /// Core pre-conversion validation failed in a way that does not map to a
-    /// structured conversion variant.
-    Validation {
-        /// Human-readable error context.
-        message: String,
-        /// Original validation error.
-        source: Box<Error>,
-    },
+    /// Core JWK/JWKS validation failed before conversion.
+    Core(Error),
     /// Encoding the source key into an intermediate representation failed.
     Encoding(String),
     /// Importing the encoded key into `jwt-simple` failed.
@@ -394,61 +401,61 @@ pub enum JwtSimpleConversionError {
 }
 
 #[cfg(feature = "jwt-simple")]
-impl Display for JwtSimpleConversionError {
+impl Display for JwtSimpleKeyConversionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            JwtSimpleConversionError::InvalidKey(e) => write!(f, "invalid key: {}", e),
-            JwtSimpleConversionError::IncompatibleKey(e) => {
+            JwtSimpleKeyConversionError::InvalidKey(e) => write!(f, "invalid key: {}", e),
+            JwtSimpleKeyConversionError::IncompatibleKey(e) => {
                 write!(f, "incompatible key: {}", e)
             }
-            JwtSimpleConversionError::KeyTypeMismatch { expected, actual } => {
+            JwtSimpleKeyConversionError::KeyTypeMismatch { expected, actual } => {
                 write!(
                     f,
                     "key type mismatch: expected {}, got {}",
                     expected, actual
                 )
             }
-            JwtSimpleConversionError::CurveMismatch { expected, actual } => {
+            JwtSimpleKeyConversionError::CurveMismatch { expected, actual } => {
                 write!(f, "curve mismatch: expected {}, got {}", expected, actual)
             }
-            JwtSimpleConversionError::MissingComponent { field } => {
+            JwtSimpleKeyConversionError::MissingComponent { field } => {
                 write!(f, "missing required field: {}", field)
             }
-            JwtSimpleConversionError::MissingPrivateKey => {
+            JwtSimpleKeyConversionError::MissingPrivateKey => {
                 write!(f, "private key parameters required but not present")
             }
-            JwtSimpleConversionError::Validation { message, .. } => {
-                write!(f, "validation error: {}", message)
+            JwtSimpleKeyConversionError::Core(err) => {
+                write!(f, "core error: {}", err)
             }
-            JwtSimpleConversionError::Encoding(msg) => write!(f, "encoding error: {}", msg),
-            JwtSimpleConversionError::Import(msg) => write!(f, "import error: {}", msg),
+            JwtSimpleKeyConversionError::Encoding(msg) => write!(f, "encoding error: {}", msg),
+            JwtSimpleKeyConversionError::Import(msg) => write!(f, "import error: {}", msg),
         }
     }
 }
 
 #[cfg(feature = "jwt-simple")]
-impl std::error::Error for JwtSimpleConversionError {
+impl std::error::Error for JwtSimpleKeyConversionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            JwtSimpleConversionError::InvalidKey(e) => Some(e),
-            JwtSimpleConversionError::IncompatibleKey(e) => Some(e),
-            JwtSimpleConversionError::Validation { source, .. } => Some(source.as_ref()),
+            JwtSimpleKeyConversionError::InvalidKey(e) => Some(e),
+            JwtSimpleKeyConversionError::IncompatibleKey(e) => Some(e),
+            JwtSimpleKeyConversionError::Core(err) => Some(err),
             _ => None,
         }
     }
 }
 
 #[cfg(feature = "jwt-simple")]
-impl From<InvalidKeyError> for JwtSimpleConversionError {
+impl From<InvalidKeyError> for JwtSimpleKeyConversionError {
     fn from(e: InvalidKeyError) -> Self {
-        JwtSimpleConversionError::InvalidKey(e)
+        JwtSimpleKeyConversionError::InvalidKey(e)
     }
 }
 
 #[cfg(feature = "jwt-simple")]
-impl From<IncompatibleKeyError> for JwtSimpleConversionError {
+impl From<IncompatibleKeyError> for JwtSimpleKeyConversionError {
     fn from(e: IncompatibleKeyError) -> Self {
-        JwtSimpleConversionError::IncompatibleKey(e)
+        JwtSimpleKeyConversionError::IncompatibleKey(e)
     }
 }
 

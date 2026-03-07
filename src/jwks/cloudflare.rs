@@ -67,8 +67,8 @@ pub struct FetchKeyStore {
 
 fn require_https(url: &Url) -> Result<()> {
     if url.scheme() != "https" {
-        return Err(Error::InvalidUrl(
-            "URL scheme must be 'https'; use new_insecure() to allow HTTP for local development or testing".to_string(),
+        return Err(Error::InvalidUrlScheme(
+            "URL scheme must be 'https'; use new_insecure() to allow HTTP for local development or testing",
         ));
     }
     Ok(())
@@ -80,7 +80,7 @@ impl FetchKeyStore {
     /// The URL must use the `https` scheme. To allow plain HTTP (e.g. in local development
     /// or testing), use [`new_insecure`](Self::new_insecure).
     pub fn new(url: impl AsRef<str>) -> Result<Self> {
-        let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let url = Url::parse(url.as_ref()).map_err(Error::InvalidUrl)?;
         require_https(&url)?;
 
         Ok(Self { url })
@@ -95,7 +95,7 @@ impl FetchKeyStore {
     /// production — plain HTTP connections allow network attackers to tamper with
     /// JWKS responses and inject attacker-controlled keys.
     pub fn new_insecure(url: impl AsRef<str>) -> Result<Self> {
-        let url = Url::parse(url.as_ref()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let url = Url::parse(url.as_ref()).map_err(Error::InvalidUrl)?;
 
         Ok(Self { url })
     }
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn test_fetch_keystore_new_rejects_http_url() {
         let err = FetchKeyStore::new("http://example.com/.well-known/jwks.json").unwrap_err();
-        assert!(matches!(err, Error::InvalidUrl(_)));
+        assert!(matches!(err, Error::InvalidUrlScheme(_)));
     }
 
     #[test]
