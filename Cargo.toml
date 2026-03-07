@@ -1,7 +1,7 @@
 [package]
 name = "jwk-simple"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 version = "0.1.0"
 description = "JWK/JWKS for Rust and WASM (RFC 7517, 7518, 7638, 8037, 9864) with jwt-simple integration"
 license = "MIT"
