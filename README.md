@@ -9,7 +9,7 @@ A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defin
 
 - **RFC coverage (JOSE/JWK)**: Supports RFC 7517 (JWK), RFC 7518 (algorithms), RFC 8037 (OKP), RFC 9864 (Ed25519/Ed448 JOSE algorithms), and RFC 7638 (thumbprints)
 - **Multiple key types**: RSA, EC (P-256, P-384, P-521, secp256k1), Symmetric (HMAC), and OKP (Ed25519, Ed448, X25519, X448)
-- **WASM compatible**: Core functionality works in WebAssembly environments
+- **WASM and WebCrypto compatible**: Core functionality works in WebAssembly environments, with optional WebCrypto integration on `wasm32`
 - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
 - **jwt-simple integration**: Optional feature for converting JWKs to [`jwt-simple`](https://github.com/jedisct1/rust-jwt-simple) key types
 - **Remote fetching**: Load JWKS from HTTP endpoints with caching support
