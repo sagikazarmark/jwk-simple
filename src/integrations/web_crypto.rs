@@ -60,6 +60,8 @@ use js_sys::{Array, Object, Reflect};
 use std::convert::TryFrom;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
+#[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
+use web_sys::Crypto;
 use web_sys::{CryptoKey, SubtleCrypto};
 
 use crate::error::{Error, Result};
@@ -85,6 +87,19 @@ use crate::jwks::KeyMatcher;
 /// let subtle = web_crypto::get_subtle_crypto()?;
 /// ```
 pub fn get_subtle_crypto() -> Result<SubtleCrypto> {
+    #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
+    {
+        // Cloudflare does expose `crypto` in the global scope but
+        // the global scope may not be able to cast into `WorkerGlobalScope`.
+        let global = js_sys::global();
+        let crypto_field_name = JsValue::from_str("crypto");
+        if let Ok(crypto_field) = Reflect::get(&global, &crypto_field_name)
+            && let Ok(crypto) = crypto_field.dyn_into::<Crypto>()
+        {
+            return Ok(crypto.subtle());
+        }
+    }
+
     // Try window first (browser context)
     if let Some(window) = web_sys::window()
         && let Ok(crypto) = window.crypto()
