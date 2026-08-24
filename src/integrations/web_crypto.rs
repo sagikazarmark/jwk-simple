@@ -60,7 +60,9 @@ use js_sys::{Array, Object, Reflect};
 use std::convert::TryFrom;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Crypto, CryptoKey, SubtleCrypto};
+#[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
+use web_sys::Crypto;
+use web_sys::{CryptoKey, SubtleCrypto};
 
 use crate::error::{Error, Result};
 use crate::jwk::{Algorithm, EcCurve, Key, KeyOperation, KeyParams};
