@@ -1,8 +1,22 @@
-# The feature sets CI builds and tests. `cloudflare` and `web-crypto` are
+# The full feature sets CI builds and tests. `cloudflare` and `web-crypto` are
 # wasm32-only, `moka` and the TLS backends are native-only.
 native := "http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust,moka"
 wasm := "cloudflare,http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto"
 wasm_target := "wasm32-unknown-unknown"
+
+# The feature matrix (`cargo hack`) also runs every feature on its own and, for
+# `check`, every combination: that is what catches a missing `cfg` gate. These
+# stay out of it: `default` (empty, so it would only double the matrix), the
+# features that `compile_error!` on the other target, and the TLS backends,
+# which only forward to reqwest (`default-tls` is in the full native set;
+# `native-tls` needs OpenSSL, which devenv does not ship).
+native_skip := "default,cloudflare,web-crypto,default-tls,rustls,native-tls"
+wasm_skip := "default,moka,default-tls,rustls,native-tls"
+
+# `jwt-simple` needs a crypto backend. The `?` turns `pure-rust` on only when
+# the feature is, so the matrix still has runs without `jwt-simple`. cargo-hack
+# warns that it is not a feature of this package; that is expected.
+hack_features := "jwt-simple?/pure-rust"
 
 # What docs.rs builds, on both targets: `[package.metadata.docs.rs]` in Cargo.toml,
 # which must stay in sync with this. Nightly, because `--cfg docsrs` enables
@@ -16,11 +30,15 @@ default:
     @just --list --unsorted
 
 # Run all CI jobs.
-ci: audit build lint test examples
+ci: audit fmt build check clippy test doc examples
 
 # Audit dependencies for advisories.
 audit:
     cargo audit
+
+# Check formatting.
+fmt:
+    cargo fmt --all --check
 
 # Build for every target.
 build: build-native build-wasm
@@ -33,41 +51,56 @@ build-native:
 build-wasm:
     cargo build --target {{wasm_target}} --features {{wasm}} --locked
 
+# Check every feature combination on every target.
+check: check-native check-wasm
+
+# Check every feature combination, with tests, benches and examples, for the native target.
+check-native:
+    cargo hack check --feature-powerset --exclude-features {{native_skip}} --features {{hack_features}} --all-targets --locked
+
+# Check every feature combination, with tests and examples, for wasm32.
+check-wasm:
+    cargo hack check --target {{wasm_target}} --feature-powerset --exclude-features {{wasm_skip}} --features {{hack_features}} --lib --tests --examples --locked
+
+# Run clippy on every target.
+clippy: clippy-native clippy-wasm
+
+# Run clippy for the native target: each feature on its own, then the full set.
+clippy-native:
+    cargo hack clippy --each-feature --exclude-features {{native_skip}} --features {{hack_features}} --all-targets --locked -- --deny warnings
+    cargo clippy --features {{native}} --all-targets --locked -- --deny warnings
+
+# Run clippy for wasm32: each feature on its own, then the full set.
+clippy-wasm:
+    cargo hack clippy --target {{wasm_target}} --each-feature --exclude-features {{wasm_skip}} --features {{hack_features}} --lib --tests --examples --locked -- --deny warnings
+    cargo clippy --target {{wasm_target}} --features {{wasm}} --lib --tests --examples --locked -- --deny warnings
+
 # Run the tests on every target.
 test: test-native test-wasm
 
-# Run the tests on the native target.
+# Run the tests on the native target: each feature on its own, then the full set.
 test-native:
+    cargo hack test --each-feature --exclude-features {{native_skip}} --features {{hack_features}} --locked
     cargo test --features {{native}} --locked
 
-# Run the tests on wasm32, the browser ones in headless Firefox.
+# Run the tests on wasm32, the browser ones in headless Firefox: each feature on its own, then the full set.
 test-wasm:
+    cargo hack test --target {{wasm_target}} --each-feature --exclude-features {{wasm_skip}} --features {{hack_features}} --locked
     cargo test --target {{wasm_target}} --features {{wasm}} --locked
 
-# Format, lint and document.
-lint: lint-native lint-wasm
+# Run rustdoc and reproduce the docs.rs build on every target.
+doc: doc-native doc-wasm
 
-# Check formatting, run clippy and rustdoc for the native target.
-lint-native: fmt clippy-native doc docsrs-native
+# Run rustdoc for the native target (each feature on its own, then the full set), and the docs.rs build.
+doc-native: rustdoc docsrs-native
 
-# Run clippy and the docs.rs build for wasm32.
-lint-wasm: clippy-wasm docsrs-wasm
+# Reproduce the docs.rs build for wasm32.
+doc-wasm: docsrs-wasm
 
-# Check formatting.
-fmt:
-    cargo fmt --all --check
-
-# Run clippy for the native target.
-clippy-native:
-    cargo clippy --features {{native}} --locked -- --deny warnings
-
-# Run clippy for wasm32.
-clippy-wasm:
-    cargo clippy --target {{wasm_target}} --features {{wasm}} --locked -- --deny warnings
-
-# Run rustdoc.
+# Run rustdoc for the native target: each feature on its own, then the full set.
 [env("RUSTDOCFLAGS", "--deny warnings")]
-doc:
+rustdoc:
+    cargo hack doc --no-deps --each-feature --exclude-features {{native_skip}} --features {{hack_features}} --locked
     cargo doc --no-deps --features {{native}} --locked
 
 # Reproduce the docs.rs build on every target.
