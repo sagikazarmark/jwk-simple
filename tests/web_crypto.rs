@@ -1,7 +1,8 @@
 //! WASM integration tests for WebCrypto functionality.
 //!
-//! These tests run in a headless browser using wasm-pack test.
-//! Run with: `wasm-pack test --headless --chrome`
+//! These tests run in headless Firefox through wasm-bindgen-test-runner; the
+//! devenv shell provides the runner, Firefox and geckodriver.
+//! Run with: `just test-wasm`
 
 #![cfg(all(target_arch = "wasm32", feature = "web-crypto"))]
 

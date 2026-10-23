@@ -1,5 +1,44 @@
-{ pkgs, inputs, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}:
 
+let
+  # wasm-bindgen-cli must match the `wasm-bindgen` crate in Cargo.lock exactly, or
+  # wasm-bindgen-test-runner refuses to run. nixpkgs keeps older releases under
+  # attributes like `wasm-bindgen-cli_0_2_129`. Same lookup as the dioxus and
+  # worker-build modules in devenv-extras; fails loudly when nixpkgs lacks the
+  # version, which is the signal to update nixpkgs (or pin wasm-bindgen).
+  wasmBindgenVersion =
+    let
+      lock = builtins.fromTOML (builtins.readFile ./Cargo.lock);
+      package = lib.findFirst (p: p.name == "wasm-bindgen") null lock.package;
+    in
+    if package == null then throw "wasm-bindgen is not in Cargo.lock" else package.version;
+
+  wasmBindgenCli =
+    let
+      attr = "wasm-bindgen-cli_${lib.replaceStrings [ "." ] [ "_" ] wasmBindgenVersion}";
+    in
+    if pkgs.wasm-bindgen-cli.version == wasmBindgenVersion then
+      pkgs.wasm-bindgen-cli
+    else
+      pkgs.${attr} or (throw ''
+        nixpkgs has no wasm-bindgen-cli ${wasmBindgenVersion} (neither `wasm-bindgen-cli` nor `${attr}`).
+        Update the nixpkgs input, or pin `wasm-bindgen` in Cargo.toml to a version it has.
+      '');
+
+  # wasm-bindgen-test-runner finds geckodriver itself, but geckodriver looks for
+  # Firefox in /Applications on macOS and on PATH on Linux. Point both at the Nix
+  # ones, so the browser tests run the same Firefox everywhere.
+  webdriverJson = pkgs.writeText "webdriver.json" (
+    builtins.toJSON {
+      "moz:firefoxOptions".binary = config.browsers.firefox.executable;
+    }
+  );
+in
 {
   cachix.pull = [ "sagikazarmark-dev" ];
 
@@ -9,35 +48,28 @@
     version = "v1.0.0-beta.20";
   };
 
-  env.CC_wasm32_unknown_unknown = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
+  # Firefox and geckodriver for the headless browser tests (tests/web_crypto.rs).
+  browsers.firefox.enable = true;
 
-  # overlays = [
-  #   (
-  #     final: prev:
-  #     let
-  #       unstable = inputs.nixpkgsUnstable.legacyPackages.${prev.stdenv.hostPlatform.system};
-  #     in
-  #     {
-  #       inherit (unstable)
-  #         chromedriver
-  #         geckodriver
-  #         wasm-pack
-  #         wasm-bindgen-cli_0_2_108
-  #         ;
-  #     }
-  #   )
-  # ];
+  env = {
+    CC_wasm32_unknown_unknown = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
+
+    GECKODRIVER = lib.getExe' config.browsers.firefox.driver.package "geckodriver";
+    WASM_BINDGEN_TEST_WEBDRIVER_JSON = toString webdriverJson;
+    # Also the budget for the browser to start, which defaults to a minute; a
+    # cold CI runner has exceeded that.
+    WASM_BINDGEN_TEST_TIMEOUT = "120";
+  };
 
   packages = with pkgs; [
+    just
+
     cargo-audit
     cargo-release
     cargo-watch
     cargo-expand
     wasm-pack
-    # wasm-bindgen-cli_0_2_108
-    wasm-bindgen-cli_0_2_129
-    # chromedriver
-    geckodriver
+    wasmBindgenCli
   ];
 
   languages.rust = {
