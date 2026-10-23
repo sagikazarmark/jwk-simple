@@ -1023,7 +1023,7 @@ mod tests {
 
         let jwk: Key = serde_json::from_str(json).unwrap();
         let result: Result<HS256Key> = (&jwk).try_into();
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
     }
 
     #[test]

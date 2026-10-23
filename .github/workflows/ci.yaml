@@ -86,7 +86,7 @@ jobs:
       # needs some automation
       - name: Install wasm-bindgen test runner
         if: matrix.name == 'wasm'
-        run: cargo install -f wasm-bindgen-cli --version 0.2.122
+        run: cargo install -f wasm-bindgen-cli --version 0.2.129
 
       - name: Test
         run: cargo test --features "${{ matrix.features }}"
