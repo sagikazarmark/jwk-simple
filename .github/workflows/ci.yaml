@@ -8,6 +8,16 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    # Every step runs in the devenv shell: the project's Rust toolchain with the
+    # wasm32 target, wasm-bindgen-cli at the version in Cargo.lock, and Firefox
+    # with geckodriver for the browser tests.
+    shell: devenv shell -- bash -e {0}
+
 jobs:
   audit:
     name: Audit
@@ -16,158 +26,119 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Set up Rust
-        uses: ./.github/actions/rust/
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Run cargo audit
-        run: cargo audit
+      - name: Audit
+        run: just audit
 
   build:
-    name: Build (${{ matrix.name }})
+    name: Build (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: native
-            target: x86_64-unknown-linux-gnu
-            features: http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust,moka
-          - name: wasm
-            target: wasm32-unknown-unknown
-            features: cloudflare,http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto
-
-    env:
-      CARGO_BUILD_TARGET: ${{ matrix.target }}
+        target: [native, wasm]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Set up Rust
-        uses: ./.github/actions/rust/
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
 
-      - name: Install wasm target
-        if: matrix.name == 'wasm'
-        run: rustup target add wasm32-unknown-unknown
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
 
       - name: Build
-        run: cargo build --features "${{ matrix.features }}"
+        run: just build-${{ matrix.target }}
 
   test:
-    name: Test (${{ matrix.name }})
+    name: Test (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: native
-            target: x86_64-unknown-linux-gnu
-            features: http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust,moka
-          - name: wasm
-            target: wasm32-unknown-unknown
-            features: cloudflare,http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto
+        target: [native, wasm]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Set up Rust
-        uses: ./.github/actions/rust/
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
 
-      - name: Install wasm target
-        if: matrix.name == 'wasm'
-        run: rustup target add wasm32-unknown-unknown
-
-      # TODO: pinned for now to make CI green
-      # needs some automation
-      - name: Install wasm-bindgen test runner
-        if: matrix.name == 'wasm'
-        run: cargo install -f wasm-bindgen-cli --version 0.2.129
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
 
       - name: Test
-        run: cargo test --features "${{ matrix.features }}"
-        env:
-          CARGO_BUILD_TARGET: ${{ matrix.target }}
+        run: just test-${{ matrix.target }}
 
   lint:
-    name: Lint (${{ matrix.name }})
+    name: Lint (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: native
-            target: x86_64-unknown-linux-gnu
-            features: http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust,moka
-          - name: wasm
-            target: wasm32-unknown-unknown
-            features: cloudflare,http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto
-
-    env:
-      CARGO_BUILD_TARGET: ${{ matrix.target }}
+        target: [native, wasm]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Set up Rust
-        uses: ./.github/actions/rust/
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
 
-      - name: Install wasm target
-        if: matrix.name == 'wasm'
-        run: rustup target add wasm32-unknown-unknown
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
 
-      - name: fmt
-        if: matrix.name == 'native'
-        run: cargo fmt -- --check
-
-      - name: Clippy
-        run: cargo clippy --features "${{ matrix.features }}" -- -D warnings
-
-      - name: Doc
-        if: matrix.name == 'native'
-        env:
-          RUSTDOCFLAGS: "-D warnings"
-        run: cargo doc --no-deps --features "${{ matrix.features }}"
+      - name: Lint
+        run: just lint-${{ matrix.target }}
 
   examples:
-    name: Examples (${{ matrix.name }})
+    name: Examples (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: native
-            target: x86_64-unknown-linux-gnu
-            features: http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust
-          - name: wasm
-            target: wasm32-unknown-unknown
-            features: http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto
-
-    env:
-      CARGO_BUILD_TARGET: ${{ matrix.target }}
+        target: [native, wasm]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Set up Rust
-        uses: ./.github/actions/rust/
+      - name: Set up devenv
+        uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
 
-      - name: Install wasm target
-        if: matrix.name == 'wasm'
-        run: rustup target add wasm32-unknown-unknown
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cmd-format: devenv shell -- {0}
 
-      - name: Check examples
-        run: cargo check --examples --features "${{ matrix.features }}"
-
-      - name: Run examples
-        if: matrix.name == 'native'
-        run: |
-          cargo run --example basic_usage --features "${{ matrix.features }}"
-          cargo run --example jwt_verify --features "${{ matrix.features }}"
-          cargo run --example http_fetch --features "${{ matrix.features }}"
+      - name: Examples
+        run: just examples-${{ matrix.target }}

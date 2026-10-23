@@ -16,6 +16,8 @@ After making changes, always run:
 - `cargo clippy` to catch any lint warnings
 
 If the crate targets multiple platforms, ensure tests pass on all supported platforms.
+`just ci` in the devenv shell runs exactly what CI runs (both targets, including the
+headless-Firefox WebCrypto tests); `just --list` shows the individual recipes.
 
 ## Review Process
 
