@@ -48,11 +48,18 @@ pub enum Error {
     /// Caller provided invalid input to a public API.
     InvalidInput(&'static str),
 
-    /// HTTP request error.
+    /// The HTTP transport failed: no connection, timeout, unreadable or
+    /// oversized body. See [`TransportError::kind`](crate::jwks::TransportError::kind).
     #[cfg(feature = "http")]
-    Http(reqwest::Error),
+    #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
+    Transport(crate::jwks::TransportError),
 
-    /// Remote fetch or transport failed outside the reqwest backend.
+    /// The JWKS endpoint answered with a non-success HTTP status.
+    #[cfg(feature = "http")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
+    HttpStatus(u16),
+
+    /// Remote fetch failed in a third-party [`KeyStore`](crate::jwks::KeyStore).
     Fetch(String),
 
     /// Cache operation failed.
@@ -87,7 +94,9 @@ impl Display for Error {
             Error::Base64(e) => write!(f, "base64 decoding error: {:?}", e),
             Error::InvalidInput(msg) => write!(f, "invalid input: {}", msg),
             #[cfg(feature = "http")]
-            Error::Http(e) => write!(f, "HTTP error: {}", e),
+            Error::Transport(e) => write!(f, "transport error: {}", e),
+            #[cfg(feature = "http")]
+            Error::HttpStatus(status) => write!(f, "JWKS endpoint returned HTTP {}", status),
             Error::Fetch(msg) => write!(f, "fetch error: {}", msg),
             Error::Cache(msg) => write!(f, "cache error: {}", msg),
             Error::Other(msg) => write!(f, "{}", msg),
@@ -111,7 +120,7 @@ impl std::error::Error for Error {
             Error::IncompatibleKey(e) => Some(e),
             Error::Base64(e) => Some(e),
             #[cfg(feature = "http")]
-            Error::Http(e) => Some(e),
+            Error::Transport(e) => Some(e),
             _ => None,
         }
     }
@@ -148,9 +157,9 @@ impl From<url::ParseError> for Error {
 }
 
 #[cfg(feature = "http")]
-impl From<reqwest::Error> for Error {
-    fn from(e: reqwest::Error) -> Self {
-        Error::Http(e)
+impl From<crate::jwks::TransportError> for Error {
+    fn from(e: crate::jwks::TransportError) -> Self {
+        Error::Transport(e)
     }
 }
 

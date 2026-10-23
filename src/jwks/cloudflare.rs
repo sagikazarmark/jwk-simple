@@ -1,144 +1,49 @@
 //! Cloudflare Workers support for JWKS.
 //!
-//! This module provides:
-//! - [`FetchKeyStore`]: A key store that uses Cloudflare Worker's Fetch API
-//! - [`KvKeyCache`]: A cache implementation backed by Cloudflare KV
+//! This module provides [`KvKeyCache`], a [`KeyCache`] backed by Workers KV.
+//!
+//! For fetching the JWKS itself inside a Worker, use
+//! `HttpKeyStore` (feature `http`) over a
+//! `TowerTransport` (feature `tower`) wrapping
+//! [`tower_worker_fetch::FetchService`](https://docs.rs/tower-worker-fetch):
+//! it is a `Send + Sync` `tower::Service` over the Workers `fetch` API, so no
+//! wrapping is needed, and a per-request timeout goes in the request extensions
+//! (`tower_worker_fetch::Timeout`) since there is no tokio timer on Workers.
 //!
 //! # Examples
 //!
-//! Using `FetchKeyStore` to fetch JWKS in a Cloudflare Worker:
-//!
 //! ```ignore
-//! use jwk_simple::jwks::cloudflare;
-//! use jwk_simple::jwks::KeyStore;
+//! use std::time::Duration;
 //!
-//! let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json")?;
+//! use bytes::Bytes;
+//! use http::Request;
+//! use http_body_util::Full;
+//! use jwk_simple::jwks::{CachedKeyStore, HttpKeyStore, KeyStore, TowerTransport, cloudflare::KvKeyCache};
+//! use tower::ServiceBuilder;
+//! use tower_worker_fetch::{FetchService, Timeout};
+//!
+//! let transport = TowerTransport::new(
+//!     ServiceBuilder::new()
+//!         .map_request(|mut req: Request<Full<Bytes>>| {
+//!             req.extensions_mut().insert(Timeout(Duration::from_secs(5)));
+//!             req
+//!         })
+//!         .service(FetchService::new()),
+//! );
+//! let remote = HttpKeyStore::new_with_transport("https://example.com/.well-known/jwks.json", transport)?;
+//! let cache = KvKeyCache::new(env.kv("JWKS_CACHE")?);
+//! let store = CachedKeyStore::new(cache, remote);
+//!
 //! let key = store.get_key("my-key-id").await?;
 //! ```
-//!
-//! Using `KvKeyCache` with KV storage:
-//!
-//! ```ignore
-//! use jwk_simple::jwks::cloudflare;
-//! use jwk_simple::jwks::CachedKeyStore;
-//! use worker::kv::KvStore;
-//!
-//! let kv: KvStore = env.kv("JWKS_CACHE")?;
-//! let cache = cloudflare::KvKeyCache::new(kv);
-//! let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json")?;
-//! let cached = CachedKeyStore::new(cache, store);
-//! ```
 
-use futures::TryStreamExt;
-use url::Url;
 use worker::kv::KvStore;
 
 use crate::error::{Error, Result};
-use crate::jwks::{KeyCache, KeySet, KeyStore};
+use crate::jwks::{KeyCache, KeySet, assume_send};
 
 /// Default TTL for KV cache entries (5 minutes).
 pub const DEFAULT_KV_TTL_SECONDS: u64 = 300;
-
-/// A key store that fetches from an HTTP endpoint using Cloudflare Worker's Fetch API.
-///
-/// This implementation is designed for use in Cloudflare Workers where `reqwest` is not
-/// available. It uses the Worker's built-in Fetch API to make HTTP requests.
-///
-/// Like [`crate::jwks::HttpKeyStore`], this does **not** cache keys. Every call
-/// to [`get_key`](KeyStore::get_key) or [`get_keyset`](KeyStore::get_keyset) will make
-/// an HTTP request.
-///
-/// For production use, wrap this in [`crate::jwks::CachedKeyStore`] with a [`KvKeyCache`] for
-/// KV-backed caching.
-///
-/// # Examples
-///
-/// ```ignore
-/// use jwk_simple::jwks::cloudflare;
-/// use jwk_simple::jwks::KeyStore;
-///
-/// let store = cloudflare::FetchKeyStore::new("https://example.com/.well-known/jwks.json")?;
-/// let key = store.get_key("my-key-id").await?;
-/// ```
-#[derive(Debug, Clone)]
-pub struct FetchKeyStore {
-    url: Url,
-}
-
-fn require_https(url: &Url) -> Result<()> {
-    if url.scheme() != "https" {
-        return Err(Error::InvalidUrlScheme(
-            "URL scheme must be 'https'; use new_insecure() to allow HTTP for local development or testing",
-        ));
-    }
-    Ok(())
-}
-
-impl FetchKeyStore {
-    /// Creates a new `FetchKeyStore` from a URL.
-    ///
-    /// The URL must use the `https` scheme. To allow plain HTTP (e.g. in local development
-    /// or testing), use [`new_insecure`](Self::new_insecure).
-    pub fn new(url: impl AsRef<str>) -> Result<Self> {
-        let url = Url::parse(url.as_ref()).map_err(Error::InvalidUrl)?;
-        require_https(&url)?;
-
-        Ok(Self { url })
-    }
-
-    /// Creates a new `FetchKeyStore` without enforcing HTTPS.
-    ///
-    /// # Warning
-    ///
-    /// This constructor skips the HTTPS scheme check and is intended **only** for local
-    /// development or testing where HTTPS is not available. Do **not** use this in
-    /// production — plain HTTP connections allow network attackers to tamper with
-    /// JWKS responses and inject attacker-controlled keys.
-    pub fn new_insecure(url: impl AsRef<str>) -> Result<Self> {
-        let url = Url::parse(url.as_ref()).map_err(Error::InvalidUrl)?;
-
-        Ok(Self { url })
-    }
-
-    /// Fetches the JWKS from the remote endpoint using Cloudflare Worker's Fetch API.
-    async fn fetch(&self) -> Result<KeySet> {
-        let mut response = worker::Fetch::Url(self.url.clone())
-            .send()
-            .await
-            .map_err(|e| Error::Fetch(format!("fetch failed: {}", e)))?;
-
-        let status = response.status_code();
-        if !(200..300).contains(&status) {
-            return Err(Error::Fetch(format!(
-                "JWKS endpoint returned HTTP {}",
-                status
-            )));
-        }
-
-        let mut bytes = Vec::new();
-        let mut stream = response
-            .stream()
-            .map_err(|e| Error::Fetch(format!("failed to read response body: {}", e)))?;
-
-        while let Some(chunk) = stream
-            .try_next()
-            .await
-            .map_err(|e| Error::Fetch(format!("failed to read response body: {}", e)))?
-        {
-            bytes.extend_from_slice(&chunk);
-        }
-
-        Ok(serde_json::from_slice::<KeySet>(&bytes)?)
-    }
-}
-
-// Note: This module is only compiled for wasm32 targets, so we use the ?Send variant
-#[async_trait::async_trait(?Send)]
-impl KeyStore for FetchKeyStore {
-    async fn get_keyset(&self) -> Result<KeySet> {
-        self.fetch().await
-    }
-}
 
 /// A key cache backed by Cloudflare Workers KV.
 ///
@@ -147,7 +52,7 @@ impl KeyStore for FetchKeyStore {
 /// # KV Storage Format
 ///
 /// The key set is stored under a single KV key (configurable via `with_key`).
-/// The value is the JSON-serialized [`KeySet`](crate::KeySet).
+/// The value is the JSON-serialized [`KeySet`].
 ///
 /// # TTL Behavior
 ///
@@ -215,79 +120,61 @@ impl KvKeyCache {
     }
 }
 
-// Note: This module is only compiled for wasm32 targets, so we use the ?Send variant
-#[async_trait::async_trait(?Send)]
+// KV operations await JS promises, which are not `Send`; see `assume_send`.
+#[async_trait::async_trait]
 impl KeyCache for KvKeyCache {
     async fn get(&self) -> Result<Option<KeySet>> {
-        let value = self
-            .kv
-            .get(&self.key)
-            .text()
-            .await
-            .map_err(|e| Error::Cache(format!("read failed: {}", e)))?;
+        assume_send(async {
+            let value = self
+                .kv
+                .get(&self.key)
+                .text()
+                .await
+                .map_err(|e| Error::Cache(format!("read failed: {}", e)))?;
 
-        match value {
-            Some(json) => serde_json::from_str(&json)
-                .map(Some)
-                .map_err(|e| Error::Cache(format!("deserialize failed: {}", e))),
-            None => Ok(None),
-        }
+            match value {
+                Some(json) => serde_json::from_str(&json)
+                    .map(Some)
+                    .map_err(|e| Error::Cache(format!("deserialize failed: {}", e))),
+                None => Ok(None),
+            }
+        })
+        .await
     }
 
     async fn set(&self, keyset: KeySet) -> Result<()> {
         let json = serde_json::to_string(&keyset)
             .map_err(|e| Error::Cache(format!("serialize failed: {}", e)))?;
 
-        let builder = self
-            .kv
-            .put(&self.key, json)
-            .map_err(|e| Error::Cache(format!("write setup failed: {}", e)))?;
+        assume_send(async move {
+            let builder = self
+                .kv
+                .put(&self.key, json)
+                .map_err(|e| Error::Cache(format!("write setup failed: {}", e)))?;
 
-        let builder = if let Some(ttl) = self.ttl_seconds {
-            builder.expiration_ttl(ttl)
-        } else {
+            let builder = if let Some(ttl) = self.ttl_seconds {
+                builder.expiration_ttl(ttl)
+            } else {
+                builder
+            };
+
             builder
-        };
+                .execute()
+                .await
+                .map_err(|e| Error::Cache(format!("write failed: {}", e)))?;
 
-        builder
-            .execute()
-            .await
-            .map_err(|e| Error::Cache(format!("write failed: {}", e)))?;
-
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn clear(&self) -> Result<()> {
-        self.kv
-            .delete(&self.key)
-            .await
-            .map_err(|e| Error::Cache(format!("delete failed: {}", e)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_fetch_keystore_new_rejects_invalid_url() {
-        let err = FetchKeyStore::new("not a valid url").unwrap_err();
-        assert!(matches!(err, Error::InvalidUrl(_)));
-    }
-
-    #[test]
-    fn test_fetch_keystore_new_rejects_http_url() {
-        let err = FetchKeyStore::new("http://example.com/.well-known/jwks.json").unwrap_err();
-        assert!(matches!(err, Error::InvalidUrlScheme(_)));
-    }
-
-    #[test]
-    fn test_fetch_keystore_new_accepts_https_url() {
-        assert!(FetchKeyStore::new("https://example.com/.well-known/jwks.json").is_ok());
-    }
-
-    #[test]
-    fn test_fetch_keystore_new_insecure_accepts_http_url() {
-        assert!(FetchKeyStore::new_insecure("http://example.com/.well-known/jwks.json").is_ok());
+        assume_send(async {
+            self.kv
+                .delete(&self.key)
+                .await
+                .map_err(|e| Error::Cache(format!("delete failed: {}", e)))
+        })
+        .await
     }
 }

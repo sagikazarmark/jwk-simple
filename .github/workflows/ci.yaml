@@ -35,10 +35,10 @@ jobs:
         include:
           - name: native
             target: x86_64-unknown-linux-gnu
-            features: http,jwt-simple,jwt-simple/pure-rust,moka
+            features: http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust,moka
           - name: wasm
             target: wasm32-unknown-unknown
-            features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
+            features: cloudflare,http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     env:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
@@ -66,10 +66,10 @@ jobs:
         include:
           - name: native
             target: x86_64-unknown-linux-gnu
-            features: http,jwt-simple,jwt-simple/pure-rust,moka
+            features: http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust,moka
           - name: wasm
             target: wasm32-unknown-unknown
-            features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
+            features: cloudflare,http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     steps:
       - name: Checkout repository
@@ -102,10 +102,10 @@ jobs:
         include:
           - name: native
             target: x86_64-unknown-linux-gnu
-            features: http,jwt-simple,jwt-simple/pure-rust,moka
+            features: http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust,moka
           - name: wasm
             target: wasm32-unknown-unknown
-            features: cloudflare,http,jwt-simple,jwt-simple/pure-rust,web-crypto
+            features: cloudflare,http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     env:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
@@ -143,10 +143,10 @@ jobs:
         include:
           - name: native
             target: x86_64-unknown-linux-gnu
-            features: http,jwt-simple,jwt-simple/pure-rust
+            features: http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust
           - name: wasm
             target: wasm32-unknown-unknown
-            features: http,jwt-simple,jwt-simple/pure-rust,web-crypto
+            features: http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto
 
     env:
       CARGO_BUILD_TARGET: ${{ matrix.target }}

@@ -3,7 +3,7 @@
 //! This example demonstrates how to fetch JWKS from HTTP endpoints,
 //! which is the typical way to get keys from identity providers.
 //!
-//! Run with: `cargo run --example http_fetch --features http`
+//! Run with: `cargo run --example http_fetch --features reqwest,default-tls`
 
 #[cfg(not(target_arch = "wasm32"))]
 use jwk_simple::jwks::{HttpKeyStore, KeyStore};
@@ -67,7 +67,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "moka"))]
     {
         println!("\nTip: enable 'moka' to use MokaKeyCache.");
-        println!("Run with: cargo run --example http_fetch --features \"http moka\"");
+        println!(
+            "Run with: cargo run --example http_fetch --features \"reqwest default-tls moka\""
+        );
     }
 
     Ok(())

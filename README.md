@@ -13,8 +13,9 @@ A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defin
 - **WASM and WebCrypto compatible**: Core functionality works in WebAssembly environments, with optional WebCrypto integration on `wasm32`
 - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
 - **jwt-simple integration**: Optional feature for converting JWKs to [`jwt-simple`](https://github.com/jedisct1/rust-jwt-simple) key types
-- **Remote fetching**: Load JWKS from HTTP endpoints with caching support
+- **Remote fetching**: Load JWKS from HTTP endpoints through a pluggable transport (reqwest, any `tower::Service`, or your own), with a hard cap on response size
 - **Caching**: Optional TTL-based caching of fetched JWKS (`KeySet`) data
+- **Runs on Cloudflare Workers**: `Send` futures on `wasm32`, KV caching, and `tower-worker-fetch` as the HTTP transport, so a store fits axum's `State`
 
 ## Quick Start
 
@@ -22,7 +23,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-jwk-simple = "0.1"
+jwk-simple = "0.6"
 serde_json = "1"
 ```
 
@@ -58,9 +59,12 @@ expected usage and platform constraints.
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `jwt-simple` | ❌ | Integration with the jwt-simple crate (all targets; requires a `jwt-simple` backend feature such as `jwt-simple/pure-rust`) |
-| `http` | ❌ | Async HTTP fetching (reqwest, all targets) |
+| `http` | ❌ | Remote JWKS fetching through the `HttpTransport` trait: `HttpKeyStore` and the transport types (all targets). Bring your own transport, or enable one of the two below |
+| `reqwest` | ❌ | The default transport, `ReqwestTransport` (implies `http`, all targets). On native targets it needs a TLS backend: `default-tls`, `rustls` or `native-tls` |
+| `default-tls`, `rustls`, `native-tls` | ❌ | TLS backends for `reqwest` (no-ops without it, and on `wasm32` where the JS host does TLS) |
+| `tower` | ❌ | `TowerTransport`, an `HttpTransport` over any `tower::Service` speaking `http` types (implies `http`, all targets): `tower-reqwest` natively, `tower-worker-fetch` on Cloudflare Workers |
 | `web-crypto` | ❌ | WebCrypto API integration (`wasm32` only) |
-| `cloudflare` | ❌ | Cloudflare Workers support (KV cache + fetch, `wasm32` only) |
+| `cloudflare` | ❌ | Cloudflare Workers support: `KvKeyCache` over Workers KV (`wasm32` only) |
 | `moka` | ❌ | In-memory TTL-based key caching (non-`wasm32` only) |
 
 Invalid platform/feature combinations intentionally fail at compile time with
@@ -100,8 +104,8 @@ Note: `jwt-simple` is not re-exported. Add it to your dependencies when using it
 
 ```toml
 [dependencies]
-jwk-simple = { version = "0.1", features = ["jwt-simple"] }
-jwt-simple = { version = "0.12", default-features = false, features = ["pure-rust"] }
+jwk-simple = { version = "0.6", features = ["jwt-simple"] }
+jwt-simple = { version = "0.15", default-features = false, features = ["pure-rust"] }
 ```
 
 ```rust
@@ -122,36 +126,129 @@ let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 
 ### Fetching from HTTP
 
-With the `http` feature enabled:
+With the `reqwest` feature (and, on native targets, a TLS feature):
+
+```toml
+[dependencies]
+jwk-simple = { version = "0.6", features = ["reqwest", "default-tls"] }
+```
 
 ```rust
 use jwk_simple::jwks::{HttpKeyStore, KeyStore};
-use std::time::Duration;
 
-// Create remote key store.
 // Native targets use a default 30s timeout.
 // On wasm32, reqwest uses the browser/Fetch backend where
 // client-level timeout configuration is not available.
 let remote = HttpKeyStore::new("https://example.com/.well-known/jwks.json")?;
 
-// For custom timeout, use a custom client.
-// Note: reqwest is not re-exported, so add it to your own Cargo.toml:
-//   reqwest = "0.13"
-let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(10))
-    .build()?;
-let remote = HttpKeyStore::new_with_client(
-    "https://example.com/.well-known/jwks.json",
-    client,
-)?;
-
 // Fetch the JWKS
 let jwks = remote.get_keyset().await?;
 ```
 
+Responses are capped at 1 MiB by default (`HttpKeyStore::with_max_body_size` changes it): a
+response announcing or streaming more than that fails with `Error::Transport` of kind
+`TransportErrorKind::TooLarge`, and the transport stops reading at the limit.
+
+### Bring your own HTTP client
+
+The store sends requests through the `jwk_simple::jwks::HttpTransport` trait: one
+`http::Request<Bytes>` in, one buffered `http::Response<Bytes>` out. HTTPS enforcement, status
+handling, JSON parsing and caching all happen above it. The default transport, `ReqwestTransport`
+(feature `reqwest`), is a `reqwest::Client` with a 30 s timeout and nothing else configured; wrap
+your own `reqwest::Client` if you need custom TLS roots, a `User-Agent`, a different timeout or
+proxy settings:
+
+```rust
+use std::time::Duration;
+use jwk_simple::jwks::{HttpKeyStore, ReqwestTransport};
+
+// reqwest is not re-exported; add it to your own Cargo.toml.
+let client = reqwest::Client::builder()
+    .timeout(Duration::from_secs(10))
+    .user_agent("my-app/1.0")
+    .build()?;
+let remote = HttpKeyStore::new_with_transport(
+    "https://example.com/.well-known/jwks.json",
+    ReqwestTransport::new(client),
+)?;
+// `HttpKeyStore::new_with_client(url, client)` is shorthand for the same thing.
+```
+
+For another backend (a JS host's `fetch`, a `tower` service, an in-memory fake in tests), implement
+`HttpTransport` yourself and enable `http` without `reqwest`: reqwest is then not compiled at all.
+`ReqwestTransport::new` is the only place `reqwest` appears in this crate's API, so a `reqwest`
+upgrade only affects you if you pass one in.
+
+#### tower services
+
+With the `tower` feature, `TowerTransport` adapts any `tower::Service` that takes an
+`http::Request<Full<Bytes>>` and returns an `http::Response` with a streaming `http_body::Body`.
+`tower-worker-fetch` on Cloudflare Workers accepts any `http_body::Body`, so it fits as is;
+`tower-reqwest` takes `Request<reqwest::Body>`, so it needs a `map_request` in front (below); so does
+any other service with its own request body type. `TowerTransport` clones the service per request,
+caps the body at the store's limit while reading, and reports the service's errors as
+`TransportErrorKind::Other` (body read errors as `Body`) with the original error as the source;
+`with_classifier` lets you downcast and refine the kind.
+
+```rust
+use bytes::Bytes;
+use http::Request;
+use http_body_util::Full;
+use jwk_simple::jwks::{HttpKeyStore, TowerTransport};
+use tower::ServiceBuilder;
+use tower_reqwest::HttpClientService;
+
+let service = ServiceBuilder::new()
+    .map_request(|req: Request<Full<Bytes>>| req.map(reqwest::Body::wrap))
+    .service(HttpClientService::new(reqwest::Client::new()));
+let remote = HttpKeyStore::new_with_transport(
+    "https://example.com/.well-known/jwks.json",
+    TowerTransport::new(service),
+)?;
+```
+
+#### Cloudflare Workers
+
+Enable `cloudflare` (KV cache) and `tower`, and add
+[`tower-worker-fetch`](https://crates.io/crates/tower-worker-fetch) to your own dependencies; nothing
+Workers-specific beyond `KvKeyCache` is in this crate. There is no tokio timer in a Worker, so
+`tower::timeout` would panic; put a `tower_worker_fetch::Timeout` in the request extensions instead:
+
+```rust
+use std::time::Duration;
+
+use bytes::Bytes;
+use http::Request;
+use http_body_util::Full;
+use jwk_simple::jwks::{CachedKeyStore, HttpKeyStore, KeyStore, TowerTransport, cloudflare::KvKeyCache};
+use tower::ServiceBuilder;
+use tower_worker_fetch::{FetchService, Timeout};
+
+let transport = TowerTransport::new(
+    ServiceBuilder::new()
+        .map_request(|mut req: Request<Full<Bytes>>| {
+            req.extensions_mut().insert(Timeout(Duration::from_secs(5)));
+            req
+        })
+        .service(FetchService::new()),
+);
+let remote = HttpKeyStore::new_with_transport("https://example.com/.well-known/jwks.json", transport)?;
+let store = CachedKeyStore::new(KvKeyCache::new(env.kv("JWKS_CACHE")?), remote);
+
+let key = store.get_key("my-key-id").await?;
+```
+
+`KeyStore`, `KeyCache` and `HttpTransport` are `Send + Sync` with `Send` futures on `wasm32` too,
+so the store above can be an `Arc<dyn KeyStore>` in axum's `State` and awaited in a handler without
+`#[worker::send]` (`tests/workers.rs` type-checks exactly that in CI). The one exception is
+WebCrypto: `web_sys::CryptoKey` is not `Send`, so a handler that verifies with the `web-crypto`
+integration still needs `#[worker::send]`; verifying with `jwt-simple` (`pure-rust`) on `wasm32`
+is `Send` end to end. If you implement `KeyStore` or `KeyCache` over a JS API yourself, wrap the
+future with `jwk_simple::jwks::assume_send`.
+
 ### Caching Keys
 
-With the `http` and `moka` features enabled:
+With the `reqwest` and `moka` features enabled:
 
 ```rust
 use jwk_simple::jwks::{CachedKeyStore, HttpKeyStore, KeyCache, KeyStore, MokaKeyCache};
@@ -244,9 +341,10 @@ Legend for partial support (`⚠️`):
 ### When to use jwk-simple
 
 - **You need jwt-simple integration** - Direct conversion to jwt-simple key types
-- **You're building Cloudflare Workers** - Native KV cache support
+- **You're building Cloudflare Workers** - `Send` futures for axum/tower on Workers, native KV cache, `tower-worker-fetch` transport
 - **You need WASM support** - Core parsing works in browser
 - **You want broad JOSE/JWK RFC coverage** - All key types including OKP
+- **You want to control the HTTP stack** - Pluggable `HttpTransport` (reqwest, tower, or your own) with a bounded response size
 
 ### When to use alternatives
 
@@ -278,9 +376,12 @@ operations until an upstream patched chain is available.
 
 Core JWKS parsing works in WebAssembly environments.
 
-- `http` is available on `wasm32` via reqwest's Fetch backend
+- `http`, `reqwest` and `tower` are available on `wasm32`: reqwest uses its Fetch backend, and
+  `tower-worker-fetch` is the transport for Cloudflare Workers (see above)
 - `web-crypto` and `cloudflare` are `wasm32`-only features
 - `moka` is not available on `wasm32`
+- Threaded wasm (the `atomics` target feature) is rejected at compile time: the crate's `Send`
+  futures rest on `wasm32-unknown-unknown` being single-threaded
 
 Example for WASM:
 

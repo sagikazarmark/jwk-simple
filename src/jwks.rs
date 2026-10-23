@@ -2,7 +2,18 @@
 //!
 //! A JWKS is a collection of JWK objects, typically used for key distribution
 //! and discovery. This module also defines the [`KeyStore`] trait, which abstracts
-//! over different sources of JWK keys.
+//! over different sources of JWK keys, and the [`KeyCache`] / [`CachedKeyStore`]
+//! layer over it.
+//!
+//! # Remote key sets
+//!
+//! With the `http` feature, `HttpKeyStore` fetches a JWKS over HTTP through
+//! the `HttpTransport` trait: one `http::Request<Bytes>` in, one buffered
+//! `http::Response<Bytes>` out, with a hard cap on the body size. The `reqwest`
+//! feature adds the default transport, `ReqwestTransport`; the `tower`
+//! feature adds `TowerTransport`, an adapter over any `tower::Service` that
+//! speaks `http` types (`tower-reqwest` natively, `tower-worker-fetch` on
+//! Cloudflare Workers). Anything else implements `HttpTransport` directly.
 
 use std::fmt::{self, Display};
 
@@ -15,18 +26,39 @@ use crate::jwk::{
 
 mod cache;
 #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "cloudflare", target_arch = "wasm32"))))]
 pub mod cloudflare;
+mod send;
 mod store;
+#[cfg(feature = "http")]
+mod transport;
 
 #[cfg(all(feature = "moka", not(target_arch = "wasm32")))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "moka", not(target_arch = "wasm32")))))]
 pub use cache::moka::{DEFAULT_MOKA_CACHE_TTL, MokaKeyCache};
 pub use cache::{CachedKeyStore, KeyCache};
+pub use send::assume_send;
 
 #[cfg(feature = "http")]
-pub use store::http::HttpKeyStore;
+#[cfg_attr(docsrs, doc(cfg(feature = "http")))]
+pub use store::http::{DEFAULT_MAX_BODY_SIZE, HttpKeyStore};
+#[cfg(feature = "http")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http")))]
+pub use transport::{BoxError, HttpTransport, TransportError, TransportErrorKind, TransportFuture};
 
-#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-pub use store::http::DEFAULT_TIMEOUT;
+#[cfg(all(feature = "reqwest", not(target_arch = "wasm32")))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(feature = "reqwest", not(target_arch = "wasm32"))))
+)]
+pub use transport::DEFAULT_TIMEOUT;
+#[cfg(feature = "reqwest")]
+#[cfg_attr(docsrs, doc(cfg(feature = "reqwest")))]
+pub use transport::ReqwestTransport;
+
+#[cfg(feature = "tower")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tower")))]
+pub use transport::TowerTransport;
 
 /// Errors returned by strict key selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -546,10 +578,16 @@ impl<'a> KeySelector<'a> {
 /// the full key set. A default implementation of [`get_key`](KeyStore::get_key) is
 /// provided that fetches the full set and looks up by key ID.
 ///
-/// # Async and Send Bounds
+/// # `Send` on every target
 ///
-/// On native targets, the trait requires `Send + Sync` and futures are `Send`.
-/// On WASM targets, these bounds are relaxed since everything is single-threaded.
+/// Implementations are `Send + Sync` and the futures they return are `Send`,
+/// on `wasm32` too, so a store can live in shared state (an `Arc<dyn KeyStore>`
+/// in axum's `State`, say) and be awaited inside `Send`-requiring frameworks
+/// (axum, tower, Restate) on Cloudflare Workers without wrapping. JS futures
+/// (`fetch`, KV) are not `Send`, but `wasm32-unknown-unknown` is single-threaded:
+/// the crate's own implementations wrap them with [`assume_send`], and an
+/// implementation over a JS API should do the same. Threaded wasm (the
+/// `atomics` target feature) is rejected at compile time.
 ///
 /// # Examples
 ///
@@ -576,9 +614,8 @@ impl<'a> KeySelector<'a> {
 ///     Ok(())
 /// }
 /// ```
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait KeyStore {
+#[async_trait::async_trait]
+pub trait KeyStore: Send + Sync {
     /// Gets all available keys as a [`KeySet`].
     ///
     /// For remote sources, this may trigger a fetch if the cache is empty or expired.
@@ -597,8 +634,7 @@ pub trait KeyStore {
 }
 
 // Implement KeyStore for KeySet (static, immediate)
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait::async_trait]
 impl KeyStore for KeySet {
     async fn get_keyset(&self) -> Result<KeySet> {
         Ok(self.clone())
@@ -606,6 +642,18 @@ impl KeyStore for KeySet {
 
     async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
         Ok(self.get_by_kid(kid).cloned())
+    }
+}
+
+/// A shared store (also `Arc<dyn KeyStore>`).
+#[async_trait::async_trait]
+impl<T: KeyStore + ?Sized> KeyStore for std::sync::Arc<T> {
+    async fn get_keyset(&self) -> Result<KeySet> {
+        (**self).get_keyset().await
+    }
+
+    async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
+        (**self).get_key(kid).await
     }
 }
 

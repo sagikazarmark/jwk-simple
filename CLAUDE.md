@@ -101,7 +101,8 @@ Specific things to verify:
 ### Feature Flag Correctness
 
 - Code that uses WASM-only APIs (`web-sys`, `wasm-bindgen`, `js-sys`) must be guarded with `#[cfg(target_arch = "wasm32")]` or the appropriate feature gate.
-- Code gated on optional features (`moka`, `cloudflare`, `http`, `jwt-simple`, `web-crypto`) must not compile or link when the feature is disabled.
+- Code gated on optional features (`moka`, `cloudflare`, `http`, `reqwest`, `tower`, `jwt-simple`, `web-crypto`) must not compile or link when the feature is disabled.
+- `KeyStore`, `KeyCache` and `HttpTransport` are `Send + Sync` with `Send` futures on every target, `wasm32` included. New implementations over JS APIs must wrap their futures with `jwks::assume_send`; do not reintroduce `?Send` variants of the traits.
 - New platform-specific code paths should have a corresponding test that compiles under the correct target/feature combination.
 
 ### Examples and Tests
