@@ -154,19 +154,6 @@ Copy this block for new items:
 - Revisit signal: Interop issues around thumbprint-derived identifiers.
 - Suggested future action: Add validated/fallible thumbprint path and document raw method semantics.
 
-## Cloudflare remote fetch timeout is not explicitly configured
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
-- Severity: MEDIUM -> LOW/MEDIUM
-- Decision: DEFER
-- Rationale: Primarily resilience hardening; platform-level worker timeout already bounds worst-case behavior.
-- Preconditions/Trigger: Upstream stalls or responds very slowly, and callers need tighter app-level fail-fast semantics.
-- Risk if not fixed: Longer-than-desired latency and less precise timeout classification for retry/backoff behavior.
-- Revisit signal: SLO pressure, latency incidents, or need for distinct timeout error handling.
-- Suggested future action: Add optional configurable timeout/abort in Cloudflare `FetchKeyStore` with typed timeout error.
-
 ## Public-only OKP enforcement is not explicit
 - Date added: 2026-03-03
 - Source: second-opinion review
@@ -300,3 +287,12 @@ Copy this block for new items:
 ## Ignored Findings
 
 (No active ignored findings.)
+
+## Resolved Findings
+
+Previously deferred findings that a later change closed, kept for traceability.
+
+## Cloudflare remote fetch timeout is not explicitly configured
+- Date added: 2026-03-03
+- Resolved: 2026-10-23
+- Resolution: `cloudflare::FetchKeyStore` was removed with the `HttpTransport` refactor. The Workers path is now `HttpKeyStore` over `TowerTransport<tower_worker_fetch::FetchService>`, where a per-request timeout is a `tower_worker_fetch::Timeout` request extension (`AbortSignal.timeout()` under the hood) and surfaces as a transport error whose source downcasts to `tower_worker_fetch::Error` (`is_timeout()`); `TowerTransport::with_classifier` maps it to `TransportErrorKind::Timeout`. The README Workers example and `tests/workers.rs` show the pattern.

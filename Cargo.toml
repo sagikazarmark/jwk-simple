@@ -13,17 +13,24 @@ categories = ["authentication", "cryptography", "web-programming", "wasm"]
 [dependencies]
 async-trait = "0.1"
 base64ct = { version = "1.8", features = ["alloc"] }
-futures = { version = "0.3", optional = true }
+# `http::Request<Bytes>` / `http::Response<Bytes>` are the `HttpTransport` trait's types.
+bytes = { version = "1", optional = true, default-features = false }
+http = { version = "1", optional = true, default-features = false, features = ["std"] }
+# `TowerTransport` (feature `tower`): the service trait alone (no `tower` crate),
+# and streaming bodies, read frame by frame up to the configured limit.
+http-body = { version = "1", optional = true }
+http-body-util = { version = "0.1", optional = true }
 js-sys = { version = "0.3", optional = true }
 jwt-simple = { version = "0.15", optional = true, default-features = false }
 pkcs1 = { version = "0.7", optional = true, default-features = false, features = ["alloc"] }
 moka = { version = "0.12", optional = true, features = ["future"] }
-reqwest = { version = "0.13", optional = true, default-features = false, features = ["json"] }
+reqwest = { version = "0.13", optional = true, default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
 sha1 = "0.11"
 subtle = "2.6"
+tower-service = { version = "0.3", optional = true }
 url = "2.5"
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
@@ -41,12 +48,35 @@ x509-parser = "0.18"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
+# Bodies are streamed on wasm too, to stop reading past the configured limit
+# (`chunk()` does not exist there; `bytes_stream()` is polled via `futures-core`).
+futures-core = { version = "0.3", optional = true, default-features = false }
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["stream"] }
+# JS futures (`fetch`, KV) are not `Send`; wasm32-unknown-unknown is single-threaded,
+# so the crate wraps them (see `jwks::assume_send`).
+send_wrapper = { version = "0.6", features = ["futures"] }
 
 [features]
 default = []
 moka = ["dep:moka"]
-cloudflare = ["dep:worker", "dep:futures"]
-http = ["dep:reqwest"]
+## Cloudflare Workers support: `KvKeyCache` over Workers KV (`wasm32` only).
+cloudflare = ["dep:worker"]
+## Remote JWKS fetching through the `HttpTransport` trait: `HttpKeyStore` and the
+## transport types. Without `reqwest` or `tower`, bring your own `HttpTransport`.
+http = ["dep:http", "dep:bytes"]
+## The default transport, `ReqwestTransport` (implies `http`). The only place
+## `reqwest` shows in the API. On native targets it needs a TLS backend: enable
+## one of the TLS features below, or configure TLS on your own `reqwest::Client`.
+reqwest = ["http", "dep:reqwest", "dep:futures-core"]
+## TLS for `ReqwestTransport`. These do nothing without `reqwest`, and nothing
+## on `wasm32` (the JS host does TLS). `default-tls` is reqwest's default backend.
+default-tls = ["reqwest?/default-tls"]
+rustls = ["reqwest?/rustls"]
+native-tls = ["reqwest?/native-tls"]
+## `TowerTransport`: an `HttpTransport` over any `tower::Service` that speaks
+## `http::Request` / `http::Response` (implies `http`). `tower-reqwest` on
+## native targets, `tower-worker-fetch` on Cloudflare Workers, or your own stack.
+tower = ["http", "dep:tower-service", "dep:http-body", "dep:http-body-util"]
 jwt-simple = ["dep:jwt-simple", "dep:pkcs1"]
 web-crypto = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys"]
 
@@ -56,19 +86,35 @@ serde_json = "1.0"
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "test-util", "net", "io-util", "time"] }
 criterion = "0.8"
-reqwest = { version = "0.13", default-features = false, features = ["json", "default-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["default-tls"] }
 jwt-simple = { version = "0.15", default-features = false, features = ["pure-rust"] }
+bytes = "1"
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+tower-service = "0.3"
+# `TowerTransport` over a real HTTP stack (tests/tower.rs), as the README shows it.
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-reqwest = { version = "0.6", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+# Compile-time proof that `TowerTransport<FetchService>` and `KvKeyCache` fit
+# an axum router's `Send + Sync` bounds on Workers (tests/workers.rs).
+axum = { version = "0.8", default-features = false }
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-worker-fetch = "0.2"
 
 [[example]]
 name = "http_fetch"
-required-features = ["http"]
+required-features = ["reqwest", "default-tls"]
 
 [[example]]
 name = "http_fetch_wasm"
-required-features = ["http"]
+required-features = ["reqwest"]
 
 [[example]]
 name = "jwt_verify"
@@ -83,7 +129,7 @@ name = "benchmarks"
 harness = false
 
 [package.metadata.docs.rs]
-features = ["http", "moka", "jwt-simple", "jwt-simple/pure-rust", "web-crypto", "cloudflare"]
+features = ["http", "reqwest", "tower", "moka", "jwt-simple", "jwt-simple/pure-rust", "web-crypto", "cloudflare"]
 rustdoc-args = ["--cfg", "docsrs"]
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 

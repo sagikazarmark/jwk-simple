@@ -14,7 +14,10 @@
 //! - **WASM compatible**: Core functionality works in WebAssembly environments
 //! - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
 //! - **jwt-simple integration**: Optional feature for converting JWKs to jwt-simple key types
-//! - **Remote fetching**: Load JWKS from HTTP endpoints with caching support
+//! - **Remote fetching**: Load JWKS from HTTP endpoints through a pluggable
+//!   transport (reqwest, any `tower::Service`, or your own) with caching support
+//! - **Runs on Cloudflare Workers**: `Send` futures on `wasm32`, KV caching, and
+//!   `tower-worker-fetch` as the HTTP transport
 //! - **Strict selection API**: `KeySet::selector(...).select(...)` with typed errors
 //!
 //! ## Quick Start
@@ -52,13 +55,50 @@
 //! | Feature | Platform | Description |
 //! |---------|----------|-------------|
 //! | `jwt-simple` | all targets | Integration with the jwt-simple crate (requires a `jwt-simple` backend feature such as `jwt-simple/pure-rust`) |
-//! | `http` | all targets | Async HTTP fetching with `HttpKeyStore` |
+//! | `http` | all targets | Remote JWKS fetching through the `jwks::HttpTransport` trait: `jwks::HttpKeyStore` and the transport types. Bring your own transport, or enable one below |
+//! | `reqwest` | all targets | The default transport, `jwks::ReqwestTransport` (implies `http`). On native targets it needs a TLS backend: `default-tls`, `rustls` or `native-tls` |
+//! | `default-tls`, `rustls`, `native-tls` | non-`wasm32` | TLS backends for `reqwest` (no-ops without it, and on `wasm32` where the JS host does TLS) |
+//! | `tower` | all targets | `jwks::TowerTransport`, an `HttpTransport` over any `tower::Service` speaking `http` types (implies `http`): `tower-reqwest` natively, `tower-worker-fetch` on Cloudflare Workers |
 //! | `web-crypto` | `wasm32` only | WebCrypto integration for browser/WASM environments |
-//! | `cloudflare` | `wasm32` only | Cloudflare Workers support (Fetch API + KV cache) |
+//! | `cloudflare` | `wasm32` only | Cloudflare Workers support: `jwks::cloudflare::KvKeyCache` over Workers KV |
 //! | `moka` | non-`wasm32` only | In-memory `KeyCache` implementation using Moka |
 //!
 //! Invalid platform/feature combinations fail at compile time with clear
 //! `compile_error!` messages.
+//!
+//! ## Fetching a remote JWKS
+//!
+//! With the `reqwest` feature (and a TLS feature on native targets):
+//!
+#![cfg_attr(feature = "reqwest", doc = "```no_run")]
+#![cfg_attr(not(feature = "reqwest"), doc = "```ignore")]
+//! use jwk_simple::jwks::{HttpKeyStore, KeyStore};
+//!
+//! # async fn example() -> jwk_simple::Result<()> {
+//! let store = HttpKeyStore::new("https://example.com/.well-known/jwks.json")?;
+//! let key = store.get_key("my-key-id").await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! HTTP goes through the `jwks::HttpTransport` trait, so the store does not
+//! depend on reqwest: `HttpKeyStore::new_with_transport` takes a
+//! `ReqwestTransport` over your own client, a `jwks::TowerTransport` over a
+//! `tower::Service` (feature `tower`), or your own implementation. Wrap the
+//! store in [`jwks::CachedKeyStore`] for production use.
+//!
+//! ## `Send` on every target
+//!
+//! [`jwks::KeyStore`], [`jwks::KeyCache`] and `jwks::HttpTransport` are
+//! `Send + Sync` with `Send` futures on `wasm32` too, so a store can be shared
+//! state in `Send`-requiring frameworks (axum, tower) on Cloudflare Workers
+//! without `#[worker::send]`. JS futures are wrapped on the single-threaded
+//! assumption (see [`jwks::assume_send`]); threaded wasm (`atomics`) is
+//! rejected at compile time. The exception is the `web-crypto` integration:
+//! `web_sys::CryptoKey` and the SubtleCrypto futures are not `Send` and cannot
+//! be made so, so a handler that verifies with WebCrypto still needs
+//! `#[worker::send]`. Verifying with `jwt-simple` (feature `pure-rust`) on
+//! `wasm32` involves no JS values and is `Send` end to end.
 //!
 //! ## Converting to jwt-simple keys
 //!
@@ -178,6 +218,14 @@ compile_error!("feature `cloudflare` is only supported on `wasm32` targets");
 
 #[cfg(all(feature = "moka", target_arch = "wasm32", not(docsrs)))]
 compile_error!("feature `moka` is not supported on `wasm32` targets");
+
+// `KeyStore` and `KeyCache` futures are `Send` on every target. On wasm32 that
+// rests on the target being single-threaded (JS futures are wrapped, see
+// `jwks::assume_send`); threaded wasm would make that unsound.
+#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+compile_error!(
+    "jwk-simple assumes single-threaded wasm (no `atomics`): it marks JS futures `Send`"
+);
 
 pub mod encoding;
 pub mod error;

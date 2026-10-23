@@ -44,8 +44,7 @@ impl Default for MokaKeyCache {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait::async_trait]
 impl KeyCache for MokaKeyCache {
     async fn get(&self) -> Result<Option<KeySet>> {
         Ok(self.cache.get(&KEYSET_CACHE_KEY).await)
@@ -124,8 +123,7 @@ mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    #[async_trait::async_trait]
     impl KeyStore for RotatingKeyStore {
         async fn get_keyset(&self) -> crate::error::Result<KeySet> {
             let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
@@ -139,8 +137,7 @@ mod tests {
 
     struct FailingKeyStore;
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    #[async_trait::async_trait]
     impl KeyStore for FailingKeyStore {
         async fn get_keyset(&self) -> crate::error::Result<KeySet> {
             Err(Error::Other("mock source failure".to_string()))

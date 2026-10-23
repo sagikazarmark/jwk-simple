@@ -28,9 +28,12 @@ use super::{KeySet, KeyStore};
 /// The cache stores the entire [`KeySet`] as a single unit, which matches how JWKS
 /// endpoints work (they always return the full set). This avoids the N+1 fetch problem
 /// that per-key caching would cause.
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait KeyCache {
+///
+/// Like [`KeyStore`], implementations are `Send + Sync` with `Send` futures on
+/// every target; a backend over a JS API (Workers KV, IndexedDB) wraps its
+/// futures with [`assume_send`](super::assume_send).
+#[async_trait::async_trait]
+pub trait KeyCache: Send + Sync {
     /// Gets the cached key set.
     ///
     /// Returns `None` if the cache is empty or has expired.
@@ -54,12 +57,6 @@ pub trait KeyCache {
 /// When looking up a key by ID, if the cached key set doesn't contain the requested key,
 /// the store refetches from the underlying source. This handles key rotation gracefully:
 /// newly added keys are discovered automatically without waiting for cache expiration.
-///
-/// # Async and Send Bounds
-///
-/// On native targets, the `KeyStore` implementation for `CachedKeyStore`
-/// requires `Send + Sync` for both cache and source store for thread-safe usage.
-/// On `wasm32`, these bounds are relaxed to match the `?Send` async model.
 ///
 /// # Examples
 ///
@@ -101,44 +98,7 @@ impl<C: KeyCache, S: KeyStore> CachedKeyStore<C, S> {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
-impl<C, S> KeyStore for CachedKeyStore<C, S>
-where
-    C: KeyCache + Send + Sync,
-    S: KeyStore + Send + Sync,
-{
-    async fn get_keyset(&self) -> Result<KeySet> {
-        // Try cache first
-        if let Some(keyset) = self.cache.get().await? {
-            return Ok(keyset);
-        }
-
-        // No cache hit: fetch from source and cache
-        let keyset = self.store.get_keyset().await?;
-        self.cache.set(keyset.clone()).await?;
-
-        Ok(keyset)
-    }
-
-    async fn get_key(&self, kid: &str) -> Result<Option<Key>> {
-        // Try cache first
-        if let Some(keyset) = self.cache.get().await?
-            && let Some(key) = keyset.get_by_kid(kid)
-        {
-            return Ok(Some(key.clone()));
-        }
-
-        // Key not in cached set: refetch
-        let keyset = self.store.get_keyset().await?;
-        self.cache.set(keyset.clone()).await?;
-
-        Ok(keyset.get_by_kid(kid).cloned())
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-#[async_trait::async_trait(?Send)]
 impl<C, S> KeyStore for CachedKeyStore<C, S>
 where
     C: KeyCache,
