@@ -61,12 +61,6 @@ in
 {
   cachix.pull = [ "sagikazarmark-dev" ];
 
-  dagger = {
-    enable = true;
-
-    version = "v1.0.0-beta.20";
-  };
-
   # Firefox and geckodriver for the headless browser tests (tests/web_crypto.rs).
   browsers.firefox.enable = true;
 
@@ -87,6 +81,7 @@ in
     just
 
     cargo-audit
+    cargo-hack
     cargo-release
     cargo-watch
     cargo-expand

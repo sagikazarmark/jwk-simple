@@ -309,22 +309,22 @@ mod wasm_example {
         let now = current_timestamp();
 
         // Check expiration
-        if options.validate_exp {
-            if let Some(exp) = claims.exp {
-                let exp_with_skew = exp.saturating_add(options.clock_skew);
-                if now > exp_with_skew {
-                    return Err(JwtError::Expired);
-                }
+        if options.validate_exp
+            && let Some(exp) = claims.exp
+        {
+            let exp_with_skew = exp.saturating_add(options.clock_skew);
+            if now > exp_with_skew {
+                return Err(JwtError::Expired);
             }
         }
 
         // Check not-before
-        if options.validate_nbf {
-            if let Some(nbf) = claims.nbf {
-                let now_with_skew = now.saturating_add(options.clock_skew);
-                if now_with_skew < nbf {
-                    return Err(JwtError::NotYetValid);
-                }
+        if options.validate_nbf
+            && let Some(nbf) = claims.nbf
+        {
+            let now_with_skew = now.saturating_add(options.clock_skew);
+            if now_with_skew < nbf {
+                return Err(JwtError::NotYetValid);
             }
         }
 
@@ -352,7 +352,7 @@ mod wasm_example {
         let alg = Algorithm::from(jwt.header.alg.as_str());
 
         // Strict selector path for JWT verification.
-        let selector = jwks.selector(&[alg.clone()]);
+        let selector = jwks.selector(std::slice::from_ref(&alg));
         let matcher = KeyMatcher::new(KeyOperation::Verify, alg);
 
         let result = if let Some(kid) = jwt.header.kid.as_deref() {
