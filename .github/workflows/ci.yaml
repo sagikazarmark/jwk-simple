@@ -14,8 +14,8 @@ env:
 defaults:
   run:
     # Every step runs in the devenv shell: the project's Rust toolchain with the
-    # wasm32 target, wasm-bindgen-cli at the version in Cargo.lock, and Firefox
-    # with geckodriver for the browser tests.
+    # wasm32 target, a nightly for the docs.rs reproduction, wasm-bindgen-cli at
+    # the version in Cargo.lock, and Firefox with geckodriver for the browser tests.
     shell: devenv shell -- bash -e {0}
 
 jobs:
