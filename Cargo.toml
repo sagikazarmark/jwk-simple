@@ -1,7 +1,7 @@
 [package]
 name = "jwk-simple"
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.91"
 version = "0.5.0"
 description = "JWK/JWKS for Rust and WASM (RFC 7517, 7518, 7638, 8037, 9864) with jwt-simple integration"
 license = "MIT"
@@ -15,7 +15,7 @@ async-trait = "0.1"
 base64ct = { version = "1.8", features = ["alloc"] }
 futures = { version = "0.3", optional = true }
 js-sys = { version = "0.3", optional = true }
-jwt-simple = { version = "0.13", optional = true, default-features = false }
+jwt-simple = { version = "0.15", optional = true, default-features = false }
 pkcs1 = { version = "0.7", optional = true, default-features = false, features = ["alloc"] }
 moka = { version = "0.12", optional = true, features = ["future"] }
 reqwest = { version = "0.13", optional = true, default-features = false, features = ["json"] }
@@ -57,7 +57,7 @@ serde_json = "1.0"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "test-util", "net", "io-util", "time"] }
 criterion = "0.8"
 reqwest = { version = "0.13", default-features = false, features = ["json", "default-tls"] }
-jwt-simple = { version = "0.13", default-features = false, features = ["pure-rust"] }
+jwt-simple = { version = "0.15", default-features = false, features = ["pure-rust"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"

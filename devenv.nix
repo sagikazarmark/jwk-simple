@@ -35,7 +35,7 @@
     cargo-expand
     wasm-pack
     # wasm-bindgen-cli_0_2_108
-    wasm-bindgen-cli_0_2_126
+    wasm-bindgen-cli_0_2_129
     # chromedriver
     geckodriver
   ];
