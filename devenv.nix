@@ -3,10 +3,11 @@
 {
   cachix.pull = [ "sagikazarmark-dev" ];
 
-  # dotenv.enable = true;
+  dagger = {
+    enable = true;
 
-  dagger.enable = true;
-  env.DAGGER_X_RELEASE = "v1.0.0-beta.10";
+    version = "v1.0.0-beta.20";
+  };
 
   env.CC_wasm32_unknown_unknown = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
 
