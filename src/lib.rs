@@ -208,8 +208,9 @@
 // Feature/target compatibility guards
 // ---------------------------------------------------------------------------
 //
-// docs.rs builds with all features enabled on a native target to render API docs.
-// We skip hard errors there so docs can still be generated for feature-gated APIs.
+// docs.rs builds with every feature enabled on both targets to render API docs
+// (`[package.metadata.docs.rs]`; `just docsrs` reproduces it). We skip hard
+// errors there so docs can still be generated for feature-gated APIs.
 #[cfg(all(feature = "web-crypto", not(target_arch = "wasm32"), not(docsrs)))]
 compile_error!("feature `web-crypto` is only supported on `wasm32` targets");
 

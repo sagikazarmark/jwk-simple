@@ -4,6 +4,12 @@ native := "http,reqwest,tower,default-tls,jwt-simple,jwt-simple/pure-rust,moka"
 wasm := "cloudflare,http,reqwest,tower,jwt-simple,jwt-simple/pure-rust,web-crypto"
 wasm_target := "wasm32-unknown-unknown"
 
+# What docs.rs builds, on both targets: `[package.metadata.docs.rs]` in Cargo.toml,
+# which must stay in sync with this. Nightly, because `--cfg docsrs` enables
+# `#![feature(doc_cfg)]`; devenv provides it as `CARGO_NIGHTLY`.
+docsrs := "http,reqwest,tower,moka,jwt-simple,jwt-simple/pure-rust,web-crypto,cloudflare"
+cargo_nightly := env("CARGO_NIGHTLY", "cargo +nightly")
+
 # List the recipes.
 [private]
 default:
@@ -42,10 +48,10 @@ test-wasm:
 lint: lint-native lint-wasm
 
 # Check formatting, run clippy and rustdoc for the native target.
-lint-native: fmt clippy-native doc
+lint-native: fmt clippy-native doc docsrs-native
 
-# Run clippy for wasm32.
-lint-wasm: clippy-wasm
+# Run clippy and the docs.rs build for wasm32.
+lint-wasm: clippy-wasm docsrs-wasm
 
 # Check formatting.
 fmt:
@@ -63,6 +69,19 @@ clippy-wasm:
 [env("RUSTDOCFLAGS", "--deny warnings")]
 doc:
     cargo doc --no-deps --features {{native}} --locked
+
+# Reproduce the docs.rs build on every target.
+docsrs: docsrs-native docsrs-wasm
+
+# Reproduce the docs.rs build for the native target.
+[env("RUSTDOCFLAGS", "--cfg docsrs --deny warnings")]
+docsrs-native:
+    {{cargo_nightly}} doc --no-deps --features {{docsrs}} --locked
+
+# Reproduce the docs.rs build for wasm32.
+[env("RUSTDOCFLAGS", "--cfg docsrs --deny warnings")]
+docsrs-wasm:
+    {{cargo_nightly}} doc --no-deps --target {{wasm_target}} --features {{docsrs}} --locked
 
 # Check the examples on every target, and run the native ones.
 examples: examples-native examples-wasm
