@@ -1,4 +1,6 @@
-//! jwt-simple key conversion implementations.
+//! jwt-simple key conversions, in both directions.
+//!
+//! # Into jwt-simple (`TryFrom<&Key>` for the jwt-simple key types)
 //!
 //! Every conversion runs this crate's validation first ([`Key::validate_for_use`]:
 //! structure, declared `alg`, `use`/`key_ops` intent, key strength), then hands
@@ -15,6 +17,19 @@
 //!
 //! Symmetric (`HS*`) keys have no JWK import in jwt-simple and go through
 //! `from_bytes`.
+//!
+//! # From jwt-simple (`TryFrom<&…>` for [`Key`])
+//!
+//! The publishing direction: a key generated or loaded with jwt-simple becomes a
+//! [`Key`] that can go into a [`KeySet`](crate::KeySet) and be served as a JWKS.
+//! Asymmetric keys are parsed from jwt-simple's own `to_jwk()` export, so the
+//! result is exactly what jwt-simple would publish (`alg`, `use: sig`, `kid` when
+//! one is set; Ed25519 as `alg: EdDSA`). HMAC keys are built from `to_bytes()`.
+//! The result passes [`Key::validate`]; strength policy is applied when the key is
+//! selected or converted back, not here.
+//!
+//! Converting a key pair or an HMAC key exports private material. Use
+//! `public_key()` first, or [`Key::to_public`] afterwards, to publish.
 //!
 //! # Security Note — RSA Timing Side-Channel (RUSTSEC-2023-0071)
 //!
@@ -43,7 +58,8 @@ use crate::IncompatibleKeyError;
 use crate::encoding::Base64UrlBytes;
 use crate::error::{Error, JwtSimpleKeyConversionError};
 use crate::jwk::{
-    Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, OkpCurve, OkpParams, RsaParams,
+    Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyUse, OkpCurve, OkpParams,
+    RsaParams, SymmetricParams,
 };
 
 type Result<T> = std::result::Result<T, JwtSimpleKeyConversionError>;
@@ -114,6 +130,17 @@ fn okp_params(jwk: &Key, curve: OkpCurve) -> Result<&OkpParams> {
         });
     }
     Ok(params)
+}
+
+/// RFC 8037 registered `EdDSA`; RFC 9864 added `Ed25519` and deprecated `EdDSA`,
+/// but deployed keys (and jwt-simple's own export) still carry it. jwt-simple
+/// accepts either name on import, so a key is checked against the name it
+/// declares. Without a declared `alg`, `Ed25519` is requested.
+fn ed25519_requested_alg(jwk: &Key) -> Algorithm {
+    match jwk.alg() {
+        Some(Algorithm::EdDsa) => Algorithm::EdDsa,
+        _ => Algorithm::Ed25519,
+    }
 }
 
 // ============================================================================
@@ -441,7 +468,7 @@ impl TryFrom<&Key> for Ed25519PublicKey {
 
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = okp_params(jwk, OkpCurve::Ed25519)?;
-        validate_for_jwt_simple(jwk, &Algorithm::Ed25519, [KeyOperation::Verify])?;
+        validate_for_jwt_simple(jwk, &ed25519_requested_alg(jwk), [KeyOperation::Verify])?;
         let json = okp_jwk(params, jwk.kid(), false)?;
         Ed25519PublicKey::from_jwk(&json).map_err(import_error)
     }
@@ -460,7 +487,7 @@ impl TryFrom<&Key> for Ed25519KeyPair {
 
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = okp_params(jwk, OkpCurve::Ed25519)?;
-        validate_for_jwt_simple(jwk, &Algorithm::Ed25519, [KeyOperation::Sign])?;
+        validate_for_jwt_simple(jwk, &ed25519_requested_alg(jwk), [KeyOperation::Sign])?;
         let json = okp_jwk(params, jwk.kid(), true)?;
         Ed25519KeyPair::from_jwk(&json).map_err(import_error)
     }
@@ -524,6 +551,119 @@ macro_rules! impl_symmetric_key_conversion {
 impl_symmetric_key_conversion!(HS256Key, Algorithm::Hs256);
 impl_symmetric_key_conversion!(HS384Key, Algorithm::Hs384);
 impl_symmetric_key_conversion!(HS512Key, Algorithm::Hs512);
+
+// ============================================================================
+// Conversions from jwt-simple keys (the publishing direction)
+// ============================================================================
+
+/// Parses jwt-simple's `to_jwk()` output into a [`Key`] and validates it.
+///
+/// The document may hold private material, so it is wiped on drop.
+fn key_from_jwt_simple_export(json: Zeroizing<String>) -> Result<Key> {
+    let key: Key = serde_json::from_str(&json)
+        .map_err(|e| JwtSimpleKeyConversionError::Core(Error::Json(e)))?;
+    key.validate().map_err(map_validation_error)?;
+    Ok(key)
+}
+
+macro_rules! impl_key_from_jwt_simple {
+    ($($key_type:ty),* $(,)?) => {$(
+        impl TryFrom<&$key_type> for Key {
+            type Error = JwtSimpleKeyConversionError;
+
+            /// Builds a [`Key`] from jwt-simple's own JWK export of this key.
+            ///
+            /// # Errors
+            ///
+            /// [`JwtSimpleKeyConversionError::Core`] or
+            /// [`JwtSimpleKeyConversionError::InvalidKey`] if the export does not
+            /// parse or validate as a JWK; neither happens for a key jwt-simple
+            /// constructed.
+            fn try_from(key: &$key_type) -> Result<Self> {
+                key_from_jwt_simple_export(Zeroizing::new(key.to_jwk()))
+            }
+        }
+
+        impl TryFrom<$key_type> for Key {
+            type Error = JwtSimpleKeyConversionError;
+
+            fn try_from(key: $key_type) -> Result<Self> {
+                Key::try_from(&key)
+            }
+        }
+    )*};
+}
+
+impl_key_from_jwt_simple!(
+    RS256PublicKey,
+    RS384PublicKey,
+    RS512PublicKey,
+    PS256PublicKey,
+    PS384PublicKey,
+    PS512PublicKey,
+    RS256KeyPair,
+    RS384KeyPair,
+    RS512KeyPair,
+    PS256KeyPair,
+    PS384KeyPair,
+    PS512KeyPair,
+    ES256PublicKey,
+    ES384PublicKey,
+    ES256kPublicKey,
+    ES256KeyPair,
+    ES384KeyPair,
+    ES256kKeyPair,
+    Ed25519PublicKey,
+    Ed25519KeyPair,
+);
+
+macro_rules! impl_key_from_jwt_simple_hmac {
+    ($key_type:ty, $alg:expr) => {
+        impl TryFrom<&$key_type> for Key {
+            type Error = JwtSimpleKeyConversionError;
+
+            /// Builds an `oct` [`Key`] from the HMAC key's bytes, with `alg`,
+            /// `use: sig` and the key's id as `kid`.
+            ///
+            /// # Errors
+            ///
+            /// [`JwtSimpleKeyConversionError::Unrepresentable`] if the key has a
+            /// salt attached: a JWK has no member for it, and a bare `k` would
+            /// produce a key that verifies none of the salted key's tokens.
+            fn try_from(key: &$key_type) -> Result<Self> {
+                if !matches!(MACLike::salt(key), Salt::None) {
+                    return Err(JwtSimpleKeyConversionError::Unrepresentable {
+                        reason: "HMAC key has a salt attached",
+                    });
+                }
+
+                let k = Zeroizing::new(key.to_bytes());
+                let mut jwk = Key::new(KeyParams::Symmetric(SymmetricParams::new(
+                    Base64UrlBytes::from(k.as_slice()),
+                )))
+                .with_alg($alg)
+                .with_use(KeyUse::Signature);
+                if let Some(kid) = key.key_id() {
+                    jwk = jwk.with_kid(kid.as_str());
+                }
+                jwk.validate().map_err(map_validation_error)?;
+                Ok(jwk)
+            }
+        }
+
+        impl TryFrom<$key_type> for Key {
+            type Error = JwtSimpleKeyConversionError;
+
+            fn try_from(key: $key_type) -> Result<Self> {
+                Key::try_from(&key)
+            }
+        }
+    };
+}
+
+impl_key_from_jwt_simple_hmac!(HS256Key, Algorithm::Hs256);
+impl_key_from_jwt_simple_hmac!(HS384Key, Algorithm::Hs384);
+impl_key_from_jwt_simple_hmac!(HS512Key, Algorithm::Hs512);
 
 #[cfg(test)]
 mod tests {
@@ -1281,5 +1421,309 @@ mod tests {
                 .is_ok()
         );
         assert_eq!(jwk.thumbprint(), generated.jwk_thumbprint());
+    }
+
+    // ------------------------------------------------------------------------
+    // Ed25519 `alg` names (RFC 8037 `EdDSA`, RFC 9864 `Ed25519`)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn ed25519_conversion_accepts_either_registered_alg_name() {
+        for alg in ["EdDSA", "Ed25519"] {
+            let json = serde_json::json!({
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "alg": alg,
+                "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+                "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A"
+            });
+            let jwk: Key = serde_json::from_value(json).unwrap();
+            let key_pair = Ed25519KeyPair::try_from(&jwk)
+                .unwrap_or_else(|e| panic!("key pair with alg {alg}: {e}"));
+            let public: Ed25519PublicKey = jwk
+                .to_public()
+                .unwrap()
+                .try_into()
+                .unwrap_or_else(|e| panic!("public key with alg {alg}: {e}"));
+
+            let token = key_pair
+                .sign(Claims::create(Duration::from_hours(1)))
+                .unwrap();
+            assert!(public.verify_token::<NoCustomClaims>(&token, None).is_ok());
+        }
+
+        // A declared algorithm that is not an EdDSA name is still a mismatch.
+        let json = serde_json::json!({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "alg": "ES256",
+            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+        });
+        let jwk: Key = serde_json::from_value(json).unwrap();
+        let result: Result<Ed25519PublicKey> = (&jwk).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::IncompatibleKey(_))
+        ));
+    }
+
+    // ------------------------------------------------------------------------
+    // From jwt-simple keys (publishing direction)
+    // ------------------------------------------------------------------------
+
+    /// What a published key must look like, and that it converts back and verifies.
+    fn assert_published_public_key<P>(
+        jwk: &Key,
+        alg: Algorithm,
+        kid: &str,
+        thumbprint: &str,
+        token: &str,
+    ) where
+        P: for<'a> TryFrom<&'a Key, Error = JwtSimpleKeyConversionError>,
+        P: TokenVerifier,
+    {
+        assert!(
+            jwk.is_public_key_only(),
+            "{alg:?}: must not carry private material"
+        );
+        assert_eq!(jwk.alg(), Some(&alg));
+        assert_eq!(jwk.key_use(), Some(&KeyUse::Signature));
+        assert_eq!(jwk.kid(), Some(kid));
+        assert_eq!(jwk.thumbprint(), thumbprint);
+        assert!(jwk.validate().is_ok());
+
+        let verifier =
+            P::try_from(jwk).unwrap_or_else(|e| panic!("{alg:?} back to jwt-simple: {e}"));
+        assert!(
+            verifier.verifies(token),
+            "{alg:?}: published key must verify the original pair's token"
+        );
+    }
+
+    /// Test-local shim over the per-type `verify_token` methods, so the assertion
+    /// helper can be generic over jwt-simple's public key types.
+    trait TokenVerifier {
+        fn verifies(&self, token: &str) -> bool;
+    }
+
+    macro_rules! impl_token_verifier {
+        ($($key_type:ty),* $(,)?) => {$(
+            impl TokenVerifier for $key_type {
+                fn verifies(&self, token: &str) -> bool {
+                    self.verify_token::<NoCustomClaims>(token, None).is_ok()
+                }
+            }
+        )*};
+    }
+
+    impl_token_verifier!(
+        RS256PublicKey,
+        PS384PublicKey,
+        ES256PublicKey,
+        ES384PublicKey,
+        ES256kPublicKey,
+        Ed25519PublicKey,
+    );
+
+    #[test]
+    fn key_from_jwt_simple_public_keys() {
+        let claims = || Claims::create(Duration::from_hours(1));
+
+        // One RSA key shared by an RS and a PS type.
+        let rsa = RS256KeyPair::generate(2048).unwrap();
+        let rs256 = rsa.clone().with_key_id("rs256");
+        let rs_token = rs256.sign(claims()).unwrap();
+        let rs_pub = rs256.public_key();
+        assert_published_public_key::<RS256PublicKey>(
+            &Key::try_from(&rs_pub).unwrap(),
+            Algorithm::Rs256,
+            "rs256",
+            &rs_pub.jwk_thumbprint(),
+            &rs_token,
+        );
+        let ps384 = PS384KeyPair::from_pem(&rsa.to_pem().unwrap())
+            .unwrap()
+            .with_key_id("ps384");
+        let ps_token = ps384.sign(claims()).unwrap();
+        let ps_pub = ps384.public_key();
+        assert_published_public_key::<PS384PublicKey>(
+            &Key::try_from(&ps_pub).unwrap(),
+            Algorithm::Ps384,
+            "ps384",
+            &ps_pub.jwk_thumbprint(),
+            &ps_token,
+        );
+        // Same material, different `alg`: thumbprints agree (RFC 7638 ignores `alg`).
+        assert_eq!(rs_pub.jwk_thumbprint(), ps_pub.jwk_thumbprint());
+
+        let es256 = ES256KeyPair::generate().with_key_id("es256");
+        let token = es256.sign(claims()).unwrap();
+        let public = es256.public_key();
+        assert_published_public_key::<ES256PublicKey>(
+            &Key::try_from(&public).unwrap(),
+            Algorithm::Es256,
+            "es256",
+            &public.jwk_thumbprint(),
+            &token,
+        );
+
+        let es384 = ES384KeyPair::generate().with_key_id("es384");
+        let token = es384.sign(claims()).unwrap();
+        let public = es384.public_key();
+        assert_published_public_key::<ES384PublicKey>(
+            &Key::try_from(&public).unwrap(),
+            Algorithm::Es384,
+            "es384",
+            &public.jwk_thumbprint(),
+            &token,
+        );
+
+        let es256k = ES256kKeyPair::generate().with_key_id("es256k");
+        let token = es256k.sign(claims()).unwrap();
+        let public = es256k.public_key();
+        assert_published_public_key::<ES256kPublicKey>(
+            &Key::try_from(&public).unwrap(),
+            Algorithm::Es256k,
+            "es256k",
+            &public.jwk_thumbprint(),
+            &token,
+        );
+
+        // jwt-simple publishes Ed25519 under the deployed name, `EdDSA`.
+        let ed = Ed25519KeyPair::generate().with_key_id("ed25519");
+        let token = ed.sign(claims()).unwrap();
+        let public = ed.public_key();
+        assert_published_public_key::<Ed25519PublicKey>(
+            &Key::try_from(&public).unwrap(),
+            Algorithm::EdDsa,
+            "ed25519",
+            &public.jwk_thumbprint(),
+            &token,
+        );
+
+        // Owned conversions take the same path.
+        let owned: Key = es256.public_key().try_into().unwrap();
+        assert_eq!(owned.kid(), Some("es256"));
+
+        // Without a key id, no `kid`.
+        let anonymous: Key = Key::try_from(&ES256KeyPair::generate().public_key()).unwrap();
+        assert_eq!(anonymous.kid(), None);
+    }
+
+    #[test]
+    fn key_from_jwt_simple_key_pairs_round_trip() {
+        let claims = || Claims::create(Duration::from_hours(1));
+
+        let es256 = ES256KeyPair::generate().with_key_id("es256-pair");
+        let jwk = Key::try_from(&es256).unwrap();
+        assert!(jwk.has_private_key());
+        assert_eq!(jwk.kid(), Some("es256-pair"));
+        assert_eq!(jwk.thumbprint(), es256.jwk_thumbprint());
+        let back: ES256KeyPair = (&jwk).try_into().unwrap();
+        let token = back.sign(claims()).unwrap();
+        assert!(
+            es256
+                .public_key()
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_ok()
+        );
+        // `to_public` strips `d` and the result is the published form.
+        let public = jwk.to_public().unwrap();
+        assert!(public.is_public_key_only());
+        assert_eq!(public.thumbprint(), jwk.thumbprint());
+
+        let ed = Ed25519KeyPair::generate().with_key_id("ed-pair");
+        let jwk = Key::try_from(&ed).unwrap();
+        assert!(jwk.has_private_key());
+        let back: Ed25519KeyPair = (&jwk).try_into().unwrap();
+        let token = back.sign(claims()).unwrap();
+        assert!(
+            ed.public_key()
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_ok()
+        );
+
+        let rsa = RS256KeyPair::generate(2048)
+            .unwrap()
+            .with_key_id("rsa-pair");
+        let jwk = Key::try_from(&rsa).unwrap();
+        assert!(jwk.has_private_key());
+        let back: RS256KeyPair = (&jwk).try_into().unwrap();
+        let token = back.sign(claims()).unwrap();
+        assert!(
+            rsa.public_key()
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn key_from_jwt_simple_hmac_keys() {
+        let hs256 = HS256Key::generate().with_key_id("hs256");
+        let jwk = Key::try_from(&hs256).unwrap();
+        assert_eq!(jwk.kty(), crate::KeyType::Symmetric);
+        assert_eq!(jwk.alg(), Some(&Algorithm::Hs256));
+        assert_eq!(jwk.key_use(), Some(&KeyUse::Signature));
+        assert_eq!(jwk.kid(), Some("hs256"));
+        match jwk.params() {
+            KeyParams::Symmetric(params) => assert_eq!(params.k.as_bytes(), hs256.to_bytes()),
+            other => panic!("expected oct params, got {other:?}"),
+        }
+
+        // Round trip: the converted key authenticates and verifies the same tokens.
+        let back: HS256Key = (&jwk).try_into().unwrap();
+        let token = hs256
+            .authenticate(Claims::create(Duration::from_hours(1)))
+            .unwrap();
+        assert!(back.verify_token::<NoCustomClaims>(&token, None).is_ok());
+
+        let jwk = Key::try_from(&HS384Key::generate()).unwrap();
+        assert_eq!(jwk.alg(), Some(&Algorithm::Hs384));
+        assert_eq!(jwk.kid(), None);
+        let jwk = Key::try_from(HS512Key::generate()).unwrap();
+        assert_eq!(jwk.alg(), Some(&Algorithm::Hs512));
+
+        // A salt has no JWK member; refusing beats publishing a key that verifies nothing.
+        let salted = HS256Key::generate_with_salt();
+        let result = Key::try_from(&salted);
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::Unrepresentable { .. })
+        ));
+    }
+
+    #[test]
+    fn publish_and_consume_a_key_set() {
+        // Issuer side: generate with jwt-simple, publish the public keys as a JWKS.
+        let current = ES256KeyPair::generate().with_key_id("2026-10");
+        let previous = ES256KeyPair::generate().with_key_id("2026-04");
+        let mut jwks = KeySet::new();
+        jwks.add_key(Key::try_from(&current.public_key()).unwrap())
+            .unwrap();
+        jwks.add_key(Key::try_from(&previous.public_key()).unwrap())
+            .unwrap();
+        let published = serde_json::to_string(&jwks).unwrap();
+        assert!(!published.contains("\"d\""));
+
+        // Verifier side: fetch, select by the token's `kid`, convert, verify.
+        let token = current
+            .sign(Claims::create(Duration::from_hours(1)))
+            .unwrap();
+        let kid = Token::decode_metadata(&token)
+            .unwrap()
+            .key_id()
+            .unwrap()
+            .to_owned();
+        let jwks: KeySet = serde_json::from_str(&published).unwrap();
+        let key = jwks
+            .selector(&[Algorithm::Es256])
+            .select(KeyMatcher::new(KeyOperation::Verify, Algorithm::Es256).with_kid(&kid))
+            .unwrap();
+        let verifier: ES256PublicKey = key.try_into().unwrap();
+        assert!(
+            verifier
+                .verify_token::<NoCustomClaims>(&token, None)
+                .is_ok()
+        );
     }
 }

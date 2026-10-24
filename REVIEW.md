@@ -245,6 +245,19 @@ Copy this block for new items:
 - Revisit signal: Requests for a `Key`-level constant-time comparison API, or evidence of downstream misuse.
 - Suggested future action: Consider adding `Key::ct_eq` that delegates to the underlying params' constant-time comparison methods.
 
+## Core treats `EdDSA` and `Ed25519`/`Ed448` as distinct algorithms
+- Date added: 2026-10-24
+- Source: jwt-simple `from_jwk` refactor (round-trip testing)
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: MEDIUM -> MEDIUM
+- Decision: DEFER
+- Rationale: `Key::validate_declared_algorithm_match` and the selector compare `alg` with `!=`, so a key declaring `alg: EdDSA` (the RFC 8037 name, still what jwt-simple, jose, Nimbus and most IdPs emit) does not match a request for `Algorithm::Ed25519`, and vice versa. RFC 9864 deprecates `EdDSA` in favour of the curve-specific names but expects both to be understood during the transition. The `jwt-simple` integration was the only in-crate caller affected and now requests the name the key declares (`ed25519_requested_alg`); whether the core should treat the names as equivalent (for the matching curve) is a policy decision that also affects `KeySelector` and the `web-crypto` integration, so it is deferred rather than changed in a conversion-focused PR.
+- Preconditions/Trigger: `KeySet::selector(&[Algorithm::Ed25519]).select(KeyMatcher::new(Verify, Algorithm::Ed25519))` against a JWKS whose Ed25519 key declares `alg: "EdDSA"` (or a token header saying `EdDSA` against a key declaring `Ed25519`).
+- Risk if not fixed: `NoMatchingKey` / `AlgorithmMismatch` for interoperable Ed25519 keys; callers must know to try both names.
+- Revisit signal: Interop reports involving EdDSA keys and the selector; a decision on RFC 9864 transition policy.
+- Suggested future action: In `validate_declared_algorithm_match` and the selector's declared-`alg` check, treat `EdDsa` as matching `Ed25519`/`Ed448` when the key's curve agrees (and the reverse), possibly behind an explicit strict mode. Add RFC 9864 vectors for both spellings.
+
 ## Selector suitability bucket conflates capability and strength failures
 - Date added: 2026-03-06
 - Source: post-merge feedback review

@@ -129,8 +129,33 @@ A conversion runs this crate's validation first (`Key::validate_for_use`: struct
 key material and `kid` through its `from_jwk` constructor, which applies jwt-simple's own
 cryptographic checks (RSA 2048–4096 bits with `e = 65537`, EC points on the curve, a private
 key's public part derived from `d`). The converted key carries the JWK's `kid`, so tokens signed
-with a converted key pair include it. jwt-simple has no JWK import for symmetric keys; `HS*`
+with a converted key pair include it. Ed25519 keys may declare either registered name, `EdDSA`
+(RFC 8037) or `Ed25519` (RFC 9864). jwt-simple has no JWK import for symmetric keys; `HS*`
 conversions use `from_bytes`.
+
+### Publishing a JWKS from jwt-simple Keys
+
+The other direction: `Key` implements `TryFrom` for every jwt-simple key type with a `to_jwk()`
+(RS\*/PS\*/ES\*/Ed25519 public keys and key pairs), and for the `HS*` keys. The result is what
+jwt-simple itself would publish — `alg`, `use: sig`, and the key id as `kid` — parsed into this
+crate's model, so it can go into a `KeySet` and be served as `/.well-known/jwks.json`:
+
+```rust
+use jwk_simple::{Key, KeySet};
+use jwt_simple::prelude::*;
+
+let current = ES256KeyPair::generate().with_key_id("2026-10");
+let previous = ES256KeyPair::generate().with_key_id("2026-04");
+
+let mut jwks = KeySet::new();
+jwks.add_key(Key::try_from(&current.public_key())?)?;
+jwks.add_key(Key::try_from(&previous.public_key())?)?;
+let body = serde_json::to_string(&jwks)?;
+```
+
+Converting a key pair or an `HS*` key exports private material; convert `public_key()` to
+publish. A salted HMAC key (`generate_with_salt`) is refused with
+`JwtSimpleKeyConversionError::Unrepresentable`, since a JWK has no member for the salt.
 
 ### Fetching from HTTP
 
