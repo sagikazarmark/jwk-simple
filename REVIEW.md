@@ -271,6 +271,45 @@ Copy this block for new items:
 - Revisit signal: Requests for finer-grained selector telemetry/routing or broader selector error taxonomy redesign.
 - Suggested future action: Consider adding dedicated selector variants for capability vs strength failures (or an explicit sub-classification wrapper) while keeping backward compatibility strategy in mind.
 
+## jwt-simple conversion impls repeat the same shape per key type
+- Date added: 2026-10-25
+- Source: PR #104 review (standards axis)
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: `src/integrations/jwt_simple.rs` has four forward macros (RSA/EC × public/key-pair) that differ only in the operation set and the builder called, two hand-written Ed25519 impls that mirror the macro bodies, `ec_params`/`okp_params` of identical shape, and `private: bool` flag arguments on `ec_jwk`/`okp_jwk`. A single macro parameterised on `$ops` and `$builder`, or a trait over the jwt-simple key types, would halve the module; it would also make each impl harder to read on its own, and the per-type `# Errors` lists would have to be generated or shared. Not worth the churn while the surface is still settling.
+- Preconditions/Trigger: A fix applied to one macro (ordering of checks, a new error case) and missed in another.
+- Risk if not fixed: Drift between the conversion paths; the kind of inconsistency that `require_private_key` just fixed.
+- Revisit signal: The next change that touches more than two of the macros, or support for another key family (ML-DSA/AKP) that would add a fifth.
+- Suggested future action: Consolidate into one macro (or a small trait) when the next structural change lands; keep the `# Errors` docs per impl.
+
+## Publishing direction has no `examples/` entry
+- Date added: 2026-10-25
+- Source: PR #104 review (standards axis, CLAUDE.md §3 "integration test or example")
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: `Key: TryFrom<&jwt-simple key>` is covered by a compiled (not `no_run`) doctest in `src/lib.rs`, a README snippet, and the in-module `publish_and_consume_a_key_set` test that goes generate → `KeySet` → JSON → select → convert → verify. An `examples/` program would show the same lines again; `examples/jwt_verify.rs` is the natural home if one is wanted.
+- Preconditions/Trigger: A reader looks only at `examples/` to learn the publishing API.
+- Risk if not fixed: Discoverability only; behaviour is tested.
+- Revisit signal: A user question that the README and crate docs did not answer, or an `examples/` reorganisation.
+- Suggested future action: Add the publishing direction to `examples/jwt_verify.rs` (generate a key pair, publish the public key, verify against the published set).
+
+## jwt-simple's RSA `to_jwk()` leaves BigNum copies behind
+- Date added: 2026-10-25
+- Source: PR #104 review (security axis)
+- Validity: PLAUSIBLE
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: Upstream. `Key: TryFrom<&RS*KeyPair>` parses jwt-simple's `to_jwk()`; with the `pure-rust` backend that export goes through `superboring`'s `BigNum` clones (`superboring/src/implementation.rs`, `to_vec` on `d`, `p`, `q`, `dp`, `dq`, `qi`), which are not zeroized. Everything this crate allocates on that path is `Zeroizing`, and the forward direction (`from_jwk`) borrows and wipes inside jwt-simple. Nothing to fix here without bypassing jwt-simple's export, which is the point of the integration.
+- Preconditions/Trigger: RSA key pair converted to `Key` on the `pure-rust` backend; an attacker who can read freed heap of the process.
+- Risk if not fixed: RSA private components may linger in freed memory after a publishing conversion. Same exposure as any jwt-simple RSA signing operation on that backend.
+- Revisit signal: An upstream fix in superboring/jwt-simple, or a request to document the integration's memory-hygiene boundary more prominently.
+- Suggested future action: Report upstream; if accepted, bump the minimum jwt-simple version and note it in the module docs.
+
 ## Ignored Findings
 
 (No active ignored findings.)

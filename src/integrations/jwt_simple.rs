@@ -193,25 +193,60 @@ struct ReducedJwk<'a> {
 }
 
 impl ReducedJwk<'_> {
+    /// Bytes the document spends on structure when every member is present:
+    /// braces, member names, quotes, colons and commas. The real figure is 112;
+    /// `reduced_jwk_overhead_bound_holds` pins the margin.
+    const OVERHEAD: usize = 128;
+
+    /// Bytes of the values serde_json emits verbatim: `kty` and `crv` are
+    /// registry names, the rest is base64url. None of them needs escaping.
+    fn material_len(&self) -> usize {
+        let members = [
+            self.crv, self.n, self.e, self.x, self.y, self.d, self.p, self.q, self.dp, self.dq,
+            self.qi,
+        ];
+        self.kty.len() + members.iter().flatten().map(|s| s.len()).sum::<usize>()
+    }
+
     /// Serializes the document jwt-simple will parse.
     ///
-    /// The buffer is sized up front for jwt-simple's limit plus the worst-case
-    /// JSON escaping of `kid` (six bytes per character, the same reservation
-    /// jwt-simple's own export makes), so private material is never left behind
-    /// by a reallocation. A document over [`MAX_JWK_LENGTH`] is reported here,
-    /// by name, rather than as jwt-simple's generic import failure.
+    /// Private material must not be left behind by a reallocation, so the buffer
+    /// is sized from the inputs: [`OVERHEAD`](Self::OVERHEAD), the material (emitted
+    /// verbatim) and six bytes per character of `kid`, the worst case for JSON
+    /// escaping and the reservation jwt-simple's own export makes. A document that
+    /// cannot fit jwt-simple's [`MAX_JWK_LENGTH`] is reported here, by name and
+    /// with the sizes that caused it, rather than as a generic import failure;
+    /// when the raw values alone exceed the limit, nothing is serialized at all.
     fn to_json(&self) -> Result<Zeroizing<String>> {
+        let material_len = self.material_len();
+        let kid_len = self.kid.map_or(0, str::len);
+        let too_large = || {
+            JwtSimpleKeyConversionError::Encoding(format!(
+                "JWK document exceeds jwt-simple's MAX_JWK_LENGTH ({MAX_JWK_LENGTH} bytes): \
+                 {material_len} bytes of key material and a {kid_len}-byte `kid`"
+            ))
+        };
+        // Every value appears at least verbatim, inside `{}`.
+        if 2 + material_len + kid_len > MAX_JWK_LENGTH {
+            return Err(too_large());
+        }
+
         let encoding_error = |e: &dyn std::fmt::Display| {
             JwtSimpleKeyConversionError::Encoding(format!(
                 "failed to serialize JWK for jwt-simple: {e}"
             ))
         };
-        let kid_len = self.kid.map_or(0, str::len);
-        let mut buf = Vec::with_capacity(MAX_JWK_LENGTH + 6 * kid_len);
+        let capacity = Self::OVERHEAD + material_len + 6 * kid_len;
+        let mut buf = Vec::with_capacity(capacity);
         if let Err(e) = serde_json::to_writer(&mut buf, self) {
             buf.zeroize();
             return Err(encoding_error(&e));
         }
+        debug_assert!(
+            buf.len() <= capacity,
+            "reduced JWK outgrew its buffer: {} > {capacity}",
+            buf.len()
+        );
         // serde_json emits UTF-8; `from_utf8` takes the buffer over without copying.
         let json = match String::from_utf8(buf) {
             Ok(json) => Zeroizing::new(json),
@@ -221,11 +256,9 @@ impl ReducedJwk<'_> {
                 return Err(err);
             }
         };
+        // Escaping `kid` can push a document over the limit that its raw size cleared.
         if json.len() > MAX_JWK_LENGTH {
-            return Err(JwtSimpleKeyConversionError::Encoding(format!(
-                "JWK document is {} bytes, over jwt-simple's MAX_JWK_LENGTH ({MAX_JWK_LENGTH}); shorten `kid`",
-                json.len()
-            )));
+            return Err(too_large());
         }
         Ok(json)
     }
@@ -343,29 +376,28 @@ fn okp_jwk(params: &OkpParams, kid: Option<&str>, private: bool) -> Result<Zeroi
 /// accepts. The 64-byte `seed || public-key` form used by some implementations
 /// (libsodium) is accepted here for interoperability, after checking that its
 /// embedded public key is the JWK's `x`, and reduced to the seed.
+///
+/// `OkpParams::validate` (run by every caller through `validate_for_use`) has
+/// already rejected any other length as `InvalidKey`, so only those two reach
+/// this point; [`OkpParams::private_key_seed`] does the slicing.
 fn ed25519_seed_b64(params: &OkpParams) -> Result<Zeroizing<String>> {
     let d = params
         .d
         .as_ref()
         .ok_or(JwtSimpleKeyConversionError::MissingPrivateKey)?;
-    let d_bytes = d.as_bytes();
-
-    match d_bytes.len() {
-        32 => Ok(secret_b64(d)),
-        64 => {
-            if d_bytes[32..] != *params.x.as_bytes() {
-                return Err(JwtSimpleKeyConversionError::Import(
-                    "Ed25519 extended private key: embedded public key does not match JWK x parameter".into(),
-                ));
-            }
-            Ok(Zeroizing::new(Base64UrlUnpadded::encode_string(
-                &d_bytes[..32],
-            )))
-        }
-        len => Err(JwtSimpleKeyConversionError::Import(format!(
-            "invalid Ed25519 private key length for jwt-simple conversion: expected 32 or 64 bytes, got {len}"
-        ))),
+    let seed_len = params.crv.private_key_size();
+    if d.len() == params.crv.extended_private_key_size()
+        && d.as_bytes()[seed_len..] != *params.x.as_bytes()
+    {
+        return Err(JwtSimpleKeyConversionError::Import(
+            "Ed25519 extended private key: embedded public key does not match JWK x parameter"
+                .into(),
+        ));
     }
+    let seed = params
+        .private_key_seed()
+        .ok_or(JwtSimpleKeyConversionError::MissingPrivateKey)?;
+    Ok(Zeroizing::new(Base64UrlUnpadded::encode_string(seed)))
 }
 
 // ============================================================================
@@ -391,7 +423,8 @@ macro_rules! impl_rsa_public_key_conversion {
             ///   one, `use`/`key_ops` that do not permit `verify`, or a modulus under
             ///   the algorithm's minimum.
             /// - [`Encoding`](JwtSimpleKeyConversionError::Encoding) if the document
-            ///   would exceed jwt-simple's `MAX_JWK_LENGTH` (an oversized `kid`).
+            ///   would exceed jwt-simple's `MAX_JWK_LENGTH`: an oversized `kid`, or a
+            ///   modulus far beyond jwt-simple's 4096-bit maximum.
             /// - [`Import`](JwtSimpleKeyConversionError::Import) if jwt-simple rejects
             ///   the key: its RSA policy is 2048–4096 bits with `e = 65537`.
             fn try_from(jwk: &Key) -> Result<Self> {
@@ -438,7 +471,8 @@ macro_rules! impl_rsa_key_pair_conversion {
             ///   of them, while [`RsaParams::validate`] allows a `d`-only private key.
             /// - [`Encoding`](JwtSimpleKeyConversionError::Encoding) for a multi-prime
             ///   key (`oth`), or if the document would exceed jwt-simple's
-            ///   `MAX_JWK_LENGTH` (an oversized `kid`).
+            ///   `MAX_JWK_LENGTH`: an oversized `kid`, or a modulus beyond about
+            ///   10 000 bits (jwt-simple's maximum is 4096 in any case).
             /// - [`Import`](JwtSimpleKeyConversionError::Import) if jwt-simple rejects
             ///   the key: its RSA policy is 2048–4096 bits with `e = 65537`, and the
             ///   private members must be consistent with `n` and `e`.
@@ -632,13 +666,14 @@ impl TryFrom<&Key> for Ed25519KeyPair {
     ///   the JWK has no `d`.
     /// - [`InvalidKey`](JwtSimpleKeyConversionError::InvalidKey) or
     ///   [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) from
-    ///   [`Key::validate_for_use`]: structure, a declared `alg` that is not an EdDSA
-    ///   name, or `use`/`key_ops` that do not permit `sign`.
+    ///   [`Key::validate_for_use`]: structure (including a `d` of neither length),
+    ///   a declared `alg` that is not an EdDSA name, or `use`/`key_ops` that do not
+    ///   permit `sign`.
     /// - [`Encoding`](JwtSimpleKeyConversionError::Encoding) if the document would
     ///   exceed jwt-simple's `MAX_JWK_LENGTH` (an oversized `kid`).
-    /// - [`Import`](JwtSimpleKeyConversionError::Import) if `d` has neither length,
-    ///   if a 64-byte `d` embeds a public key other than `x`, or if jwt-simple
-    ///   rejects the key: `x` not derived from the seed.
+    /// - [`Import`](JwtSimpleKeyConversionError::Import) if a 64-byte `d` embeds a
+    ///   public key other than `x`, or if jwt-simple rejects the key: `x` not
+    ///   derived from the seed.
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = okp_params(jwk, OkpCurve::Ed25519)?;
         require_private_key(jwk)?;
@@ -797,6 +832,8 @@ macro_rules! impl_key_from_jwt_simple_hmac {
             /// - [`Unrepresentable`](JwtSimpleKeyConversionError::Unrepresentable) if
             ///   the key has a salt attached: a JWK has no member for it, and a bare
             ///   `k` would produce a key that verifies none of the salted key's tokens.
+            /// - [`InvalidKey`](JwtSimpleKeyConversionError::InvalidKey) if the key is
+            ///   empty (`from_bytes(&[])`).
             /// - [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) with
             ///   [`InsufficientKeyStrength`](crate::IncompatibleKeyError::InsufficientKeyStrength)
             ///   if the key is shorter than the algorithm's hash output.
@@ -870,6 +907,26 @@ mod tests {
         "kty": "oct",
         "k": "AyM32w-8O0TGsGDYX0MlWy-9XQP-xrryrP7gkXKfY5WhoLxmT3fzfVr7LXqgDDFSfowWBY-u6bSH5f9kBZ_n7Q"
     }"#;
+
+    // Ed25519 key from RFC 8037 Appendix A.1: `x` and the 32-byte seed `d`.
+    const RFC_ED25519_X: &str = "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo";
+    const RFC_ED25519_D: &str = "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A";
+
+    /// The RFC 8037 A.1 key as a JWK, public or private, with any extra members.
+    fn rfc_ed25519_jwk(private: bool, extra: serde_json::Value) -> Key {
+        let mut jwk = serde_json::json!({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": RFC_ED25519_X,
+        });
+        if private {
+            jwk["d"] = RFC_ED25519_D.into();
+        }
+        if let serde_json::Value::Object(extra) = extra {
+            jwk.as_object_mut().unwrap().extend(extra);
+        }
+        serde_json::from_value(jwk).unwrap()
+    }
 
     #[test]
     fn test_rsa_public_key_conversion() {
@@ -1024,16 +1081,67 @@ mod tests {
             Err(JwtSimpleKeyConversionError::MissingPrivateKey)
         ));
 
-        let json = r#"{
-            "kty": "OKP",
-            "crv": "Ed25519",
-            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
-        }"#;
-        let jwk: Key = serde_json::from_str(json).unwrap();
+        let jwk = rfc_ed25519_jwk(false, serde_json::json!({}));
         let result: Result<Ed25519KeyPair> = (&jwk).try_into();
         assert!(matches!(
             result,
             Err(JwtSimpleKeyConversionError::MissingPrivateKey)
+        ));
+    }
+
+    #[test]
+    fn test_key_type_mismatch_is_checked_before_validation() {
+        // Every conversion names the wrong `kty` first, before intent validation
+        // can turn it into an `IncompatibleKey`; the Ed25519 key pair used to
+        // validate first.
+        let rsa: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
+        let ec: Key = serde_json::from_str(RFC_EC_P256_PRIVATE_KEY).unwrap();
+        let oct: Key = serde_json::from_str(SYMMETRIC_KEY).unwrap();
+
+        let result: Result<Ed25519KeyPair> = (&rsa).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::KeyTypeMismatch {
+                expected: "OKP",
+                ..
+            })
+        ));
+        let result: Result<Ed25519PublicKey> = (&ec).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::KeyTypeMismatch {
+                expected: "OKP",
+                ..
+            })
+        ));
+        let result: Result<RS256KeyPair> = (&ec).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::KeyTypeMismatch {
+                expected: "RSA",
+                ..
+            })
+        ));
+        let result: Result<ES256KeyPair> = (&rsa).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::KeyTypeMismatch { expected: "EC", .. })
+        ));
+        let result: Result<HS256Key> = (&rsa).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::KeyTypeMismatch {
+                expected: "oct",
+                ..
+            })
+        ));
+        let result: Result<RS256PublicKey> = (&oct).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::KeyTypeMismatch {
+                expected: "RSA",
+                actual,
+            }) if actual == "oct"
         ));
     }
 
@@ -1210,15 +1318,7 @@ mod tests {
 
     #[test]
     fn test_ed25519_key_pair_conversion_rejects_verify_only_key_ops() {
-        let json = r#"{
-            "kty": "OKP",
-            "crv": "Ed25519",
-            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-            "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A",
-            "key_ops": ["verify"]
-        }"#;
-
-        let jwk: Key = serde_json::from_str(json).unwrap();
+        let jwk = rfc_ed25519_jwk(true, serde_json::json!({ "key_ops": ["verify"] }));
         let result: Result<Ed25519KeyPair> = (&jwk).try_into();
         assert!(matches!(
             result,
@@ -1230,14 +1330,7 @@ mod tests {
 
     #[test]
     fn test_ed25519_key_pair_conversion_accepts_seed_form_private_key() {
-        let json = r#"{
-            "kty": "OKP",
-            "crv": "Ed25519",
-            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-            "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A"
-        }"#;
-
-        let jwk: Key = serde_json::from_str(json).unwrap();
+        let jwk = rfc_ed25519_jwk(true, serde_json::json!({}));
         let key_pair: Ed25519KeyPair = (&jwk).try_into().unwrap();
         let public_key = key_pair.public_key();
         let expected_x = match jwk.params() {
@@ -1506,10 +1599,8 @@ mod tests {
     #[test]
     fn ed25519_key_pair_conversion_reduces_extended_private_key_to_seed() {
         // RFC 8037 A.1 key in the 64-byte `seed || public-key` form.
-        let seed =
-            Base64UrlBytes::from_base64url("nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A").unwrap();
-        let x =
-            Base64UrlBytes::from_base64url("11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo").unwrap();
+        let seed = Base64UrlBytes::from_base64url(RFC_ED25519_D).unwrap();
+        let x = Base64UrlBytes::from_base64url(RFC_ED25519_X).unwrap();
         let mut extended = seed.as_bytes().to_vec();
         extended.extend_from_slice(x.as_bytes());
         let extended = Base64UrlBytes::from(extended);
@@ -1543,14 +1634,7 @@ mod tests {
 
     #[test]
     fn ed25519_conversion_round_trips_through_jwt_simple_export() {
-        let json = r#"{
-            "kty": "OKP",
-            "crv": "Ed25519",
-            "kid": "ed-1",
-            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-            "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A"
-        }"#;
-        let jwk: Key = serde_json::from_str(json).unwrap();
+        let jwk = rfc_ed25519_jwk(true, serde_json::json!({ "kid": "ed-1" }));
         let key_pair: Ed25519KeyPair = (&jwk).try_into().unwrap();
         let public_key: Ed25519PublicKey = jwk.to_public().unwrap().try_into().unwrap();
 
@@ -1620,14 +1704,7 @@ mod tests {
     #[test]
     fn ed25519_conversion_accepts_either_registered_alg_name() {
         for alg in ["EdDSA", "Ed25519"] {
-            let json = serde_json::json!({
-                "kty": "OKP",
-                "crv": "Ed25519",
-                "alg": alg,
-                "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-                "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A"
-            });
-            let jwk: Key = serde_json::from_value(json).unwrap();
+            let jwk = rfc_ed25519_jwk(true, serde_json::json!({ "alg": alg }));
             let key_pair = Ed25519KeyPair::try_from(&jwk)
                 .unwrap_or_else(|e| panic!("key pair with alg {alg}: {e}"));
             let public: Ed25519PublicKey = jwk
@@ -1643,13 +1720,7 @@ mod tests {
         }
 
         // A declared algorithm that is not an EdDSA name is still a mismatch.
-        let json = serde_json::json!({
-            "kty": "OKP",
-            "crv": "Ed25519",
-            "alg": "ES256",
-            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
-        });
-        let jwk: Key = serde_json::from_value(json).unwrap();
+        let jwk = rfc_ed25519_jwk(false, serde_json::json!({ "alg": "ES256" }));
         let result: Result<Ed25519PublicKey> = (&jwk).try_into();
         assert!(matches!(
             result,
@@ -1669,8 +1740,8 @@ mod tests {
     #[test]
     fn oversized_kid_is_reported_before_jwt_simple_sees_the_document() {
         // A `kid` that pushes the reduced JWK over jwt-simple's 8 KiB limit. The
-        // buffer is sized for it (no reallocation of a document holding `d`), and
-        // the failure names the cause instead of surfacing as a generic import error.
+        // raw size already exceeds the limit, so nothing is serialized, and the
+        // failure names the cause instead of surfacing as a generic import error.
         let jwk: Key = serde_json::from_str(RFC_EC_P256_PRIVATE_KEY)
             .map(|k: Key| k.with_kid("k".repeat(MAX_JWK_LENGTH)))
             .unwrap();
@@ -1679,7 +1750,10 @@ mod tests {
         match result {
             Err(JwtSimpleKeyConversionError::Encoding(msg)) => {
                 assert!(msg.contains("MAX_JWK_LENGTH"), "unexpected message: {msg}");
-                assert!(msg.contains("kid"), "unexpected message: {msg}");
+                assert!(
+                    msg.contains(&format!("{MAX_JWK_LENGTH}-byte `kid`")),
+                    "unexpected message: {msg}"
+                );
             }
             other => panic!("expected Encoding error, got {other:?}"),
         }
@@ -1689,9 +1763,97 @@ mod tests {
         let params = ec_params(&probe, EcCurve::P256).unwrap();
         let headroom = MAX_JWK_LENGTH - ec_jwk(params, Some(""), true).unwrap().len();
         let kid = "k".repeat(headroom);
-        let jwk = probe.with_kid(kid.clone());
+        let jwk = probe.clone().with_kid(kid.clone());
         let key_pair: ES256KeyPair = (&jwk).try_into().unwrap();
         assert_eq!(key_pair.key_id().as_deref(), Some(kid.as_str()));
+
+        // A `kid` of the same length made of characters JSON must escape clears
+        // the raw-size check but not the serialized one.
+        let kid = "\"".repeat(headroom);
+        let jwk = probe.with_kid(kid);
+        let result: Result<ES256KeyPair> = (&jwk).try_into();
+        assert!(
+            matches!(result, Err(JwtSimpleKeyConversionError::Encoding(_))),
+            "expected Encoding error, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn oversized_rsa_material_is_reported_without_serializing() {
+        // This crate has no RSA modulus ceiling, so a private key far beyond
+        // jwt-simple's 4096-bit maximum reaches the reduced-JWK builder. Its raw
+        // material alone exceeds the limit: rejected up front, no `kid` involved.
+        let int = |len: usize, fill: u8| Base64UrlBytes::new(vec![fill; len]);
+        let params = RsaParams::new_private(
+            int(2048, 0x7f), // 16384-bit n
+            Base64UrlBytes::new(vec![1, 0, 1]),
+            int(2048, 0x55),
+            Some(int(1024, 0x11)),
+            Some(int(1024, 0x22)),
+            Some(int(1024, 0x33)),
+            Some(int(1024, 0x44)),
+            Some(int(1024, 0x66)),
+        );
+        let result = rsa_private_jwk(&params, None);
+        match result {
+            Err(JwtSimpleKeyConversionError::Encoding(msg)) => {
+                assert!(msg.contains("MAX_JWK_LENGTH"), "unexpected message: {msg}");
+                assert!(msg.contains("0-byte `kid`"), "unexpected message: {msg}");
+            }
+            other => panic!("expected Encoding error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reduced_jwk_overhead_bound_holds() {
+        // `OVERHEAD` must cover the structure of a document with every member, so
+        // the buffer `to_json` reserves can never be outgrown by the material.
+        let full = ReducedJwk {
+            kty: "",
+            crv: Some(""),
+            kid: Some(""),
+            n: Some(""),
+            e: Some(""),
+            x: Some(""),
+            y: Some(""),
+            d: Some(""),
+            p: Some(""),
+            q: Some(""),
+            dp: Some(""),
+            dq: Some(""),
+            qi: Some(""),
+        };
+        let skeleton = serde_json::to_string(&full).unwrap();
+        assert!(
+            skeleton.len() <= ReducedJwk::OVERHEAD,
+            "{} bytes of structure, OVERHEAD is {}",
+            skeleton.len(),
+            ReducedJwk::OVERHEAD
+        );
+        assert_eq!(full.material_len(), 0);
+
+        // And a real document fits the bound `to_json` reserves from it, with a
+        // `kid` that needs escaping.
+        let jwk: Key = serde_json::from_str(RFC_EC_P256_PRIVATE_KEY).unwrap();
+        let params = ec_params(&jwk, EcCurve::P256).unwrap();
+        let x = params.x.to_base64url();
+        let y = params.y.to_base64url();
+        let d = params.d.as_ref().unwrap().to_base64url();
+        let kid = "a\"b\\c\n";
+        let reduced = ReducedJwk {
+            kty: "EC",
+            crv: Some("P-256"),
+            kid: Some(kid),
+            x: Some(&x),
+            y: Some(&y),
+            d: Some(&d),
+            ..Default::default()
+        };
+        let json = reduced.to_json().unwrap();
+        let bound = ReducedJwk::OVERHEAD + reduced.material_len() + 6 * kid.len();
+        assert!(json.len() <= bound, "{} > {bound}", json.len());
+        // The escaped form is longer than the raw one and shorter than the bound.
+        assert!(json.len() > 2 + reduced.material_len() + kid.len());
     }
 
     // ------------------------------------------------------------------------
@@ -1888,7 +2050,7 @@ mod tests {
     fn key_from_jwt_simple_hmac_keys() {
         let hs256 = HS256Key::generate().with_key_id("hs256");
         let jwk = Key::try_from(&hs256).unwrap();
-        assert_eq!(jwk.kty(), crate::KeyType::Symmetric);
+        assert_eq!(jwk.kty(), KeyType::Symmetric);
         assert_eq!(jwk.alg(), Some(&Algorithm::Hs256));
         assert_eq!(jwk.key_use(), Some(&KeyUse::Signature));
         assert_eq!(jwk.kid(), Some("hs256"));
