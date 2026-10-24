@@ -21,7 +21,6 @@ http-body = { version = "1", optional = true }
 http-body-util = { version = "0.1", optional = true }
 js-sys = { version = "0.3", optional = true }
 jwt-simple = { version = "0.15", optional = true, default-features = false }
-pkcs1 = { version = "0.7", optional = true, default-features = false, features = ["alloc"] }
 reqwest = { version = "0.13", optional = true, default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -81,7 +80,8 @@ native-tls = ["reqwest?/native-tls"]
 ## `http::Request` / `http::Response` (implies `http`). `tower-reqwest` on
 ## native targets, `tower-worker-fetch` on Cloudflare Workers, or your own stack.
 tower = ["http", "dep:tower-service", "dep:http-body", "dep:http-body-util"]
-jwt-simple = ["dep:jwt-simple", "dep:pkcs1"]
+## Conversions into `jwt-simple` key types, through its `from_jwk` constructors.
+jwt-simple = ["dep:jwt-simple"]
 web-crypto = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys"]
 
 [dev-dependencies]

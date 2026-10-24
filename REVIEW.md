@@ -50,19 +50,6 @@ Copy this block for new items:
 - Revisit signal: Requests for strict RFC profile or reported OKP import incompatibilities.
 - Suggested future action: Add strict validation mode (or `validate_strict`) enforcing exact per-curve private key lengths.
 
-## Duplicate DER helper logic across modules
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: COMMON
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: Maintainability cleanup only; no immediate functional risk.
-- Preconditions/Trigger: Future DER behavior changes are applied in one module but not the other.
-- Risk if not fixed: Drift between implementations and extra maintenance overhead.
-- Revisit signal: Any DER-related bugfix touching both `src/jwk.rs` and `src/integrations/jwt_simple.rs`.
-- Suggested future action: Extract shared crate-private DER helpers and remove duplicate implementations.
-
 ## WebCrypto pass-through wrappers add unnecessary indirection
 - Date added: 2026-03-03
 - Source: second-opinion review
@@ -114,19 +101,6 @@ Copy this block for new items:
 - Risk if not fixed: Invalid EC keys fail later at crypto import/use rather than early validation.
 - Revisit signal: Requests for stricter validation profile or interop/security requirements.
 - Suggested future action: Add optional strict EC validation mode (curve membership and consistency checks).
-
-## EC jwt-simple key-pair conversion ignores x/y consistency with d
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
-- Severity: MEDIUM -> LOW/MEDIUM
-- Decision: DEFER
-- Rationale: Policy-sensitive tightening; strict checks may reject currently accepted inputs.
-- Preconditions/Trigger: JWK provides mismatched public/private EC components.
-- Risk if not fixed: Malformed EC inputs may appear acceptable until later use.
-- Revisit signal: Input-quality incidents or demand for strict key consistency guarantees.
-- Suggested future action: Add optional consistency check before EC key-pair conversion.
 
 ## JWKS-level kid uniqueness is not enforced in KeySet::validate
 - Date added: 2026-03-03
@@ -291,6 +265,16 @@ Copy this block for new items:
 ## Resolved Findings
 
 Previously deferred findings that a later change closed, kept for traceability.
+
+## Duplicate DER helper logic across modules
+- Date added: 2026-03-03
+- Resolved: 2026-10-24
+- Resolution: The `jwt-simple` integration no longer encodes DER at all. Conversions build a reduced JWK (`kty`, `crv`, key material, `kid`) and go through jwt-simple 0.15's `from_jwk` constructors, so the PKCS#1 encoders in `src/integrations/jwt_simple.rs` and the `pkcs1` dependency are gone. The only DER code left is the x5c SPKI matcher in `src/jwk.rs`; there is nothing to drift from.
+
+## EC jwt-simple key-pair conversion ignores x/y consistency with d
+- Date added: 2026-03-03
+- Resolved: 2026-10-24
+- Resolution: `ES256KeyPair`/`ES384KeyPair`/`ES256kKeyPair::from_jwk` derive the public point from `d` and require it to match `x`/`y`, so a mismatched key pair is now rejected with `JwtSimpleKeyConversionError::Import` (test `ec_key_pair_conversion_rejects_public_point_not_derived_from_d`). The same import path checks Ed25519 `d` against `x`. Core `EcParams::validate` is unchanged (see "EC parameter validation is structural only"); the consistency check lives in the backend, which is where the curve arithmetic is.
 
 ## Cloudflare remote fetch timeout is not explicitly configured
 - Date added: 2026-03-03

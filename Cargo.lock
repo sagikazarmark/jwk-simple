@@ -1434,7 +1434,6 @@ dependencies = [
  "js-sys",
  "jwt-simple",
  "moka",
- "pkcs1",
  "reqwest",
  "send_wrapper",
  "serde",

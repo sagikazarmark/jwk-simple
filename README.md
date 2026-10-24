@@ -124,6 +124,14 @@ let key: RS256PublicKey = jwk.try_into()?;
 let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 ```
 
+A conversion runs this crate's validation first (`Key::validate_for_use`: structure, declared
+`alg`, `use`/`key_ops` intent, key strength), then hands jwt-simple only the key type, curve,
+key material and `kid` through its `from_jwk` constructor, which applies jwt-simple's own
+cryptographic checks (RSA 2048–4096 bits with `e = 65537`, EC points on the curve, a private
+key's public part derived from `d`). The converted key carries the JWK's `kid`, so tokens signed
+with a converted key pair include it. jwt-simple has no JWK import for symmetric keys; `HS*`
+conversions use `from_bytes`.
+
 ### Fetching from HTTP
 
 With the `reqwest` feature (and, on native targets, a TLS feature):
