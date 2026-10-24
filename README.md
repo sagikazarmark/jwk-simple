@@ -129,16 +129,19 @@ A conversion runs this crate's validation first (`Key::validate_for_use`: struct
 key material and `kid` through its `from_jwk` constructor, which applies jwt-simple's own
 cryptographic checks (RSA 2048–4096 bits with `e = 65537`, EC points on the curve, a private
 key's public part derived from `d`). The converted key carries the JWK's `kid`, so tokens signed
-with a converted key pair include it. Ed25519 keys may declare either registered name, `EdDSA`
+with a converted key pair include it; since `kid` is part of the document jwt-simple parses, a
+`kid` that pushes it past jwt-simple's 8 KiB `MAX_JWK_LENGTH` fails with
+`JwtSimpleKeyConversionError::Encoding`. Ed25519 keys may declare either registered name, `EdDSA`
 (RFC 8037) or `Ed25519` (RFC 9864). jwt-simple has no JWK import for symmetric keys; `HS*`
 conversions use `from_bytes`.
 
 ### Publishing a JWKS from jwt-simple Keys
 
-The other direction: `Key` implements `TryFrom` for every jwt-simple key type with a `to_jwk()`
-(RS\*/PS\*/ES\*/Ed25519 public keys and key pairs), and for the `HS*` keys. The result is what
-jwt-simple itself would publish — `alg`, `use: sig`, and the key id as `kid` — parsed into this
-crate's model, so it can go into a `KeySet` and be served as `/.well-known/jwks.json`:
+The other direction: `Key` implements `TryFrom` for jwt-simple's signing key types — the
+RS\*/PS\*/ES\*/Ed25519 public keys and key pairs, parsed from their own `to_jwk()`, and the `HS*`
+keys, built from their bytes. The result is what jwt-simple itself would publish — `alg`,
+`use: sig`, and the key id as `kid` — in this crate's model, so it can go into a `KeySet` and be
+served as `/.well-known/jwks.json`:
 
 ```rust
 use jwk_simple::{Key, KeySet};
@@ -154,8 +157,12 @@ let body = serde_json::to_string(&jwks)?;
 ```
 
 Converting a key pair or an `HS*` key exports private material; convert `public_key()` to
-publish. A salted HMAC key (`generate_with_salt`) is refused with
-`JwtSimpleKeyConversionError::Unrepresentable`, since a JWK has no member for the salt.
+publish. Two HMAC cases are refused: a salted key (`generate_with_salt`), with
+`JwtSimpleKeyConversionError::Unrepresentable`, since a JWK has no member for the salt; and a
+key shorter than its algorithm's hash output (RFC 7518 §3.2), with `InsufficientKeyStrength` —
+note that jwt-simple's `HS384Key::generate()` and `HS512Key::generate()` yield 32-byte keys, so
+build those from 48 or 64 random bytes with `from_bytes`. jwt-simple's JWE key types (X25519,
+RSA-OAEP) and ML-DSA keys are not covered.
 
 ### Fetching from HTTP
 

@@ -22,11 +22,14 @@
 //!
 //! The publishing direction: a key generated or loaded with jwt-simple becomes a
 //! [`Key`] that can go into a [`KeySet`](crate::KeySet) and be served as a JWKS.
-//! Asymmetric keys are parsed from jwt-simple's own `to_jwk()` export, so the
-//! result is exactly what jwt-simple would publish (`alg`, `use: sig`, `kid` when
-//! one is set; Ed25519 as `alg: EdDSA`). HMAC keys are built from `to_bytes()`.
-//! The result passes [`Key::validate`]; strength policy is applied when the key is
-//! selected or converted back, not here.
+//! Asymmetric signing keys are parsed from jwt-simple's own `to_jwk()` export, so
+//! the result is exactly what jwt-simple would publish (`alg`, `use: sig`, `kid`
+//! when one is set; Ed25519 as `alg: EdDSA`), and jwt-simple has already applied
+//! its key policy when it constructed the key. HMAC keys are built from
+//! `to_bytes()`; since jwt-simple accepts HMAC keys of any length, that conversion
+//! applies this crate's strength policy (RFC 7518 §3.2) itself. jwt-simple's JWE
+//! key types (X25519 and RSA-OAEP, behind its `jwe` feature) and ML-DSA keys are
+//! not covered.
 //!
 //! Converting a key pair or an HMAC key exports private material. Use
 //! `public_key()` first, or [`Key::to_public`] afterwards, to publish.
@@ -51,15 +54,15 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use jwt_simple::algorithms::MAX_JWK_LENGTH;
 use jwt_simple::prelude::*;
 use serde::Serialize;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 #[cfg(test)]
 use crate::IncompatibleKeyError;
 use crate::encoding::Base64UrlBytes;
 use crate::error::{Error, JwtSimpleKeyConversionError};
 use crate::jwk::{
-    Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyUse, OkpCurve, OkpParams,
-    RsaParams, SymmetricParams,
+    Algorithm, EcCurve, EcParams, Key, KeyOperation, KeyParams, KeyType, KeyUse, OkpCurve,
+    OkpParams, RsaParams, SymmetricParams,
 };
 
 type Result<T> = std::result::Result<T, JwtSimpleKeyConversionError>;
@@ -84,25 +87,24 @@ fn import_error(err: jwt_simple::Error) -> JwtSimpleKeyConversionError {
     JwtSimpleKeyConversionError::Import(err.to_string())
 }
 
+fn key_type_mismatch(jwk: &Key, expected: KeyType) -> JwtSimpleKeyConversionError {
+    JwtSimpleKeyConversionError::KeyTypeMismatch {
+        expected: expected.as_str(),
+        actual: jwk.kty().as_str().to_string(),
+    }
+}
+
 fn rsa_params(jwk: &Key) -> Result<&RsaParams> {
     match jwk.params() {
         KeyParams::Rsa(params) => Ok(params),
-        _ => Err(JwtSimpleKeyConversionError::KeyTypeMismatch {
-            expected: "RSA",
-            actual: jwk.kty().as_str().to_string(),
-        }),
+        _ => Err(key_type_mismatch(jwk, KeyType::Rsa)),
     }
 }
 
 fn ec_params(jwk: &Key, curve: EcCurve) -> Result<&EcParams> {
     let params = match jwk.params() {
         KeyParams::Ec(params) => params,
-        _ => {
-            return Err(JwtSimpleKeyConversionError::KeyTypeMismatch {
-                expected: "EC",
-                actual: jwk.kty().as_str().to_string(),
-            });
-        }
+        _ => return Err(key_type_mismatch(jwk, KeyType::Ec)),
     };
     if params.crv != curve {
         return Err(JwtSimpleKeyConversionError::CurveMismatch {
@@ -116,12 +118,7 @@ fn ec_params(jwk: &Key, curve: EcCurve) -> Result<&EcParams> {
 fn okp_params(jwk: &Key, curve: OkpCurve) -> Result<&OkpParams> {
     let params = match jwk.params() {
         KeyParams::Okp(params) => params,
-        _ => {
-            return Err(JwtSimpleKeyConversionError::KeyTypeMismatch {
-                expected: "OKP",
-                actual: jwk.kty().as_str().to_string(),
-            });
-        }
+        _ => return Err(key_type_mismatch(jwk, KeyType::Okp)),
     };
     if params.crv != curve {
         return Err(JwtSimpleKeyConversionError::CurveMismatch {
@@ -130,6 +127,22 @@ fn okp_params(jwk: &Key, curve: OkpCurve) -> Result<&OkpParams> {
         });
     }
     Ok(params)
+}
+
+fn symmetric_params(jwk: &Key) -> Result<&SymmetricParams> {
+    match jwk.params() {
+        KeyParams::Symmetric(params) => Ok(params),
+        _ => Err(key_type_mismatch(jwk, KeyType::Symmetric)),
+    }
+}
+
+/// A key pair conversion needs the private part; say so before anything else.
+fn require_private_key(jwk: &Key) -> Result<()> {
+    if jwk.has_private_key() {
+        Ok(())
+    } else {
+        Err(JwtSimpleKeyConversionError::MissingPrivateKey)
+    }
 }
 
 /// RFC 8037 registered `EdDSA`; RFC 9864 added `Ed25519` and deprecated `EdDSA`,
@@ -148,7 +161,8 @@ fn ed25519_requested_alg(jwk: &Key) -> Algorithm {
 // ============================================================================
 
 /// The members jwt-simple's `from_jwk` consumes: key type, curve, key material
-/// and `kid`. Values borrow from the caller so secrets are not copied around.
+/// and `kid`. Values are borrowed; the secret ones come from [`secret_b64`], so
+/// their one base64 copy is wiped when the builder returns.
 #[derive(Default, Serialize)]
 struct ReducedJwk<'a> {
     kty: &'a str,
@@ -179,20 +193,41 @@ struct ReducedJwk<'a> {
 }
 
 impl ReducedJwk<'_> {
-    /// Serializes into a buffer sized for jwt-simple's limit up front, so a
-    /// document carrying private material is not left behind by reallocation.
+    /// Serializes the document jwt-simple will parse.
+    ///
+    /// The buffer is sized up front for jwt-simple's limit plus the worst-case
+    /// JSON escaping of `kid` (six bytes per character, the same reservation
+    /// jwt-simple's own export makes), so private material is never left behind
+    /// by a reallocation. A document over [`MAX_JWK_LENGTH`] is reported here,
+    /// by name, rather than as jwt-simple's generic import failure.
     fn to_json(&self) -> Result<Zeroizing<String>> {
         let encoding_error = |e: &dyn std::fmt::Display| {
             JwtSimpleKeyConversionError::Encoding(format!(
                 "failed to serialize JWK for jwt-simple: {e}"
             ))
         };
-        let mut buf = Vec::with_capacity(MAX_JWK_LENGTH);
-        serde_json::to_writer(&mut buf, self).map_err(|e| encoding_error(&e))?;
+        let kid_len = self.kid.map_or(0, str::len);
+        let mut buf = Vec::with_capacity(MAX_JWK_LENGTH + 6 * kid_len);
+        if let Err(e) = serde_json::to_writer(&mut buf, self) {
+            buf.zeroize();
+            return Err(encoding_error(&e));
+        }
         // serde_json emits UTF-8; `from_utf8` takes the buffer over without copying.
-        String::from_utf8(buf)
-            .map(Zeroizing::new)
-            .map_err(|e| encoding_error(&e))
+        let json = match String::from_utf8(buf) {
+            Ok(json) => Zeroizing::new(json),
+            Err(e) => {
+                let err = encoding_error(&e);
+                e.into_bytes().zeroize();
+                return Err(err);
+            }
+        };
+        if json.len() > MAX_JWK_LENGTH {
+            return Err(JwtSimpleKeyConversionError::Encoding(format!(
+                "JWK document is {} bytes, over jwt-simple's MAX_JWK_LENGTH ({MAX_JWK_LENGTH}); shorten `kid`",
+                json.len()
+            )));
+        }
+        Ok(json)
     }
 }
 
@@ -342,6 +377,23 @@ macro_rules! impl_rsa_public_key_conversion {
         impl TryFrom<&Key> for $key_type {
             type Error = JwtSimpleKeyConversionError;
 
+            /// Converts an RSA JWK into a jwt-simple public key for this algorithm.
+            ///
+            /// The key carries the JWK's `kid`, if any.
+            ///
+            /// # Errors
+            ///
+            /// - [`KeyTypeMismatch`](JwtSimpleKeyConversionError::KeyTypeMismatch) if
+            ///   `kty` is not `RSA`.
+            /// - [`InvalidKey`](JwtSimpleKeyConversionError::InvalidKey) or
+            ///   [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) from
+            ///   [`Key::validate_for_use`]: structure, a declared `alg` that is not this
+            ///   one, `use`/`key_ops` that do not permit `verify`, or a modulus under
+            ///   the algorithm's minimum.
+            /// - [`Encoding`](JwtSimpleKeyConversionError::Encoding) if the document
+            ///   would exceed jwt-simple's `MAX_JWK_LENGTH` (an oversized `kid`).
+            /// - [`Import`](JwtSimpleKeyConversionError::Import) if jwt-simple rejects
+            ///   the key: its RSA policy is 2048–4096 bits with `e = 65537`.
             fn try_from(jwk: &Key) -> Result<Self> {
                 let params = rsa_params(jwk)?;
                 validate_for_jwt_simple(jwk, &$alg, [KeyOperation::Verify])?;
@@ -365,11 +417,34 @@ macro_rules! impl_rsa_key_pair_conversion {
         impl TryFrom<&Key> for $key_type {
             type Error = JwtSimpleKeyConversionError;
 
+            /// Converts a private RSA JWK into a jwt-simple key pair for this algorithm.
+            ///
+            /// The key pair carries the JWK's `kid`, if any, and writes it into the
+            /// tokens it signs.
+            ///
+            /// # Errors
+            ///
+            /// - [`KeyTypeMismatch`](JwtSimpleKeyConversionError::KeyTypeMismatch) if
+            ///   `kty` is not `RSA`.
+            /// - [`MissingPrivateKey`](JwtSimpleKeyConversionError::MissingPrivateKey)
+            ///   if the JWK has no `d`.
+            /// - [`InvalidKey`](JwtSimpleKeyConversionError::InvalidKey) or
+            ///   [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) from
+            ///   [`Key::validate_for_use`]: structure, a declared `alg` that is not this
+            ///   one, `use`/`key_ops` that do not permit `sign`, or a modulus under the
+            ///   algorithm's minimum.
+            /// - [`MissingComponent`](JwtSimpleKeyConversionError::MissingComponent) if
+            ///   a CRT member (`p`, `q`, `dp`, `dq`, `qi`) is absent: jwt-simple needs all
+            ///   of them, while [`RsaParams::validate`] allows a `d`-only private key.
+            /// - [`Encoding`](JwtSimpleKeyConversionError::Encoding) for a multi-prime
+            ///   key (`oth`), or if the document would exceed jwt-simple's
+            ///   `MAX_JWK_LENGTH` (an oversized `kid`).
+            /// - [`Import`](JwtSimpleKeyConversionError::Import) if jwt-simple rejects
+            ///   the key: its RSA policy is 2048–4096 bits with `e = 65537`, and the
+            ///   private members must be consistent with `n` and `e`.
             fn try_from(jwk: &Key) -> Result<Self> {
                 let params = rsa_params(jwk)?;
-                if !params.has_private_key() {
-                    return Err(JwtSimpleKeyConversionError::MissingPrivateKey);
-                }
+                require_private_key(jwk)?;
                 validate_for_jwt_simple(jwk, &$alg, [KeyOperation::Sign])?;
                 let json = rsa_private_jwk(params, jwk.kid())?;
                 <$key_type>::from_jwk(&json).map_err(import_error)
@@ -409,6 +484,23 @@ macro_rules! impl_ec_public_key_conversion {
         impl TryFrom<&Key> for $key_type {
             type Error = JwtSimpleKeyConversionError;
 
+            /// Converts an EC JWK on this curve into a jwt-simple public key.
+            ///
+            /// The key carries the JWK's `kid`, if any.
+            ///
+            /// # Errors
+            ///
+            /// - [`KeyTypeMismatch`](JwtSimpleKeyConversionError::KeyTypeMismatch) if
+            ///   `kty` is not `EC`; [`CurveMismatch`](JwtSimpleKeyConversionError::CurveMismatch)
+            ///   if `crv` is another curve.
+            /// - [`InvalidKey`](JwtSimpleKeyConversionError::InvalidKey) or
+            ///   [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) from
+            ///   [`Key::validate_for_use`]: structure, a declared `alg` that is not this
+            ///   one, or `use`/`key_ops` that do not permit `verify`.
+            /// - [`Encoding`](JwtSimpleKeyConversionError::Encoding) if the document
+            ///   would exceed jwt-simple's `MAX_JWK_LENGTH` (an oversized `kid`).
+            /// - [`Import`](JwtSimpleKeyConversionError::Import) if jwt-simple rejects
+            ///   the key, notably a point that is not on the curve.
             fn try_from(jwk: &Key) -> Result<Self> {
                 let params = ec_params(jwk, $curve)?;
                 validate_for_jwt_simple(jwk, &$alg, [KeyOperation::Verify])?;
@@ -432,8 +524,29 @@ macro_rules! impl_ec_key_pair_conversion {
         impl TryFrom<&Key> for $key_type {
             type Error = JwtSimpleKeyConversionError;
 
+            /// Converts a private EC JWK on this curve into a jwt-simple key pair.
+            ///
+            /// The key pair carries the JWK's `kid`, if any, and writes it into the
+            /// tokens it signs.
+            ///
+            /// # Errors
+            ///
+            /// - [`KeyTypeMismatch`](JwtSimpleKeyConversionError::KeyTypeMismatch) if
+            ///   `kty` is not `EC`; [`CurveMismatch`](JwtSimpleKeyConversionError::CurveMismatch)
+            ///   if `crv` is another curve.
+            /// - [`MissingPrivateKey`](JwtSimpleKeyConversionError::MissingPrivateKey)
+            ///   if the JWK has no `d`.
+            /// - [`InvalidKey`](JwtSimpleKeyConversionError::InvalidKey) or
+            ///   [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) from
+            ///   [`Key::validate_for_use`]: structure, a declared `alg` that is not this
+            ///   one, or `use`/`key_ops` that do not permit `sign`.
+            /// - [`Encoding`](JwtSimpleKeyConversionError::Encoding) if the document
+            ///   would exceed jwt-simple's `MAX_JWK_LENGTH` (an oversized `kid`).
+            /// - [`Import`](JwtSimpleKeyConversionError::Import) if jwt-simple rejects
+            ///   the key: an invalid scalar, or `x`/`y` not derived from `d`.
             fn try_from(jwk: &Key) -> Result<Self> {
                 let params = ec_params(jwk, $curve)?;
+                require_private_key(jwk)?;
                 validate_for_jwt_simple(jwk, &$alg, [KeyOperation::Sign])?;
                 let json = ec_jwk(params, jwk.kid(), true)?;
                 <$key_type>::from_jwk(&json).map_err(import_error)
@@ -466,6 +579,24 @@ impl_ec_key_pair_conversion!(ES256kKeyPair, EcCurve::Secp256k1, Algorithm::Es256
 impl TryFrom<&Key> for Ed25519PublicKey {
     type Error = JwtSimpleKeyConversionError;
 
+    /// Converts an Ed25519 OKP JWK into a jwt-simple public key.
+    ///
+    /// The key carries the JWK's `kid`, if any. A declared `alg` may be either
+    /// registered name, `EdDSA` (RFC 8037) or `Ed25519` (RFC 9864).
+    ///
+    /// # Errors
+    ///
+    /// - [`KeyTypeMismatch`](JwtSimpleKeyConversionError::KeyTypeMismatch) if `kty`
+    ///   is not `OKP`; [`CurveMismatch`](JwtSimpleKeyConversionError::CurveMismatch)
+    ///   if `crv` is not `Ed25519`.
+    /// - [`InvalidKey`](JwtSimpleKeyConversionError::InvalidKey) or
+    ///   [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) from
+    ///   [`Key::validate_for_use`]: structure, a declared `alg` that is not an EdDSA
+    ///   name, or `use`/`key_ops` that do not permit `verify`.
+    /// - [`Encoding`](JwtSimpleKeyConversionError::Encoding) if the document would
+    ///   exceed jwt-simple's `MAX_JWK_LENGTH` (an oversized `kid`).
+    /// - [`Import`](JwtSimpleKeyConversionError::Import) if jwt-simple rejects the
+    ///   key: a non-canonical encoding or a point of small order.
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = okp_params(jwk, OkpCurve::Ed25519)?;
         validate_for_jwt_simple(jwk, &ed25519_requested_alg(jwk), [KeyOperation::Verify])?;
@@ -485,8 +616,32 @@ impl TryFrom<Key> for Ed25519PublicKey {
 impl TryFrom<&Key> for Ed25519KeyPair {
     type Error = JwtSimpleKeyConversionError;
 
+    /// Converts a private Ed25519 OKP JWK into a jwt-simple key pair.
+    ///
+    /// The key pair carries the JWK's `kid`, if any, and writes it into the tokens
+    /// it signs. A declared `alg` may be either registered name, `EdDSA`
+    /// (RFC 8037) or `Ed25519` (RFC 9864). `d` may be the 32-byte seed RFC 8037
+    /// defines, or the 64-byte `seed || public-key` form some implementations use.
+    ///
+    /// # Errors
+    ///
+    /// - [`KeyTypeMismatch`](JwtSimpleKeyConversionError::KeyTypeMismatch) if `kty`
+    ///   is not `OKP`; [`CurveMismatch`](JwtSimpleKeyConversionError::CurveMismatch)
+    ///   if `crv` is not `Ed25519`.
+    /// - [`MissingPrivateKey`](JwtSimpleKeyConversionError::MissingPrivateKey) if
+    ///   the JWK has no `d`.
+    /// - [`InvalidKey`](JwtSimpleKeyConversionError::InvalidKey) or
+    ///   [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) from
+    ///   [`Key::validate_for_use`]: structure, a declared `alg` that is not an EdDSA
+    ///   name, or `use`/`key_ops` that do not permit `sign`.
+    /// - [`Encoding`](JwtSimpleKeyConversionError::Encoding) if the document would
+    ///   exceed jwt-simple's `MAX_JWK_LENGTH` (an oversized `kid`).
+    /// - [`Import`](JwtSimpleKeyConversionError::Import) if `d` has neither length,
+    ///   if a 64-byte `d` embeds a public key other than `x`, or if jwt-simple
+    ///   rejects the key: `x` not derived from the seed.
     fn try_from(jwk: &Key) -> Result<Self> {
         let params = okp_params(jwk, OkpCurve::Ed25519)?;
+        require_private_key(jwk)?;
         validate_for_jwt_simple(jwk, &ed25519_requested_alg(jwk), [KeyOperation::Sign])?;
         let json = okp_jwk(params, jwk.kid(), true)?;
         Ed25519KeyPair::from_jwk(&json).map_err(import_error)
@@ -510,24 +665,26 @@ macro_rules! impl_symmetric_key_conversion {
         impl TryFrom<&Key> for $key_type {
             type Error = JwtSimpleKeyConversionError;
 
+            /// Converts an `oct` JWK into a jwt-simple HMAC key for this algorithm.
+            ///
+            /// The key carries the JWK's `kid`, if any, and writes it into the tokens
+            /// it authenticates. jwt-simple has no JWK import for symmetric keys, so
+            /// the key is built from the bytes of `k`.
+            ///
             /// # Errors
             ///
-            /// Returns [`JwtSimpleKeyConversionError::IncompatibleKey`] if `key_ops` is
-            /// present but does not include both [`KeyOperation::Sign`] and
-            /// [`KeyOperation::Verify`]. HMAC keys in `jwt-simple` are bidirectional;
-            /// callers that need one-directional HMAC usage should remove `key_ops`
-            /// before converting.
+            /// - [`KeyTypeMismatch`](JwtSimpleKeyConversionError::KeyTypeMismatch) if
+            ///   `kty` is not `oct`.
+            /// - [`InvalidKey`](JwtSimpleKeyConversionError::InvalidKey) or
+            ///   [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) from
+            ///   [`Key::validate_for_use`]: structure, a declared `alg` that is not this
+            ///   one, `k` shorter than the algorithm's hash output, or `key_ops` that
+            ///   does not include both [`KeyOperation::Sign`] and
+            ///   [`KeyOperation::Verify`]. HMAC keys in `jwt-simple` are bidirectional;
+            ///   callers that need one-directional HMAC usage should remove `key_ops`
+            ///   before converting.
             fn try_from(jwk: &Key) -> Result<Self> {
-                let params = match jwk.params() {
-                    KeyParams::Symmetric(params) => params,
-                    _ => {
-                        return Err(JwtSimpleKeyConversionError::KeyTypeMismatch {
-                            expected: "oct",
-                            actual: jwk.kty().as_str().to_string(),
-                        });
-                    }
-                };
-
+                let params = symmetric_params(jwk)?;
                 validate_for_jwt_simple(jwk, &$alg, [KeyOperation::Sign, KeyOperation::Verify])?;
 
                 let key = <$key_type>::from_bytes(params.k.as_bytes());
@@ -625,11 +782,24 @@ macro_rules! impl_key_from_jwt_simple_hmac {
             /// Builds an `oct` [`Key`] from the HMAC key's bytes, with `alg`,
             /// `use: sig` and the key's id as `kid`.
             ///
+            /// jwt-simple accepts HMAC keys of any length, so unlike the asymmetric
+            /// conversions this one applies this crate's strength policy itself: the
+            /// result passes [`Key::validate_for_use`] for the algorithm it declares,
+            /// which requires `k` to be at least the hash output size (RFC 7518 §3.2:
+            /// 32 bytes for HS256, 48 for HS384, 64 for HS512).
+            ///
+            /// Note that jwt-simple's `HS384Key::generate()` and `HS512Key::generate()`
+            /// produce 32-byte keys, which this rule rejects; build those from 48 or
+            /// 64 random bytes with `from_bytes` instead.
+            ///
             /// # Errors
             ///
-            /// [`JwtSimpleKeyConversionError::Unrepresentable`] if the key has a
-            /// salt attached: a JWK has no member for it, and a bare `k` would
-            /// produce a key that verifies none of the salted key's tokens.
+            /// - [`Unrepresentable`](JwtSimpleKeyConversionError::Unrepresentable) if
+            ///   the key has a salt attached: a JWK has no member for it, and a bare
+            ///   `k` would produce a key that verifies none of the salted key's tokens.
+            /// - [`IncompatibleKey`](JwtSimpleKeyConversionError::IncompatibleKey) with
+            ///   [`InsufficientKeyStrength`](crate::IncompatibleKeyError::InsufficientKeyStrength)
+            ///   if the key is shorter than the algorithm's hash output.
             fn try_from(key: &$key_type) -> Result<Self> {
                 if !matches!(MACLike::salt(key), Salt::None) {
                     return Err(JwtSimpleKeyConversionError::Unrepresentable {
@@ -637,16 +807,15 @@ macro_rules! impl_key_from_jwt_simple_hmac {
                     });
                 }
 
-                let k = Zeroizing::new(key.to_bytes());
                 let mut jwk = Key::new(KeyParams::Symmetric(SymmetricParams::new(
-                    Base64UrlBytes::from(k.as_slice()),
+                    Base64UrlBytes::new(key.to_bytes()),
                 )))
                 .with_alg($alg)
                 .with_use(KeyUse::Signature);
                 if let Some(kid) = key.key_id() {
                     jwk = jwk.with_kid(kid.as_str());
                 }
-                jwk.validate().map_err(map_validation_error)?;
+                validate_for_jwt_simple(&jwk, &$alg, [KeyOperation::Sign, KeyOperation::Verify])?;
                 Ok(jwk)
             }
         }
@@ -839,8 +1008,29 @@ mod tests {
 
     #[test]
     fn test_missing_private_key() {
+        // Every key-pair conversion reports a public-only key the same way, before
+        // intent validation gets a chance to call it an operation problem.
         let jwk: Key = serde_json::from_str(RFC_RSA_PUBLIC_KEY).unwrap();
         let result: Result<RS256KeyPair> = (&jwk).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::MissingPrivateKey)
+        ));
+
+        let jwk: Key = serde_json::from_str(RFC_EC_PUBLIC_KEY).unwrap();
+        let result: Result<ES256KeyPair> = (&jwk).try_into();
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::MissingPrivateKey)
+        ));
+
+        let json = r#"{
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+        }"#;
+        let jwk: Key = serde_json::from_str(json).unwrap();
+        let result: Result<Ed25519KeyPair> = (&jwk).try_into();
         assert!(matches!(
             result,
             Err(JwtSimpleKeyConversionError::MissingPrivateKey)
@@ -1463,8 +1653,45 @@ mod tests {
         let result: Result<Ed25519PublicKey> = (&jwk).try_into();
         assert!(matches!(
             result,
-            Err(JwtSimpleKeyConversionError::IncompatibleKey(_))
+            Err(JwtSimpleKeyConversionError::IncompatibleKey(
+                IncompatibleKeyError::AlgorithmMismatch {
+                    requested: Algorithm::Ed25519,
+                    declared: Algorithm::Es256,
+                }
+            ))
         ));
+    }
+
+    // ------------------------------------------------------------------------
+    // Document size (jwt-simple's `MAX_JWK_LENGTH`)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn oversized_kid_is_reported_before_jwt_simple_sees_the_document() {
+        // A `kid` that pushes the reduced JWK over jwt-simple's 8 KiB limit. The
+        // buffer is sized for it (no reallocation of a document holding `d`), and
+        // the failure names the cause instead of surfacing as a generic import error.
+        let jwk: Key = serde_json::from_str(RFC_EC_P256_PRIVATE_KEY)
+            .map(|k: Key| k.with_kid("k".repeat(MAX_JWK_LENGTH)))
+            .unwrap();
+
+        let result: Result<ES256KeyPair> = (&jwk).try_into();
+        match result {
+            Err(JwtSimpleKeyConversionError::Encoding(msg)) => {
+                assert!(msg.contains("MAX_JWK_LENGTH"), "unexpected message: {msg}");
+                assert!(msg.contains("kid"), "unexpected message: {msg}");
+            }
+            other => panic!("expected Encoding error, got {other:?}"),
+        }
+
+        // The longest `kid` that still fits converts, with the `kid` intact.
+        let probe: Key = serde_json::from_str(RFC_EC_P256_PRIVATE_KEY).unwrap();
+        let params = ec_params(&probe, EcCurve::P256).unwrap();
+        let headroom = MAX_JWK_LENGTH - ec_jwk(params, Some(""), true).unwrap().len();
+        let kid = "k".repeat(headroom);
+        let jwk = probe.with_kid(kid.clone());
+        let key_pair: ES256KeyPair = (&jwk).try_into().unwrap();
+        assert_eq!(key_pair.key_id().as_deref(), Some(kid.as_str()));
     }
 
     // ------------------------------------------------------------------------
@@ -1677,19 +1904,54 @@ mod tests {
             .unwrap();
         assert!(back.verify_token::<NoCustomClaims>(&token, None).is_ok());
 
-        let jwk = Key::try_from(&HS384Key::generate()).unwrap();
+        // HS384/HS512 need 48/64-byte keys (RFC 7518 §3.2).
+        let jwk = Key::try_from(&HS384Key::from_bytes(&[2u8; 48])).unwrap();
         assert_eq!(jwk.alg(), Some(&Algorithm::Hs384));
         assert_eq!(jwk.kid(), None);
-        let jwk = Key::try_from(HS512Key::generate()).unwrap();
+        let jwk = Key::try_from(HS512Key::from_bytes(&[3u8; 64])).unwrap();
         assert_eq!(jwk.alg(), Some(&Algorithm::Hs512));
+
+        // jwt-simple's `generate()` yields 32 bytes for every HS* type, which is
+        // under the RFC 7518 minimum for HS384/HS512; the error says so.
+        let result = Key::try_from(&HS384Key::generate());
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::IncompatibleKey(
+                IncompatibleKeyError::InsufficientKeyStrength {
+                    minimum_bits: 384,
+                    actual_bits: 256,
+                    ..
+                }
+            ))
+        ));
 
         // A salt has no JWK member; refusing beats publishing a key that verifies nothing.
         let salted = HS256Key::generate_with_salt();
         let result = Key::try_from(&salted);
         assert!(matches!(
             result,
-            Err(JwtSimpleKeyConversionError::Unrepresentable { .. })
+            Err(JwtSimpleKeyConversionError::Unrepresentable {
+                reason: "HMAC key has a salt attached"
+            })
         ));
+
+        // jwt-simple takes HMAC keys of any length; a JWK declaring HS256 must not
+        // be shorter than SHA-256's output (RFC 7518 §3.2), so the strength policy
+        // is applied here rather than left for the consumer to discover.
+        let weak = HS256Key::from_bytes(&[1u8; 4]);
+        let result = Key::try_from(&weak);
+        assert!(matches!(
+            result,
+            Err(JwtSimpleKeyConversionError::IncompatibleKey(
+                IncompatibleKeyError::InsufficientKeyStrength {
+                    minimum_bits: 256,
+                    actual_bits: 32,
+                    ..
+                }
+            ))
+        ));
+        // The boundary passes.
+        assert!(Key::try_from(&HS256Key::from_bytes(&[1u8; 32])).is_ok());
     }
 
     #[test]
