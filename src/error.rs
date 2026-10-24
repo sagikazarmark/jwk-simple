@@ -433,6 +433,11 @@ pub enum JwtSimpleKeyConversionError {
     Encoding(String),
     /// Importing the encoded key into `jwt-simple` failed.
     Import(String),
+    /// The `jwt-simple` key carries state that a JWK has no member for.
+    Unrepresentable {
+        /// What the JWK could not carry.
+        reason: &'static str,
+    },
 }
 
 #[cfg(feature = "jwt-simple")]
@@ -464,6 +469,9 @@ impl Display for JwtSimpleKeyConversionError {
             }
             JwtSimpleKeyConversionError::Encoding(msg) => write!(f, "encoding error: {}", msg),
             JwtSimpleKeyConversionError::Import(msg) => write!(f, "import error: {}", msg),
+            JwtSimpleKeyConversionError::Unrepresentable { reason } => {
+                write!(f, "key cannot be represented as a JWK: {}", reason)
+            }
         }
     }
 }

@@ -1,8 +1,10 @@
 //! # jwk-simple
 //!
-//! A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as
-//! defined in RFC 7517, with full support for WASM environments and optional
-//! jwt-simple integration.
+//! A Rust library for JSON Web Keys (JWK) and JWK Sets (JWKS) as defined in
+//! RFC 7517: a typed key model, strict key selection, remote fetching with
+//! caching, and adapters that hand keys to a verifier — `jwt-simple` on any
+//! target, WebCrypto on `wasm32`. Runs natively, in browsers and on Cloudflare
+//! Workers.
 //!
 //! ## Features
 //!
@@ -13,7 +15,9 @@
 //!   Symmetric (HMAC), and OKP (Ed25519, Ed448, X25519, X448)
 //! - **WASM compatible**: Core functionality works in WebAssembly environments
 //! - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
-//! - **jwt-simple integration**: Optional feature for converting JWKs to jwt-simple key types
+//! - **Verifier adapters**: The core does no cryptography. Optional features
+//!   convert keys to and from `jwt-simple` types, or import them into WebCrypto
+//!   on `wasm32`
 //! - **Remote fetching**: Load JWKS from HTTP endpoints through a pluggable
 //!   transport (reqwest, any `tower::Service`, or your own) with caching support
 //! - **Runs on Cloudflare Workers**: `Send` futures on `wasm32`, KV caching, and
@@ -54,7 +58,7 @@
 //!
 //! | Feature | Platform | Description |
 //! |---------|----------|-------------|
-//! | `jwt-simple` | all targets | Integration with the jwt-simple crate (requires a `jwt-simple` backend feature such as `jwt-simple/pure-rust`) |
+//! | `jwt-simple` | all targets | Conversions to and from the jwt-simple crate's key types (requires a `jwt-simple` backend feature such as `jwt-simple/pure-rust`) |
 //! | `http` | all targets | Remote JWKS fetching through the `jwks::HttpTransport` trait: `jwks::HttpKeyStore` and the transport types. Bring your own transport, or enable one below |
 //! | `reqwest` | all targets | The default transport, `jwks::ReqwestTransport` (implies `http`). On native targets it needs a TLS backend: `default-tls`, `rustls` or `native-tls` |
 //! | `default-tls`, `rustls`, `native-tls` | non-`wasm32` | TLS backends for `reqwest` (no-ops without it, and on `wasm32` where the JS host does TLS) |
@@ -100,11 +104,14 @@
 //! `#[worker::send]`. Verifying with `jwt-simple` (feature `pure-rust`) on
 //! `wasm32` involves no JS values and is `Send` end to end.
 //!
-//! ## Converting to jwt-simple keys
+//! ## Converting to and from jwt-simple keys
 //!
-//! With the `jwt-simple` feature enabled, you can convert JWKs to jwt-simple key types.
-//! Make sure your crate also enables a concrete `jwt-simple` backend feature
-//! (for example `jwt-simple/pure-rust`).
+//! With the `jwt-simple` feature enabled, JWKs convert to jwt-simple key types
+//! and jwt-simple keys convert to [`Key`]. Make sure your crate also enables a
+//! concrete `jwt-simple` backend feature (for example `jwt-simple/pure-rust`).
+//!
+//! Verifying: select a key, convert it, verify. A conversion runs this crate's
+//! validation first, then jwt-simple's `from_jwk` with its cryptographic checks.
 //!
 #![cfg_attr(feature = "jwt-simple", doc = "```no_run")]
 #![cfg_attr(not(feature = "jwt-simple"), doc = "```ignore")]
@@ -126,6 +133,24 @@
 //!
 //! // Use for JWT verification
 //! let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Publishing: generate with jwt-simple, convert the public keys, serve the set.
+//!
+#![cfg_attr(feature = "jwt-simple", doc = "```")]
+#![cfg_attr(not(feature = "jwt-simple"), doc = "```ignore")]
+//! use jwk_simple::{Key, KeySet};
+//! use jwt_simple::prelude::*;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let key_pair = ES256KeyPair::generate().with_key_id("2026-10");
+//!
+//! let mut jwks = KeySet::new();
+//! jwks.add_key(Key::try_from(&key_pair.public_key())?)?;
+//! let body = serde_json::to_string(&jwks)?;
+//! # assert!(!body.contains("\"d\""));
 //! # Ok(())
 //! # }
 //! ```

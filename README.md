@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/jwk-simple.svg?style=flat-square)](https://crates.io/crates/jwk-simple)
 ![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/sagikazarmark/jwk-simple/badge?style=flat-square)
 
-A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defined in RFC 7517, with WASM compatibility and optional [`jwt-simple`](https://github.com/jedisct1/rust-jwt-simple) integration.
+A Rust library for JSON Web Keys (JWK) and JWK Sets (JWKS) as defined in RFC 7517: a typed key model, strict key selection, remote fetching with caching, and adapters that hand keys to a verifier — [`jwt-simple`](https://github.com/jedisct1/rust-jwt-simple) on any target, WebCrypto on `wasm32`. Runs natively, in browsers and on Cloudflare Workers.
 
 ## Features
 
@@ -12,7 +12,7 @@ A Rust library for working with JSON Web Keys (JWK) and JWK Sets (JWKS) as defin
 - **Multiple key types**: RSA, EC (P-256, P-384, P-521, secp256k1), Symmetric (HMAC), and OKP (Ed25519, Ed448, X25519, X448)
 - **WASM and WebCrypto compatible**: Core functionality works in WebAssembly environments, with optional WebCrypto integration on `wasm32`
 - **Security-first**: Zeroize support for sensitive data, constant-time base64 encoding
-- **jwt-simple integration**: Optional feature for converting JWKs to [`jwt-simple`](https://github.com/jedisct1/rust-jwt-simple) key types
+- **Verifier adapters**: The core does no cryptography. Optional features convert keys to and from [`jwt-simple`](https://github.com/jedisct1/rust-jwt-simple) types, or import them into WebCrypto on `wasm32`
 - **Remote fetching**: Load JWKS from HTTP endpoints through a pluggable transport (reqwest, any `tower::Service`, or your own), with a hard cap on response size
 - **Caching**: Optional TTL-based caching of fetched JWKS (`KeySet`) data
 - **Runs on Cloudflare Workers**: `Send` futures on `wasm32`, KV caching, and `tower-worker-fetch` as the HTTP transport, so a store fits axum's `State`
@@ -58,7 +58,7 @@ expected usage and platform constraints.
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `jwt-simple` | ❌ | Integration with the jwt-simple crate (all targets; requires a `jwt-simple` backend feature such as `jwt-simple/pure-rust`) |
+| `jwt-simple` | ❌ | Conversions to and from the jwt-simple crate's key types (all targets; requires a `jwt-simple` backend feature such as `jwt-simple/pure-rust`) |
 | `http` | ❌ | Remote JWKS fetching through the `HttpTransport` trait: `HttpKeyStore` and the transport types (all targets). Bring your own transport, or enable one of the two below |
 | `reqwest` | ❌ | The default transport, `ReqwestTransport` (implies `http`, all targets). On native targets it needs a TLS backend: `default-tls`, `rustls` or `native-tls` |
 | `default-tls`, `rustls`, `native-tls` | ❌ | TLS backends for `reqwest` (no-ops without it, and on `wasm32` where the JS host does TLS) |
@@ -123,6 +123,46 @@ let key: RS256PublicKey = jwk.try_into()?;
 // Verify a JWT
 let claims = key.verify_token::<NoCustomClaims>(&token, None)?;
 ```
+
+A conversion runs this crate's validation first (`Key::validate_for_use`: structure, declared
+`alg`, `use`/`key_ops` intent, key strength), then hands jwt-simple only the key type, curve,
+key material and `kid` through its `from_jwk` constructor, which applies jwt-simple's own
+cryptographic checks (RSA 2048–4096 bits with `e = 65537`, EC points on the curve, a private
+key's public part derived from `d`). The converted key carries the JWK's `kid`, so tokens signed
+with a converted key pair include it; since `kid` is part of the document jwt-simple parses, a
+`kid` that pushes it past jwt-simple's 8 KiB `MAX_JWK_LENGTH` fails with
+`JwtSimpleKeyConversionError::Encoding`. Ed25519 keys may declare either registered name, `EdDSA`
+(RFC 8037) or `Ed25519` (RFC 9864). jwt-simple has no JWK import for symmetric keys; `HS*`
+conversions use `from_bytes`.
+
+### Publishing a JWKS from jwt-simple Keys
+
+The other direction: `Key` implements `TryFrom` for jwt-simple's signing key types — the
+RS\*/PS\*/ES\*/Ed25519 public keys and key pairs, parsed from their own `to_jwk()`, and the `HS*`
+keys, built from their bytes. The result is what jwt-simple itself would publish — `alg`,
+`use: sig`, and the key id as `kid` — in this crate's model, so it can go into a `KeySet` and be
+served as `/.well-known/jwks.json`:
+
+```rust
+use jwk_simple::{Key, KeySet};
+use jwt_simple::prelude::*;
+
+let current = ES256KeyPair::generate().with_key_id("2026-10");
+let previous = ES256KeyPair::generate().with_key_id("2026-04");
+
+let mut jwks = KeySet::new();
+jwks.add_key(Key::try_from(&current.public_key())?)?;
+jwks.add_key(Key::try_from(&previous.public_key())?)?;
+let body = serde_json::to_string(&jwks)?;
+```
+
+Converting a key pair or an `HS*` key exports private material; convert `public_key()` to
+publish. Two HMAC cases are refused: a salted key (`generate_with_salt`), with
+`JwtSimpleKeyConversionError::Unrepresentable`, since a JWK has no member for the salt; and a
+key shorter than its algorithm's hash output (RFC 7518 §3.2), with `InsufficientKeyStrength` —
+note that jwt-simple's `HS384Key::generate()` and `HS512Key::generate()` yield 32-byte keys, so
+build those from 48 or 64 random bytes with `from_bytes`. jwt-simple's JWE key types (X25519,
+RSA-OAEP) and ML-DSA keys are not covered.
 
 ### Fetching from HTTP
 
@@ -308,50 +348,55 @@ let key = jwks.get_by_thumbprint(&thumbprint);
 
 ## Comparison to Other Libraries
 
-Status below is based on current crates.io releases as of 2026-03.
+Status below is based on crates.io releases as of 2026-10: jwks-client 0.2.0, jsonwebkey 0.4.0,
+jwt-simple 0.15.0, jsonwebtoken 11.1.0. Rows describe each crate's **JWK** support: a crate may
+handle a key type through PEM/DER or raw bytes without being able to read or write it as a JWK.
 
 | Feature | jwk-simple | jwks-client | jsonwebkey | jwt-simple | jsonwebtoken |
 |---------|-------------|-------------|------------|------------|--------------|
-| Full JWKS spec | ✅ | ❌ | ❌ | ❌ | ❌ |
+| JWK Set model (RFC 7517 §5) | ✅ | ❌ | ❌ | ❌ | ⚠️ |
+| Key selection (`kid`, `alg`, `use`, `key_ops`) | ✅ | ⚠️ | ❌ | ❌ | ⚠️ |
 | RSA keys | ✅ | ✅ | ✅ | ✅ | ✅ |
 | EC keys (P-256/384/521) | ✅ | ❌ | ⚠️ | ⚠️ | ⚠️ |
 | EdDSA (Ed25519) | ✅ | ❌ | ❌ | ✅ | ✅ |
-| Symmetric keys | ✅ | ❌ | ✅ | ✅ | ✅ |
-| OKP keys (X25519) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| WASM support | ✅ | ❌ | ⚠️ | ✅ | ✅ |
-| jwt-simple integration | ✅ | ❌ | ❌ | N/A | ❌ |
+| Symmetric keys (`oct`) | ✅ | ❌ | ✅ | ❌ | ✅ |
+| OKP keys (X25519) | ✅ | ❌ | ❌ | ✅ | ❌ |
+| AKP keys (RFC 9964, ML-DSA) | ❌ | ❌ | ❌ | ✅ | ⚠️ |
+| `x5c` binding to the key | ✅ | ❌ | ❌ | ❌ | ❌ |
+| WASM support | ✅ | ❌ | ⚠️ | ✅ | ⚠️ |
 | HTTP fetching | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Caching | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Zeroize support | ✅ | ❌ | ✅ | ✅ | ❌ |
+| Zeroize support | ✅ | ❌ | ✅ | ✅ | ✅ |
 | Panic-free APIs* | ✅ | ✅ | ❌ | ❌ | ❌ |
-| JWK thumbprint (RFC 7638) | ✅ | ❌ | ⚠️ | ❌ | ✅ |
-| TryFrom/TryInto traits | ✅ | ❌ | ❌ | ❌ | ⚠️ |
-| Private key support | ✅ | ❌ | ✅ | ✅ | ✅ |
+| JWK thumbprint (RFC 7638) | ✅ | ❌ | ⚠️ | ✅ | ✅ |
+| Private keys as JWK | ✅ | ❌ | ✅ | ✅ | ❌ |
+| JWK export (publishing) | ✅ | ❌ | ✅ | ✅ | ✅ |
+| Verifier adapters | jwt-simple, WebCrypto | built in (ring) | jsonwebtoken | N/A | N/A |
 
 Legend for partial support (`⚠️`):
-- `jsonwebkey` EC = P-256 only; thumbprints require the `thumbprint` feature
-- `jwt-simple` EC = P-256/P-384/secp256k1 (not P-521)
-- `jsonwebtoken` EC = P-256/P-384 (P-521 JWK exists but is not supported by the crypto backend)
-- `jsonwebkey` WASM = core parsing works; behavior can depend on enabled optional features
-- `jsonwebtoken` WASM = works on `wasm32` with `rust_crypto` (or a custom `CryptoProvider`)
-- `jsonwebtoken` TryFrom/TryInto = `TryFrom<&Jwk>` is available for `DecodingKey`
+- `jwks-client` selection = by `kid` only
+- `jsonwebkey` EC = P-256 only; thumbprints require the `thumbprint` feature; WASM = core parsing works, behavior can depend on enabled optional features
+- `jwt-simple` EC = P-256/P-384/secp256k1 (not P-521); has no JWK Set type by design (pick the entry by `kid` yourself and pass its JSON to the key type you expect); `HS*` keys exist but have no JWK import or export
+- `jsonwebtoken` JWK Set = `JwkSet` with `find(kid)`; one unparsable key fails the whole set; selection is by `kid` only; EC = P-256/P-384 (P-521 parses but the backends do not verify it); AKP = parsed into the `Other` variant, not usable for verification; WASM = works on `wasm32` with `rust_crypto` (or a custom `CryptoProvider`); the JWK model is public-only (private keys come from PEM/DER via `EncodingKey`)
+- `jwk-simple` AKP = keys with `kty: "AKP"` are not modelled and are skipped when a `KeySet` is parsed
 
 *"Panic-free APIs" excludes standard panic-prone trait semantics such as out-of-bounds indexing via `Index`.
 
 ### When to use jwk-simple
 
-- **You need jwt-simple integration** - Direct conversion to jwt-simple key types
+- **You need the JWKS layer around a verifier** - Typed set, strict `kid`/`alg` selection with an allowlist, fetch + cache + rotation; jwt-simple or WebCrypto does the cryptography
+- **You publish a JWKS** - Generate keys with jwt-simple, convert them to `Key`, serve a `KeySet`
 - **You're building Cloudflare Workers** - `Send` futures for axum/tower on Workers, native KV cache, `tower-worker-fetch` transport
 - **You need WASM support** - Core parsing works in browser
-- **You want broad JOSE/JWK RFC coverage** - All key types including OKP
+- **You want broad JOSE/JWK RFC coverage** - All key types including OKP, `x5c` bound to the key
 - **You want to control the HTTP stack** - Pluggable `HttpTransport` (reqwest, tower, or your own) with a bounded response size
 
 ### When to use alternatives
 
-- **jwks-client** - If you only need RSA and want mature async HTTP
+- **jwt-simple** - Its own `from_jwk`/`to_jwk` cover a single key you already trust; you need this crate for sets, selection, fetching, caching and `x5c`
+- **jsonwebtoken** - If you want the most widely-used JWT library; its `jwk` module parses public JWKs and `DecodingKey::from_jwk` consumes them
 - **jsonwebkey** - If you need key generation and PEM/DER conversion
-- **jwt-simple** - If you only need JWT operations, not JWKS
-- **jsonwebtoken** - If you want the most widely-used JWT library
+- **jwks-client** - Last released in 2020; for a remote JWKS client built around `jsonwebtoken` look at `jwks_client_rs` or `jwtk` instead
 
 ## Security Considerations
 
