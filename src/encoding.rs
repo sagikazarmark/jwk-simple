@@ -220,7 +220,8 @@ impl<'de> Deserialize<'de> for Base64UrlBytes {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
+        // The text may be a private member (`d`, `k`, `p`, ...); wipe it like the bytes.
+        let s = Zeroizing::new(String::deserialize(deserializer)?);
         Self::from_base64url(&s).map_err(serde::de::Error::custom)
     }
 }

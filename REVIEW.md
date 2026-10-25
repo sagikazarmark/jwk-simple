@@ -50,19 +50,6 @@ Copy this block for new items:
 - Revisit signal: Requests for strict RFC profile or reported OKP import incompatibilities.
 - Suggested future action: Add strict validation mode (or `validate_strict`) enforcing exact per-curve private key lengths.
 
-## Duplicate DER helper logic across modules
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: COMMON
-- Severity: LOW -> LOW
-- Decision: DEFER
-- Rationale: Maintainability cleanup only; no immediate functional risk.
-- Preconditions/Trigger: Future DER behavior changes are applied in one module but not the other.
-- Risk if not fixed: Drift between implementations and extra maintenance overhead.
-- Revisit signal: Any DER-related bugfix touching both `src/jwk.rs` and `src/integrations/jwt_simple.rs`.
-- Suggested future action: Extract shared crate-private DER helpers and remove duplicate implementations.
-
 ## WebCrypto pass-through wrappers add unnecessary indirection
 - Date added: 2026-03-03
 - Source: second-opinion review
@@ -114,19 +101,6 @@ Copy this block for new items:
 - Risk if not fixed: Invalid EC keys fail later at crypto import/use rather than early validation.
 - Revisit signal: Requests for stricter validation profile or interop/security requirements.
 - Suggested future action: Add optional strict EC validation mode (curve membership and consistency checks).
-
-## EC jwt-simple key-pair conversion ignores x/y consistency with d
-- Date added: 2026-03-03
-- Source: second-opinion review
-- Validity: CONFIRMED
-- Trigger likelihood: UNCOMMON
-- Severity: MEDIUM -> LOW/MEDIUM
-- Decision: DEFER
-- Rationale: Policy-sensitive tightening; strict checks may reject currently accepted inputs.
-- Preconditions/Trigger: JWK provides mismatched public/private EC components.
-- Risk if not fixed: Malformed EC inputs may appear acceptable until later use.
-- Revisit signal: Input-quality incidents or demand for strict key consistency guarantees.
-- Suggested future action: Add optional consistency check before EC key-pair conversion.
 
 ## JWKS-level kid uniqueness is not enforced in KeySet::validate
 - Date added: 2026-03-03
@@ -271,6 +245,19 @@ Copy this block for new items:
 - Revisit signal: Requests for a `Key`-level constant-time comparison API, or evidence of downstream misuse.
 - Suggested future action: Consider adding `Key::ct_eq` that delegates to the underlying params' constant-time comparison methods.
 
+## Core treats `EdDSA` and `Ed25519`/`Ed448` as distinct algorithms
+- Date added: 2026-10-24
+- Source: jwt-simple `from_jwk` refactor (round-trip testing)
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: MEDIUM -> MEDIUM
+- Decision: DEFER
+- Rationale: `Key::validate_declared_algorithm_match` and the selector compare `alg` with `!=`, so a key declaring `alg: EdDSA` (the RFC 8037 name, still what jwt-simple, jose, Nimbus and most IdPs emit) does not match a request for `Algorithm::Ed25519`, and vice versa. RFC 9864 deprecates `EdDSA` in favour of the curve-specific names but expects both to be understood during the transition. The `jwt-simple` integration was the only in-crate caller affected and now requests the name the key declares (`ed25519_requested_alg`); whether the core should treat the names as equivalent (for the matching curve) is a policy decision that also affects `KeySelector` and the `web-crypto` integration, so it is deferred rather than changed in a conversion-focused PR.
+- Preconditions/Trigger: `KeySet::selector(&[Algorithm::Ed25519]).select(KeyMatcher::new(Verify, Algorithm::Ed25519))` against a JWKS whose Ed25519 key declares `alg: "EdDSA"` (or a token header saying `EdDSA` against a key declaring `Ed25519`).
+- Risk if not fixed: `NoMatchingKey` / `AlgorithmMismatch` for interoperable Ed25519 keys; callers must know to try both names.
+- Revisit signal: Interop reports involving EdDSA keys and the selector; a decision on RFC 9864 transition policy.
+- Suggested future action: In `validate_declared_algorithm_match` and the selector's declared-`alg` check, treat `EdDsa` as matching `Ed25519`/`Ed448` when the key's curve agrees (and the reverse), possibly behind an explicit strict mode. Add RFC 9864 vectors for both spellings.
+
 ## Selector suitability bucket conflates capability and strength failures
 - Date added: 2026-03-06
 - Source: post-merge feedback review
@@ -284,6 +271,45 @@ Copy this block for new items:
 - Revisit signal: Requests for finer-grained selector telemetry/routing or broader selector error taxonomy redesign.
 - Suggested future action: Consider adding dedicated selector variants for capability vs strength failures (or an explicit sub-classification wrapper) while keeping backward compatibility strategy in mind.
 
+## jwt-simple conversion impls repeat the same shape per key type
+- Date added: 2026-10-25
+- Source: PR #104 review (standards axis)
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: `src/integrations/jwt_simple.rs` has four forward macros (RSA/EC × public/key-pair) that differ only in the operation set and the builder called, two hand-written Ed25519 impls that mirror the macro bodies, `ec_params`/`okp_params` of identical shape, and `private: bool` flag arguments on `ec_jwk`/`okp_jwk`. A single macro parameterised on `$ops` and `$builder`, or a trait over the jwt-simple key types, would halve the module; it would also make each impl harder to read on its own, and the per-type `# Errors` lists would have to be generated or shared. Not worth the churn while the surface is still settling.
+- Preconditions/Trigger: A fix applied to one macro (ordering of checks, a new error case) and missed in another.
+- Risk if not fixed: Drift between the conversion paths; the kind of inconsistency that `require_private_key` just fixed.
+- Revisit signal: The next change that touches more than two of the macros, or support for another key family (ML-DSA/AKP) that would add a fifth.
+- Suggested future action: Consolidate into one macro (or a small trait) when the next structural change lands; keep the `# Errors` docs per impl.
+
+## Publishing direction has no `examples/` entry
+- Date added: 2026-10-25
+- Source: PR #104 review (standards axis, CLAUDE.md §3 "integration test or example")
+- Validity: CONFIRMED
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: `Key: TryFrom<&jwt-simple key>` is covered by a compiled (not `no_run`) doctest in `src/lib.rs`, a README snippet, and the in-module `publish_and_consume_a_key_set` test that goes generate → `KeySet` → JSON → select → convert → verify. An `examples/` program would show the same lines again; `examples/jwt_verify.rs` is the natural home if one is wanted.
+- Preconditions/Trigger: A reader looks only at `examples/` to learn the publishing API.
+- Risk if not fixed: Discoverability only; behaviour is tested.
+- Revisit signal: A user question that the README and crate docs did not answer, or an `examples/` reorganisation.
+- Suggested future action: Add the publishing direction to `examples/jwt_verify.rs` (generate a key pair, publish the public key, verify against the published set).
+
+## jwt-simple's RSA `to_jwk()` leaves BigNum copies behind
+- Date added: 2026-10-25
+- Source: PR #104 review (security axis)
+- Validity: PLAUSIBLE
+- Trigger likelihood: COMMON
+- Severity: LOW -> LOW
+- Decision: DEFER
+- Rationale: Upstream. `Key: TryFrom<&RS*KeyPair>` parses jwt-simple's `to_jwk()`; with the `pure-rust` backend that export goes through `superboring`'s `BigNum` clones (`superboring/src/implementation.rs`, `to_vec` on `d`, `p`, `q`, `dp`, `dq`, `qi`), which are not zeroized. Everything this crate allocates on that path is `Zeroizing`, and the forward direction (`from_jwk`) borrows and wipes inside jwt-simple. Nothing to fix here without bypassing jwt-simple's export, which is the point of the integration.
+- Preconditions/Trigger: RSA key pair converted to `Key` on the `pure-rust` backend; an attacker who can read freed heap of the process.
+- Risk if not fixed: RSA private components may linger in freed memory after a publishing conversion. Same exposure as any jwt-simple RSA signing operation on that backend.
+- Revisit signal: An upstream fix in superboring/jwt-simple, or a request to document the integration's memory-hygiene boundary more prominently.
+- Suggested future action: Report upstream; if accepted, bump the minimum jwt-simple version and note it in the module docs.
+
 ## Ignored Findings
 
 (No active ignored findings.)
@@ -291,6 +317,16 @@ Copy this block for new items:
 ## Resolved Findings
 
 Previously deferred findings that a later change closed, kept for traceability.
+
+## Duplicate DER helper logic across modules
+- Date added: 2026-03-03
+- Resolved: 2026-10-24
+- Resolution: The `jwt-simple` integration no longer encodes DER at all. Conversions build a reduced JWK (`kty`, `crv`, key material, `kid`) and go through jwt-simple 0.15's `from_jwk` constructors, so the PKCS#1 encoders in `src/integrations/jwt_simple.rs` and the `pkcs1` dependency are gone. The only DER code left is the x5c SPKI matcher in `src/jwk.rs`; there is nothing to drift from.
+
+## EC jwt-simple key-pair conversion ignores x/y consistency with d
+- Date added: 2026-03-03
+- Resolved: 2026-10-24
+- Resolution: `ES256KeyPair`/`ES384KeyPair`/`ES256kKeyPair::from_jwk` derive the public point from `d` and require it to match `x`/`y`, so a mismatched key pair is now rejected with `JwtSimpleKeyConversionError::Import` (test `ec_key_pair_conversion_rejects_public_point_not_derived_from_d`). The same import path checks Ed25519 `d` against `x`. Core `EcParams::validate` is unchanged (see "EC parameter validation is structural only"); the consistency check lives in the backend, which is where the curve arithmetic is.
 
 ## Cloudflare remote fetch timeout is not explicitly configured
 - Date added: 2026-03-03
