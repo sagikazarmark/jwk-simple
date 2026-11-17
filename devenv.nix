@@ -25,29 +25,26 @@ let
     exec cargo "$@"
   '';
 
-  # wasm-bindgen-cli must match the `wasm-bindgen` crate in Cargo.lock exactly, or
-  # wasm-bindgen-test-runner refuses to run. nixpkgs keeps older releases under
-  # attributes like `wasm-bindgen-cli_0_2_129`. Same lookup as the dioxus and
-  # worker-build modules in devenv-extras; fails loudly when nixpkgs lacks the
-  # version, which is the signal to update nixpkgs (or pin wasm-bindgen).
-  wasmBindgenVersion =
-    let
-      lock = builtins.fromTOML (builtins.readFile ./Cargo.lock);
-      package = lib.findFirst (p: p.name == "wasm-bindgen") null lock.package;
-    in
-    if package == null then throw "wasm-bindgen is not in Cargo.lock" else package.version;
-
-  wasmBindgenCli =
-    let
-      attr = "wasm-bindgen-cli_${lib.replaceStrings [ "." ] [ "_" ] wasmBindgenVersion}";
-    in
-    if pkgs.wasm-bindgen-cli.version == wasmBindgenVersion then
-      pkgs.wasm-bindgen-cli
-    else
-      pkgs.${attr} or (throw ''
-        nixpkgs has no wasm-bindgen-cli ${wasmBindgenVersion} (neither `wasm-bindgen-cli` nor `${attr}`).
-        Update the nixpkgs input, or pin `wasm-bindgen` in Cargo.toml to a version it has.
-      '');
+  # worker-build is released with the `worker` crate, so it tracks `worker` in
+  # Cargo.lock. nixpkgs lags behind (0.8.7 at the time of writing) and its build
+  # fails anyway: zstd-sys needs libzstd, which the derivation does not provide.
+  # Drop this once nixpkgs has a working worker-build at the right version.
+  workerBuild = pkgs.worker-build.overrideAttrs (
+    finalAttrs: old: {
+      version = "0.9.0";
+      src = pkgs.fetchFromGitHub {
+        owner = "cloudflare";
+        repo = "workers-rs";
+        tag = "v${finalAttrs.version}";
+        hash = "sha256-+M3vrg99XrNb116RydlC2OEQYfFIPIGUOiaA65bCTiA=";
+      };
+      cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+        inherit (finalAttrs) pname version src;
+        hash = "sha256-EbRwSrxRys2EcDfB88apmH5Rm0NUWLKtmGPS77fAhpI=";
+      };
+      buildInputs = old.buildInputs or [ ] ++ [ pkgs.zstd ];
+    }
+  );
 
   # wasm-bindgen-test-runner finds geckodriver itself, but geckodriver looks for
   # Firefox in /Applications on macOS and on PATH on Linux. Point both at the Nix
@@ -63,6 +60,11 @@ in
 
   # Firefox and geckodriver for the headless browser tests (tests/web_crypto.rs).
   browsers.firefox.enable = true;
+
+  worker-build = {
+    enable = true;
+    package = workerBuild;
+  };
 
   env = {
     CC_wasm32_unknown_unknown = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
@@ -86,7 +88,12 @@ in
     cargo-watch
     cargo-expand
     wasm-pack
-    wasmBindgenCli
+
+    # wasm-bindgen-test-runner refuses to run unless wasm-bindgen-cli matches the
+    # `wasm-bindgen` crate exactly. The worker-build module resolves it from
+    # Cargo.lock (nixpkgs, including versioned attributes such as
+    # `wasm-bindgen-cli_0_2_129`) but only uses it for builds, so put it on PATH.
+    config.worker-build.wasm-bindgen.package
   ];
 
   languages.rust = {
