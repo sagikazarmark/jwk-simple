@@ -81,6 +81,7 @@ in
 
   packages = with pkgs; [
     just
+    jq
 
     cargo-audit
     cargo-hack

@@ -142,4 +142,4 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 sign-commit = true
 sign-tag = true
 tag-message = "Release {{version}}"
-tag-prefix = ""
+tag-name = "v{{version}}"
