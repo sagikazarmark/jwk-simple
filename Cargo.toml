@@ -39,7 +39,7 @@ web-sys = { version = "0.3", optional = true, features = [
     "Window",
     "WorkerGlobalScope",
 ] }
-worker = { version = "0.8", optional = true }
+worker = { version = "0.9", optional = true }
 zeroize = { version = "1.8", features = ["derive"] }
 x509-parser = "0.18"
 
@@ -110,7 +110,7 @@ bytes = "1"
 http = "1"
 http-body-util = "0.1"
 tower = { version = "0.5", default-features = false, features = ["util"] }
-tower-worker-fetch = "0.2"
+tower-worker-fetch = "0.3"
 
 [[example]]
 name = "http_fetch"
