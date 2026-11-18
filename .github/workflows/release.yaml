@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: Version bump from the latest vX.Y.Z tag (ignored when version is set)
+        description: Bump the latest release, or release the exact version below (version)
         type: choice
-        options: [none, patch, minor, major]
-        default: none
+        options: [version, patch, minor, major]
+        default: version
       version:
-        description: Exact version to release, vX.Y.Z (overrides bump)
+        description: Exact version to release, X.Y.Z (only with bump set to version)
         type: string
         required: false
 
@@ -25,38 +25,25 @@ defaults:
     shell: devenv shell -- bash -e {0}
 
 jobs:
-  version:
-    name: Version
+  # No write access: building runs the dependencies' build scripts and proc macros.
+  prepare:
+    name: Prepare
     runs-on: ubuntu-latest
 
     outputs:
-      version: ${{ steps.pick.outputs.version }}
-      tag: ${{ steps.pick.outputs.tag }}
-      make-latest: ${{ steps.pick.outputs.make-latest }}
-      previous: ${{ steps.pick.outputs.previous }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
 
     steps:
-      - name: Check branch
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "::error::Release from main, not $GITHUB_REF"
-            exit 1
-          fi
-
       - name: Pick the version
-        id: pick
-        uses: sagikazarmark/next-version@e291b39a83bf84c948c419871f910173bf8343dc # v0.2.0
+        id: version
+        uses: sagikazarmark/next-version@fc0401d3719a172991c36ec41f5e43419c30e90f # v0.3.0
         with:
           bump: ${{ inputs.bump }}
           version: ${{ inputs.version }}
+          allow-prerelease: true
 
-  package:
-    name: Package
-    needs: version
-    runs-on: ubuntu-latest
-
-    steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,24 +52,22 @@ jobs:
       - name: Set up devenv
         uses: sagikazarmark/setup-devenv@c36f9e57ca50ee1a6dad1a05a1a684e321f8096a # v0.3.0
 
-      # `cargo publish --dry-run`, not `cargo package`: it skips `publish = false` crates.
-      - name: Bump the version and package every crate
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          cargo release version "$VERSION" --execute --no-confirm
-          cargo publish --dry-run --workspace --locked --allow-dirty
+      - name: Bump the version
+        run: cargo release version --execute --no-confirm "${{ steps.version.outputs.version }}"
 
-  commit:
-    name: Commit
-    needs: [version, package]
+      - name: Dry run publish
+        run: cargo publish --dry-run --workspace --locked --allow-dirty
+
+  bump:
+    name: Bump
+    needs: prepare
     runs-on: ubuntu-latest
 
     permissions:
       contents: write
 
     outputs:
-      sha: ${{ steps.commit.outputs.sha }}
+      sha: ${{ steps.bump.outputs.sha }}
 
     steps:
       - name: Checkout repository
@@ -99,26 +84,25 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-      - name: Bump and commit the version
-        id: commit
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-          TAG: ${{ needs.version.outputs.tag }}
+      - name: Bump
+        id: bump
         run: |
-          cargo release version "$VERSION" --execute --no-confirm
+          cargo release version --execute --no-confirm "${{ needs.prepare.outputs.version }}"
 
           if ! git diff --quiet; then
-            git commit -am "chore: release $TAG"
-            git push origin HEAD:main
+            cargo release commit --execute --no-confirm
           fi
+
+          # Always runs: it is the default-branch check, and pushes nothing when there is nothing new.
+          cargo release push --no-tag --execute --no-confirm --allow-branch "${{ github.event.repository.default_branch }}"
 
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish to crates.io
-    needs: [version, commit]
+    needs: bump
     runs-on: ubuntu-latest
-    environment: release
+    environment: crates
 
     permissions:
       contents: read
@@ -128,7 +112,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.commit.outputs.sha }}
+          ref: ${{ needs.bump.outputs.sha }}
           persist-credentials: false
 
       - name: Set up devenv
@@ -138,22 +122,15 @@ jobs:
         id: auth
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
 
+      # Detached HEAD at the Bump commit (branch already checked), and Prepare already built the packages.
       - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          args=()
-
-          for crate in $(cargo metadata --no-deps --format-version 1 --locked | jq -r '.packages[] | select(.publish != []) | .name'); do
-            cargo info --registry crates-io "$crate@$VERSION" >/dev/null 2>&1 || args+=(-p "$crate")
-          done
-
-          [[ ${#args[@]} -eq 0 ]] || cargo publish --locked --no-verify "${args[@]}"
+        run: cargo release publish --workspace --no-verify --allow-branch HEAD --execute --no-confirm
 
   release:
     name: GitHub Release
-    needs: [version, commit, publish]
+    needs: [prepare, bump, publish]
     runs-on: ubuntu-latest
 
     permissions:
@@ -165,13 +142,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PREVIOUS: ${{ needs.version.outputs.previous }}
-          TAG: ${{ needs.version.outputs.tag }}
-          TARGET: ${{ needs.commit.outputs.sha }}
-          LATEST: ${{ needs.version.outputs.make-latest }}
-        run: |
-          gh release create "$TAG" \
-            --target "$TARGET" \
-            --generate-notes \
-            --latest="$LATEST" \
-            ${PREVIOUS:+--notes-start-tag "$PREVIOUS"}
+        run: gh release create "${{ needs.prepare.outputs.tag }}" --target "${{ needs.bump.outputs.sha }}" --generate-notes --prerelease="${{ needs.prepare.outputs.prerelease }}"
