@@ -30,7 +30,7 @@ default:
     @just --list --unsorted
 
 # Run all CI jobs.
-ci: audit fmt build check clippy test doc examples
+ci: audit fmt build check clippy test package doc examples
 
 # Audit dependencies for advisories.
 audit:
@@ -87,6 +87,12 @@ test-native:
 test-wasm:
     cargo hack test --target {{wasm_target}} --each-feature --exclude-features {{wasm_skip}} --features {{hack_features}} --locked
     cargo test --target {{wasm_target}} --features {{wasm}} --locked
+
+# `cargo publish` without uploading, as the Release workflow packages: catches files missing from
+# the package and dev-dependencies that `cargo publish` strips.
+[doc("Build the crate from its packaged sources.")]
+package:
+    cargo publish --dry-run --workspace --locked
 
 # Run rustdoc and reproduce the docs.rs build on every target.
 doc: doc-native doc-wasm

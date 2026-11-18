@@ -139,7 +139,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [package.metadata.release]
-sign-commit = true
+# The Release workflow commits the version bump, without a signing key.
+# sign-commit = true
 sign-tag = true
+allow-branch = ["main"]
+pre-release-commit-message = "chore: release v{{version}}"
 tag-message = "Release {{version}}"
-tag-prefix = ""
+tag-name = "v{{version}}"
